@@ -19,7 +19,7 @@ add_definitions(-DBSDTHREAD_WRAP_LINUX_PTHREAD
 # include src/startup for rtsig.h
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_BINARY_DIR}/src/startup
-	${CMAKE_BINARY_DIR}/src/kernel/libsyscall
+	${CMAKE_BINARY_DIR}/src/external/xnu/darling/src/libsystem_kernel/libsyscall
 	${CMAKE_CURRENT_BINARY_DIR}
 	${CMAKE_BINARY_DIR}/src/external/darlingserver/include
 	${CMAKE_SOURCE_DIR}/src/external/darlingserver/include
@@ -319,7 +319,7 @@ set_source_files_properties(${CMAKE_BINARY_DIR}/src/external/darlingserver/src/r
 )
 
 include_directories(
-	../../../libsimple/include
+	${CMAKE_SOURCE_DIR}/src/libsimple/include
 )
 
 add_darling_object_library(emulation ${emulation_sources})

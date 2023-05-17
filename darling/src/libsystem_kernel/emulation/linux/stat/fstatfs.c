@@ -3,13 +3,13 @@
 #include "../base.h"
 #include "../errno.h"
 #include "../simple.h"
-#include "../../../../external/libc/include/fcntl.h"
 #include "../fcntl/open.h"
 #include "../unistd/close.h"
 #include "../unistd/readlink.h"
 #include "../fdpath.h"
 #include <linux-syscalls/linux.h>
 #include <stddef.h>
+#include <sys/fcntl.h>
 
 extern char *strtok_r(char *str, const char *delim, char **saveptr);
 extern __SIZE_TYPE__ strlcpy(char* dst, const char* src, __SIZE_TYPE__ size);

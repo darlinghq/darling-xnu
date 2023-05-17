@@ -5,7 +5,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99")
 add_definitions(-nostdinc)
 
 include_directories(
-	${CMAKE_SOURCE_DIR}/src/kernel/emulation/linux/ext
+	${CMAKE_SOURCE_DIR}/src/external/xnu/darling/src/libsystem_kernel/emulation/linux/ext
 	${CMAKE_SOURCE_DIR}/src/startup
 	${CMAKE_BINARY_DIR}/src/startup
 	${CMAKE_BINARY_DIR}/src/external/darlingserver/include

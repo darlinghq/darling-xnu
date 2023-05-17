@@ -18,7 +18,7 @@ add_definitions(-DPRIVATE=1 -D__DARWIN_C_LEVEL=20150101)
 add_definitions('-D__XNU_PRIVATE_EXTERN=')
 add_definitions(-DIOKIT_ALL_IPC=1 -DIOKIT=1)
 
-include_directories(${CMAKE_SOURCE_DIR}/src/external/darlingserver/duct-tape/xnu/osfmk)
+include_directories(../osfmk)
 
 include_directories(
 	"${CMAKE_BINARY_DIR}/src/external/darlingserver/include"
@@ -73,7 +73,7 @@ list(APPEND syscall_mig_headers "${CMAKE_CURRENT_BINARY_DIR}/mach/servers/netnam
 
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/${DARLING_SDK_RELATIVE_PATH}/usr/include/servers")
 create_symlink(
-	"${DARLING_ROOT_RELATIVE_TO_SDK}/../../../src/kernel/libsyscall/mach/servers/netname.h"
+	"${DARLING_ROOT_RELATIVE_TO_SDK}/../../../src/external/xnu/darling/src/libsystem_kernel/libsyscall/mach/servers/netname.h"
 	"${CMAKE_BINARY_DIR}/${DARLING_SDK_RELATIVE_PATH}/usr/include/servers/netname.h"
 )
 
@@ -95,7 +95,7 @@ foreach(MIG_FILENAME IN LISTS LIBSYSCALL_MIGS)
 
 	file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/${DARLING_SDK_RELATIVE_PATH}/usr/include/${MIG_HEADER_DIR}")
 	create_symlink(
-		"${DARLING_ROOT_RELATIVE_TO_SDK}/../../../src/kernel/libsyscall/${MIG_FILENAME}.h"
+		"${DARLING_ROOT_RELATIVE_TO_SDK}/../../../src/external/xnu/darling/src/libsystem_kernel/libsyscall/${MIG_FILENAME}.h"
 		"${CMAKE_BINARY_DIR}/${DARLING_SDK_RELATIVE_PATH}/usr/include/${MIG_FILENAME}.h"
 	)
 endforeach()
@@ -118,7 +118,7 @@ foreach(MIG_FILENAME IN LISTS LIBSYSCALL_MIGS_INTERNAL)
 
 	file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/${DARLING_SDK_RELATIVE_PATH}/usr/include/${MIG_HEADER_DIR}")
 	create_symlink(
-		"${DARLING_ROOT_RELATIVE_TO_SDK}/../../../src/kernel/libsyscall/${MIG_FILENAME}_internal.h"
+		"${DARLING_ROOT_RELATIVE_TO_SDK}/../../../src/external/xnu/darling/src/libsystem_kernel/libsyscall/${MIG_FILENAME}_internal.h"
 		"${CMAKE_BINARY_DIR}/${DARLING_SDK_RELATIVE_PATH}/usr/include/${MIG_FILENAME}_internal.h"
 	)
 endforeach()

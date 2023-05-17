@@ -19,7 +19,7 @@
 #include <pthread/priority_private.h>
 
 // much easier to include than libpthread's `internal.h`
-#include "../../../../startup/mldr/elfcalls/dthreads.h"
+#include "../../../../../../../../startup/mldr/elfcalls/dthreads.h"
 
 #include <darlingserver/rpc.h>
 #include "../guarded/table.h"

@@ -3,13 +3,13 @@
 #include "../base.h"
 #include "../errno.h"
 #include "../simple.h"
-#include "../../../../external/libc/include/fcntl.h"
 #include "../fcntl/open.h"
 #include "../unistd/close.h"
 #include "../vchroot_expand.h"
 #include "../bsdthread/per_thread_wd.h"
 #include <linux-syscalls/linux.h>
 #include <stddef.h>
+#include <sys/fcntl.h>
 
 #undef strlcpy
 
