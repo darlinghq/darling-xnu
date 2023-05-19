@@ -42,7 +42,9 @@ typedef void *xpc_object_t;
 
 __BEGIN_DECLS
 
+#ifndef DARLING
 extern void *__dso_handle;
+#endif
 
 OS_ALWAYS_INLINE
 static inline void
