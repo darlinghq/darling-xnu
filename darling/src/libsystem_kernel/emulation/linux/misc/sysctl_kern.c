@@ -41,6 +41,7 @@ static sysctl_handler(handle_usrstack32);
 static sysctl_handler(handle_usrstack64);
 static sysctl_handler(handle_sysv_semmns);
 static sysctl_handler(handle_osproductversion);
+static sysctl_handler(handle_osrevision);
 
 extern int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* buflen);
 extern int _sysctl_procargs(int pid, char* buf, unsigned long* buflen);
@@ -70,6 +71,7 @@ const struct known_sysctl sysctls_kern[] = {
 	{ .oid = KERN_USRSTACK32, .type = CTLTYPE_INT, .exttype = "I", .name = "usrstack", .handler = handle_usrstack32 },
 	{ .oid = KERN_USRSTACK64, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "usrstack64", .handler = handle_usrstack64 },
 	{ .oid = _KERN_OSPRODUCTVERSION, .type = CTLTYPE_STRING, .exttype = "S", .name = "osproductversion", .handler = handle_osproductversion },
+	{ .oid = KERN_OSREV, .type = CTLTYPE_INT, .exttype = "I", .name = "osrevision", .handler = handle_osrevision },
 	{ .oid = KERN_SYSV, .type = CTLTYPE_NODE, .exttype = "", .name = "sysv", .subctls = sysctls_kern_sysv },
 	{ .oid = -1 }
 };
@@ -324,3 +326,15 @@ static sysctl_handler(handle_osproductversion) {
 	copyout_string(EMULATED_OSPRODUCTVERSION, (char*)old, oldlen);
 	return 0;
 };
+
+// Apple no longer changes this value
+// https://lists.apple.com/archives/darwin-dev/2005/Jul/msg00029.html
+#define EMULATED_OSREVISION 199506
+
+static sysctl_handler(handle_osrevision) {
+	int* ovalue = (int*)old;
+	if (ovalue)
+		*ovalue = EMULATED_OSREVISION;
+	*oldlen = sizeof(*ovalue);
+	return 0;
+}
