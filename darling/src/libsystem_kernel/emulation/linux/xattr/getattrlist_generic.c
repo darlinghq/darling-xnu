@@ -6,6 +6,7 @@
 #include "../dirent/getdirentries.h"
 #include "../unistd/dup.h"
 #include "../fcntl/open.h"
+#include "../unistd/close.h"
 #include <linux-syscalls/linux.h>
 #include <stddef.h>
 
