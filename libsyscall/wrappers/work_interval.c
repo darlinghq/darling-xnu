@@ -274,6 +274,8 @@ work_interval_copy_port(work_interval_t interval_handle, mach_port_t *port)
 }
 
 #ifdef DARLING
+#include <stdio.h>
+
 work_interval_instance_t work_interval_instance_alloc(work_interval_t wi) {
     puts("STUB: work_interval_instance_alloc called");
     return (work_interval_instance_t)0;

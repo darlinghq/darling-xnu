@@ -30,6 +30,7 @@
 // Temporary workaround until I can figure out where 
 // task_internal.h comes from.
 #include <mach/task.h>
+kern_return_t _kernelrpc_mach_task_is_self(task_name_t task, boolean_t *is_self);
 #else
 #undef _task_user_
 #include <mach/task_internal.h>

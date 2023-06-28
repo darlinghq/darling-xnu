@@ -3,6 +3,8 @@
 #include "../base.h"
 #include <linux-syscalls/linux.h>
 
+extern long cerror(int __err);
+
 int __linux_sysinfo(struct sysinfo* info)
 {
 	int rv;
