@@ -50,6 +50,9 @@ long sys_bsdthread_register(void* thread_start, void* wqthread, int pthsize,
 		| PTHREAD_FEATURE_DISPATCHFUNC | PTHREAD_FEATURE_QOS_DEFAULT */ 0;
 }
 
+// Before you make any changes to the assembly code, I strongly recommend looking at the `_thread_start`
+// code. `_thread_start` does not follow the usual calling conventions you would expect. You can find the
+// source in `libpthread/src/pthread_asm.S`.
 void pthread_entry_point_wrapper(void* self, int thread_port, void* funptr,
 		void* funarg, unsigned long stack_addr, unsigned int flags)
 {
@@ -61,12 +64,112 @@ void pthread_entry_point_wrapper(void* self, int thread_port, void* funptr,
 		__simple_abort();
 	}
 
-	pthread_entry_point(self, thread_port, funptr, funarg, stack_addr, flags);
+	// No additional function calls should occur beyond this point. Otherwise, we will risk our
+	// registers being call-clobbered. I recommend reading the following doc for more details:
+	// https://gcc.gnu.org/onlinedocs/gcc/Local-Register-Variables.html
+#if __x86_64__
+	register void*         arg1 asm("rdi") = self;
+	register int           arg2 asm("esi") = thread_port;
+	register void*         arg3 asm("rdx") = funptr;
+	register void*         arg4 asm("rcx") = funarg;
+	register unsigned long arg5 asm("r8")  = stack_addr;
+	register unsigned int  arg6 asm("r9d") = flags;
+#elif __i386__
+	register void*         arg1 asm("eax") = self;
+	register int           arg2 asm("ebx") = thread_port;
+	register void*         arg3 asm("ecx") = funptr;
+	register void*         arg4 asm("edx") = funarg;
+	register unsigned long arg5 asm("edi") = stack_addr;
+	register unsigned int  arg6 asm("esi") = flags;
+#endif
+
+#if __x86_64__
+	__asm__ __volatile__ (
+		// `_thread_start` does not expect the stack to be aligned (using the 
+		// call instruction will add the return address to the stack, causing 
+		// it to be aligned).
+		"jmpq *%[pthread_entry_point]\n"
+		::
+		// Arguments follow the usual x86_64 calling conventions.
+		"r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
+		[pthread_entry_point] "r"(pthread_entry_point)
+	);
+#elif __i386__
+	__asm__ __volatile__ (
+		// `_thread_start` does not expect the stack to be aligned.
+		"jmpl *%[pthread_entry_point]\n"
+		::
+		// `_thread_start` does not follow the i386 calling conventions
+		// for arguments. Instead of storing the arguments into the stack, 
+		// the arguments are stored in the registers.
+		"r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
+		[pthread_entry_point] "rmi"(pthread_entry_point)
+	);
+#else
+	#error "Missing assembly for architecture"
+	// pthread_entry_point(self, thread_port, funptr, funarg, stack_addr, flags);
+#endif
+
+	// `_thread_start` actually does actually return, but since we are jumping to 
+	// (instead of calling) `_thread_start`, `_thread_start` will return to the 
+	// method that called this method.
+	__builtin_unreachable();
 }
 
+// Before you make any changes to the assembly code, I strongly recommend looking at the `_start_wqthread`
+// code. `_start_wqthread` does not follow the usual calling conventions you would expect. You can find the
+// source in `libpthread/src/pthread_asm.S`.
 void wqueue_entry_point_wrapper(void* self, int thread_port, void* stackaddr,
 		void* item, int reuse, int nevents)
 {
 	sigexc_thread_setup();
-	wqueue_entry_point(self, thread_port, stackaddr, item, reuse, nevents);
+
+	// No additional function calls should occur beyond this point. Otherwise, we will risk our
+	// registers being call-clobbered. I recommend reading the following doc for more details:
+	// https://gcc.gnu.org/onlinedocs/gcc/Local-Register-Variables.html
+#if __x86_64__
+	register void* arg1 asm("rdi") = self;
+	register int   arg2 asm("esi") = thread_port;
+	register void* arg3 asm("rdx") = stackaddr;
+	register void* arg4 asm("rcx") = item;
+	register int   arg5 asm("r8d") = reuse;
+	register int   arg6 asm("r9d") = nevents;
+#elif __i386__
+	register void* arg1 asm("eax") = self;
+	register int   arg2 asm("ebx") = thread_port;
+	register void* arg3 asm("ecx") = stackaddr;
+	register void* arg4 asm("edx") = item;
+	register int   arg5 asm("edi") = reuse;
+	register int   arg6 asm("esi") = nevents;
+#endif
+
+#if __x86_64__
+	__asm__ __volatile__ (
+		// `_start_wqthread` does not expect the stack to be aligned (using the 
+		// call instruction will add the return address to the stack, causing 
+		// it to be aligned).
+		"jmpq *%[wqueue_entry_point]\n"
+		::
+		// Arguments follow the usual x86_64 calling conventions.
+		"r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
+		[wqueue_entry_point] "r"(wqueue_entry_point)
+	);
+#elif __i386__
+	__asm__ __volatile__ (
+		// `_start_wqthread` does not expect the stack to be aligned.
+		"jmpl *%[wqueue_entry_point]\n"
+		::
+		// `_start_wqthread` does not follow the i386 calling conventions
+		// for arguments. Instead of storing the arguments into the stack, 
+		// the arguments are stored in the registers.
+		"r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
+		[wqueue_entry_point] "rmi"(wqueue_entry_point)
+	);
+#else
+	#error "Missing assembly for architecture"
+	// wqueue_entry_point(self, thread_port, stackaddr, item, reuse, nevents);
+#endif
+
+	// _start_wqthread never returns
+	__builtin_unreachable();
 }
