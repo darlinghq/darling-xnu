@@ -61,12 +61,103 @@ void pthread_entry_point_wrapper(void* self, int thread_port, void* funptr,
 		__simple_abort();
 	}
 
-	pthread_entry_point(self, thread_port, funptr, funarg, stack_addr, flags);
+#if __x86_64__
+	register void*         arg1 asm("rdi") = self;
+	register int           arg2 asm("esi") = thread_port;
+	register void*         arg3 asm("rdx") = funptr;
+	register void*         arg4 asm("rcx") = funarg;
+	register unsigned long arg5 asm("r8")  = stack_addr;
+	register unsigned int  arg6 asm("r9d") = flags;
+#elif __i386__
+	// Due to the limited amount of registers in i386, we
+	// will need to store the results in a temporary struct.
+	typedef struct {
+		void* self; int thread_port; void* funptr; void* funarg;
+		unsigned long stack_addr; unsigned int flags;
+	} i386_pthread_entry_point_container;
+	i386_pthread_entry_point_container i386_container = {
+		.self = self, .thread_port = thread_port, .funptr = funptr,
+		.funarg = funarg, .stack_addr = stack_addr, .flags = flags,
+	};
+#endif
+
+// `libpthread/src/pthread_asm.S` does not expect `_thread_start` to
+// be called the normal way (where the return address is added).
+#if __x86_64__
+	__asm__ __volatile__ (
+		"jmpq *%[pthread_entry_point]\n"
+		::
+		"r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
+		[pthread_entry_point] "r"(pthread_entry_point)
+	);
+#elif __i386__
+	__asm__ __volatile__ (
+		"pushl 20(%[container])\n"	// 6th Arguments | flags
+		"pushl 16(%[container])\n"	// 5th Arguments | stack_addr
+		"pushl 12(%[container])\n"	// 4th Arguments | funarg
+		"pushl  8(%[container])\n"	// 3rd Arguments | funptr
+		"pushl  4(%[container])\n"	// 2nd Arguments | thread_port
+		"pushl  0(%[container])\n"	// 1st Arguments | self
+		"jmpl *%[pthread_entry_point]\n"
+		::
+		[container] "r"(&i386_container),
+		[pthread_entry_point] "r"(pthread_entry_point)
+	);
+#else
+#error "Missing assembly for architecture"
+// pthread_entry_point(self, thread_port, funptr, funarg, stack_addr, flags);
+#endif
 }
 
 void wqueue_entry_point_wrapper(void* self, int thread_port, void* stackaddr,
 		void* item, int reuse, int nevents)
 {
 	sigexc_thread_setup();
-	wqueue_entry_point(self, thread_port, stackaddr, item, reuse, nevents);
+
+#if __x86_64__
+	register void* arg1 asm("rdi") = self;
+	register int   arg2 asm("esi") = thread_port;
+	register void* arg3 asm("rdx") = stackaddr;
+	register void* arg4 asm("rcx") = item;
+	register int   arg5 asm("r8d") = reuse;
+	register int   arg6 asm("r9d") = nevents;
+#elif __i386__
+	// Due to the limited amount of registers in i386, we
+	// will need to store the results in a temporary struct.
+	typedef struct {
+		void* self; int thread_port; void* stackaddr;
+		void* item; int reuse; int nevents;
+	} i386_wqueue_entry_point_container;
+	i386_wqueue_entry_point_container i386_container = {
+		.self = self, .thread_port = thread_port, .stackaddr = stackaddr,
+		.item = item, .reuse = reuse, .nevents = nevents,
+	};
+#endif
+
+// `libpthread/src/pthread_asm.S` does not expect `_start_wqthread` to
+// be called the normal way (where the return address is added).
+#if __x86_64__
+	__asm__ __volatile__ (
+		"jmpq *%[wqueue_entry_point]\n"
+		::
+		"r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
+		[wqueue_entry_point] "r"(wqueue_entry_point)
+	);
+#elif __i386__
+	__asm__ __volatile__ (
+		"pushl 20(%[container])\n"	// 6th Arguments | nevents
+		"pushl 16(%[container])\n"	// 5th Arguments | reuse
+		"pushl 12(%[container])\n"	// 4th Arguments | item
+		"pushl  8(%[container])\n"	// 3rd Arguments | stackaddr
+		"pushl  4(%[container])\n"	// 2nd Arguments | thread_port
+		"pushl  0(%[container])\n"	// 1st Arguments | self
+		"jmpl *%[wqueue_entry_point]\n"
+		::
+		[container] "r"(&i386_container),
+		[wqueue_entry_point] "r"(wqueue_entry_point)
+	);
+#else
+#error "Missing assembly for architecture"
+// wqueue_entry_point(self, thread_port, stackaddr, item, reuse, nevents);
+#endif
 }
