@@ -69,16 +69,7 @@ void pthread_entry_point_wrapper(void* self, int thread_port, void* funptr,
 	register unsigned long arg5 asm("r8")  = stack_addr;
 	register unsigned int  arg6 asm("r9d") = flags;
 #elif __i386__
-	// Due to the limited amount of registers in i386, we
-	// will need to store the results in a temporary struct.
-	typedef struct {
-		void* self; int thread_port; void* funptr; void* funarg;
-		unsigned long stack_addr; unsigned int flags;
-	} i386_pthread_entry_point_container;
-	i386_pthread_entry_point_container i386_container = {
-		.self = self, .thread_port = thread_port, .funptr = funptr,
-		.funarg = funarg, .stack_addr = stack_addr, .flags = flags,
-	};
+	// All arguments are stored into the stack
 #endif
 
 // `libpthread/src/pthread_asm.S` does not expect `_thread_start` to
@@ -92,20 +83,30 @@ void pthread_entry_point_wrapper(void* self, int thread_port, void* funptr,
 	);
 #elif __i386__
 	__asm__ __volatile__ (
-		"pushl 20(%[container])\n"	// 6th Arguments | flags
-		"pushl 16(%[container])\n"	// 5th Arguments | stack_addr
-		"pushl 12(%[container])\n"	// 4th Arguments | funarg
-		"pushl  8(%[container])\n"	// 3rd Arguments | funptr
-		"pushl  4(%[container])\n"	// 2nd Arguments | thread_port
-		"pushl  0(%[container])\n"	// 1st Arguments | self
-		"jmpl *%[pthread_entry_point]\n"
-		::
-		[container] "r"(&i386_container),
+		// Make sure stack is 16 aligned
+		"sub $8, %%esp\n"
+		// Function arguments
+		"pushl %[arg6]\n"
+		"pushl %[arg5]\n"
+		"pushl %[arg4]\n"
+		"pushl %[arg3]\n"
+		"pushl %[arg2]\n"
+		"pushl %[arg1]\n"
+		// Jump to _thread_start
+		"jmpl *%[pthread_entry_point]\n" ::
+		
+		[arg1] "m"(self),
+		[arg2] "m"(thread_port),
+		[arg3] "m"(funptr),
+		[arg4] "m"(funarg),
+		[arg5] "m"(stack_addr),
+		[arg6] "m"(flags),
+		
 		[pthread_entry_point] "r"(pthread_entry_point)
 	);
 #else
-#error "Missing assembly for architecture"
-// pthread_entry_point(self, thread_port, funptr, funarg, stack_addr, flags);
+	#error "Missing assembly for architecture"
+	// pthread_entry_point(self, thread_port, funptr, funarg, stack_addr, flags);
 #endif
 }
 
@@ -122,16 +123,7 @@ void wqueue_entry_point_wrapper(void* self, int thread_port, void* stackaddr,
 	register int   arg5 asm("r8d") = reuse;
 	register int   arg6 asm("r9d") = nevents;
 #elif __i386__
-	// Due to the limited amount of registers in i386, we
-	// will need to store the results in a temporary struct.
-	typedef struct {
-		void* self; int thread_port; void* stackaddr;
-		void* item; int reuse; int nevents;
-	} i386_wqueue_entry_point_container;
-	i386_wqueue_entry_point_container i386_container = {
-		.self = self, .thread_port = thread_port, .stackaddr = stackaddr,
-		.item = item, .reuse = reuse, .nevents = nevents,
-	};
+	// All arguments are stored into the stack
 #endif
 
 // `libpthread/src/pthread_asm.S` does not expect `_start_wqthread` to
@@ -145,19 +137,32 @@ void wqueue_entry_point_wrapper(void* self, int thread_port, void* stackaddr,
 	);
 #elif __i386__
 	__asm__ __volatile__ (
-		"pushl 20(%[container])\n"	// 6th Arguments | nevents
-		"pushl 16(%[container])\n"	// 5th Arguments | reuse
-		"pushl 12(%[container])\n"	// 4th Arguments | item
-		"pushl  8(%[container])\n"	// 3rd Arguments | stackaddr
-		"pushl  4(%[container])\n"	// 2nd Arguments | thread_port
-		"pushl  0(%[container])\n"	// 1st Arguments | self
-		"jmpl *%[wqueue_entry_point]\n"
-		::
-		[container] "r"(&i386_container),
+		// Make sure stack is 16 aligned
+		"sub $8, %%esp\n"
+		// Function arguments
+		"pushl %[arg6]\n"
+		"pushl %[arg5]\n"
+		"pushl %[arg4]\n"
+		"pushl %[arg3]\n"
+		"pushl %[arg2]\n"
+		"pushl %[arg1]\n"
+		// Jump to _start_wqthread
+		"jmpl *%[wqueue_entry_point]\n" ::
+		
+		[arg1] "m"(self),
+		[arg2] "m"(thread_port),
+		[arg3] "m"(stackaddr),
+		[arg4] "m"(item),
+		[arg5] "m"(reuse),
+		[arg6] "m"(nevents),
+		
 		[wqueue_entry_point] "r"(wqueue_entry_point)
 	);
 #else
-#error "Missing assembly for architecture"
-// wqueue_entry_point(self, thread_port, stackaddr, item, reuse, nevents);
+	#error "Missing assembly for architecture"
+	// wqueue_entry_point(self, thread_port, stackaddr, item, reuse, nevents);
 #endif
+
+	// _start_wqthread never returns
+	__builtin_unreachable();
 }
