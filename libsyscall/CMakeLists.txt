@@ -18,7 +18,11 @@ add_definitions(-DPRIVATE=1 -D__DARWIN_C_LEVEL=20150101)
 add_definitions('-D__XNU_PRIVATE_EXTERN=')
 add_definitions(-DIOKIT_ALL_IPC=1 -DIOKIT=1)
 
-include_directories(../osfmk)
+# because this directory is symlinked and added as a subdirectory under `darling/src/libsystem_kernel`,
+# cmake and its generators sometimes get confused with include paths when using `..`.
+# let's just resolve the actual directory and use that instead.
+file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" CURRENT_SOURCE_DIR_NO_SYMLINKS)
+include_directories("${CURRENT_SOURCE_DIR_NO_SYMLINKS}/../osfmk")
 
 include_directories(
 	"${CMAKE_BINARY_DIR}/src/external/darlingserver/include"
