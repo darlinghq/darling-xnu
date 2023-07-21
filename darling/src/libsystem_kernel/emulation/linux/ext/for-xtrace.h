@@ -5,6 +5,10 @@
 #include <darling/emulation/mman/duct_mman.h>
 #include <darling/emulation/signal/sigaltstack.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 VISIBLE
 void* _mmap_for_xtrace(void* start, unsigned long len, int prot, int flags, int fd, long pos);
 
@@ -29,5 +33,9 @@ long _sigaltstack_set_default_size_for_xtrace(size_t new_size);
 // used to bypass the sigaltstack size requirements imposed by libc
 VISIBLE
 long _sigaltstack_for_xtrace(const struct bsd_stack* ss, struct bsd_stack* oss);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // _DARLING_EMULATION_FOR_XTRACE_H_
