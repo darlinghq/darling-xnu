@@ -24,6 +24,11 @@ static inline int abs(int n)
 	return (n < 0) ? -n : n;
 }
 
+#define IF_NOT_NULL(VALUE,DO) \
+if (VALUE != NULL) { \
+	DO; \
+}
+
 __attribute__ ((visibility ("default")))
 int __simple_vsnprintf(char* buf, size_t max_length, const char* format, va_list vl)
 {
@@ -90,7 +95,7 @@ int __simple_vsnprintf(char* buf, size_t max_length, const char* format, va_list
 			{
 				case '%':
 					if (offset < max_length)
-						buf[offset] = '%';
+						IF_NOT_NULL(buf,buf[offset] = '%');
 					offset++;
 					break;
 				case 's':
@@ -102,7 +107,7 @@ int __simple_vsnprintf(char* buf, size_t max_length, const char* format, va_list
 					while (*str)
 					{
 						if (offset < max_length)
-							buf[offset] = *str;
+							IF_NOT_NULL(buf,buf[offset] = *str);
 						offset++;
 						str++;
 					}
@@ -140,7 +145,7 @@ int __simple_vsnprintf(char* buf, size_t max_length, const char* format, va_list
 					if (num < 0)
 					{
 						if (offset < max_length)
-							buf[offset] = '-';
+							IF_NOT_NULL(buf,buf[offset] = '-');
 						offset++;
 						num = -num;
 					}
@@ -155,7 +160,7 @@ int __simple_vsnprintf(char* buf, size_t max_length, const char* format, va_list
 					while (count--)
 					{
 						if (offset < max_length)
-							buf[offset] = temp[count];
+							IF_NOT_NULL(buf,buf[offset] = temp[count]);
 						offset++;
 					}
 
@@ -200,7 +205,7 @@ int __simple_vsnprintf(char* buf, size_t max_length, const char* format, va_list
 					while (count--)
 					{
 						if (offset < max_length)
-							buf[offset] = temp[count];
+							IF_NOT_NULL(buf,buf[offset] = temp[count]);
 						offset++;
 					}
 
@@ -243,10 +248,10 @@ int __simple_vsnprintf(char* buf, size_t max_length, const char* format, va_list
 					if (*format == 'p')
 					{
 						if (offset < max_length)
-							buf[offset] = '0';
+							IF_NOT_NULL(buf,buf[offset] = '0');
 						offset++;
 						if (offset < max_length)
-							buf[offset] = 'x';
+							IF_NOT_NULL(buf,buf[offset] = 'x');
 						offset++;
 					}
 
@@ -265,7 +270,7 @@ int __simple_vsnprintf(char* buf, size_t max_length, const char* format, va_list
 					while (count--)
 					{
 						if (offset < max_length)
-							buf[offset] = temp[count];
+							IF_NOT_NULL(buf,buf[offset] = temp[count]);
 						offset++;
 					}
 
@@ -312,7 +317,7 @@ int __simple_vsnprintf(char* buf, size_t max_length, const char* format, va_list
 					while (count--)
 					{
 						if (offset < max_length)
-							buf[offset] = temp[count];
+							IF_NOT_NULL(buf,buf[offset] = temp[count]);
 						offset++;
 					}
 
@@ -323,7 +328,7 @@ int __simple_vsnprintf(char* buf, size_t max_length, const char* format, va_list
 				{
 					int num = va_arg(vl, int);
 					if (offset < max_length)
-						buf[offset] = (char)num;
+						IF_NOT_NULL(buf,buf[offset] = (char)num);
 					offset++;
 					break;
 				}
@@ -334,7 +339,7 @@ int __simple_vsnprintf(char* buf, size_t max_length, const char* format, va_list
 		else
 		{
 			if (offset < max_length)
-				buf[offset] = *format;
+				IF_NOT_NULL(buf,buf[offset] = *format);
 			offset++;
 			format++;
 		}
@@ -342,11 +347,11 @@ int __simple_vsnprintf(char* buf, size_t max_length, const char* format, va_list
 
 	if (offset < max_length)
 	{
-		buf[offset] = '\0';
+		IF_NOT_NULL(buf,buf[offset] = '\0');
 	}
 	else
 	{
-		buf[max_length - 1] = '\0';
+		IF_NOT_NULL(buf,buf[max_length - 1] = '\0');
 	}
 
 	return offset;
