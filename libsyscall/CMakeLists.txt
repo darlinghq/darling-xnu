@@ -21,7 +21,7 @@ add_definitions(-DIOKIT_ALL_IPC=1 -DIOKIT=1)
 # because this directory is symlinked and added as a subdirectory under `darling/src/libsystem_kernel`,
 # cmake and its generators sometimes get confused with include paths when using `..`.
 # let's just resolve the actual directory and use that instead.
-file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" CURRENT_SOURCE_DIR_NO_SYMLINKS)
+execute_process(COMMAND "realpath" "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE CURRENT_SOURCE_DIR_NO_SYMLINKS OUTPUT_STRIP_TRAILING_WHITESPACE)
 include_directories("${CURRENT_SOURCE_DIR_NO_SYMLINKS}/../osfmk")
 
 include_directories(
