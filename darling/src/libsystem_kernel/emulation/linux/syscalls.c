@@ -214,8 +214,10 @@
 #include "sysv_sem/semctl.h"
 #include "sysv_sem/semget.h"
 #include "sysv_sem/semop.h"
-#include "mach/audit_session_self.h"
+#include "audit/audit_session_self.h"
 #include "audit/audit_addr.h"
+#include "audit/audit_session_join.h"
+#include "audit/audit_session_port.h"
 
 void* __bsd_syscall_table[600] = {
 	[0] = sys_syscall,
@@ -455,8 +457,10 @@ void* __bsd_syscall_table[600] = {
 	[423] = sys_semwait_signal_nocancel,
 	[427] = sys_fsgetpath,
 	[428] = sys_audit_session_self,
+	[429] = sys_audit_session_join,
 	[430] = sys_fileport_makeport,
 	[431] = sys_fileport_makefd,
+	[432] = sys_audit_session_port,
 	[441] = sys_guarded_open_np,
 	[442] = sys_guarded_close_np,
 	[443] = sys_guarded_kqueue_np,

@@ -13,7 +13,7 @@ static auditinfo_addr_t info = {
 	.ai_mask = {0},
 	.ai_termid = { .at_type = AU_IPv4 },
 	.ai_asid = AU_DEFAUDITSID,
-	.ai_mask = 0,
+	.ai_flags = 0,
 };
 // should be a rw lock but *shrug*
 static os_unfair_lock info_lock = OS_UNFAIR_LOCK_INIT;
