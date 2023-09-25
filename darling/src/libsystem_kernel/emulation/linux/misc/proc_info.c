@@ -549,7 +549,7 @@ static long _proc_pidinfo_regionpath(int32_t pid, uint64_t arg, void* buffer, in
 	close_internal(fd);
 
 	memcpy(buffer, &my_rp, sizeof(my_rp));
-	return found ? 0 : -EINVAL;
+	return found ? strlen(my_rp.prpo_path) : -EINVAL;
 };
 
 // Parses line such as:
