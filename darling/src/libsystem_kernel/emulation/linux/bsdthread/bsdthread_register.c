@@ -116,14 +116,19 @@ void pthread_entry_point_wrapper(void* self, int thread_port, void* funptr,
 	__builtin_unreachable();
 }
 
-// Before you make any changes to the assembly code, I strongly recommend looking at the `_start_wqthread`
-// code. `_start_wqthread` does not follow the usual calling conventions you would expect. You can find the
-// source in `libpthread/src/pthread_asm.S`.
 void wqueue_entry_point_wrapper(void* self, int thread_port, void* stackaddr,
 		void* item, int reuse, int nevents)
 {
 	sigexc_thread_setup();
+	wqueue_entry_point_asm_jump(self, thread_port, stackaddr, item, reuse, nevents);
+}
 
+// Before you make any changes to the assembly code, I strongly recommend looking at the `_start_wqthread`
+// code. `_start_wqthread` does not follow the usual calling conventions you would expect. You can find the
+// source in `libpthread/src/pthread_asm.S`.
+void wqueue_entry_point_asm_jump(void* self, int thread_port, void* stackaddr,
+		void* item, int reuse, int nevents) {
+	
 	// No additional function calls should occur beyond this point. Otherwise, we will risk our
 	// registers being call-clobbered. I recommend reading the following doc for more details:
 	// https://gcc.gnu.org/onlinedocs/gcc/Local-Register-Variables.html
