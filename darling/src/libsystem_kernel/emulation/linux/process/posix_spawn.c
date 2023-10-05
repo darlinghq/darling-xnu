@@ -27,6 +27,7 @@
 #include "../unistd/fchdir.h"
 #include "../fcntl/fcntl.h"
 #include "../dirent/getdirentries.h"
+#include "../../../libsyscall/wrappers/_libkernel_init.h"
 
 // for debugging only; remove before committing
 #include "../signal/kill.h"
@@ -39,6 +40,8 @@
 #endif
 
 #define LINUX_ADDR_NO_RANDOMIZE 0x40000
+
+extern _libkernel_functions_t _libkernel_functions;
 
 long sys_posix_spawn(int* pid, const char* path, const struct _posix_spawn_args_desc* desc,
 		char** argvp, char** envp)
@@ -53,13 +56,19 @@ long sys_posix_spawn(int* pid, const char* path, const struct _posix_spawn_args_
 	if (ret < 0)
 		return ret;
 
+	// we don't want to call user atfork callbacks, but we *do* want to call most
+	// libsystem atfork callbacks to set up the environment for some of the calls we need
+	// to make for the setup
+
+	_libkernel_functions->posix_spawn_prepare();
+
 	if ((my_pid = sys_fork()) == 0)
 	{
-		mach_driver_init(NULL);
-
 		// child
 		// close the reading side
 		close_internal(pipe[0]);
+
+		_libkernel_functions->posix_spawn_child();
 
 no_fork:
 		if (desc && desc->attrp)
@@ -342,6 +351,8 @@ fail:
 
 		// close the writing side
 		close_internal(pipe[1]);
+
+		_libkernel_functions->posix_spawn_parent();
 
 		if (my_pid < 0)
 		{

@@ -71,6 +71,9 @@ typedef const struct _libkernel_functions {
 	/* Subsequent versions must only add pointers! */
 #ifdef DARLING
 	int (*dyld_func_lookup)(const char*,void**);
+	void (*posix_spawn_prepare)(void);
+	void (*posix_spawn_parent)(void);
+	void (*posix_spawn_child)(void);
 #endif
 } *_libkernel_functions_t;
 
