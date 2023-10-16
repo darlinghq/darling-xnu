@@ -30,7 +30,7 @@ extern _libkernel_functions_t _libkernel_functions;
 void darling_sigexc_uninstall(void);
 void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext* ctxt);
 
-#define SIGEXC_STACK_SIZE (16ULL * 1024ULL)
+#define SIGEXC_STACK_SIZE (48ULL * 1024ULL)
 
 #ifndef SIGALTSTACK_GUARD
 	#define SIGALTSTACK_GUARD 1
