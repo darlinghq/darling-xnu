@@ -29,6 +29,8 @@ long sys_fstatat(int fd, const char* path, struct stat* stat, int flag)
 		return errno_linux_to_bsd(ret);
 
 	linux_flags = atflags_bsd_to_linux(flag);
+	if (linux_flags == LINUX_AT_INVALID)
+		return -EINVAL;
 
 #ifdef __NR_newfstatat
 	ret = LINUX_SYSCALL(__NR_newfstatat, vc.dfd, vc.path, &lstat, linux_flags);
@@ -63,6 +65,8 @@ long sys_fstatat64(int fd, const char* path, struct stat64* stat, int flag)
 		return errno_linux_to_bsd(ret);
 
 	linux_flags = atflags_bsd_to_linux(flag);
+	if (linux_flags == LINUX_AT_INVALID)
+		return -EINVAL;
 
 #ifdef __NR_newfstatat
 	ret = LINUX_SYSCALL(__NR_newfstatat, vc.dfd, vc.path, &lstat, linux_flags);
