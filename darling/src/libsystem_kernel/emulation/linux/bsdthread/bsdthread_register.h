@@ -18,6 +18,8 @@ void pthread_entry_point_wrapper(void* self, int thread_port, void* funptr,
 		void* funarg, unsigned long stacksize, unsigned int flags);
 void wqueue_entry_point_wrapper(void* self, int thread_port, void* stackaddr,
 		void* item, int reuse, int nevents);
+void wqueue_entry_point_asm_jump(void* self, int thread_port, void* stackaddr,
+		void* item, int reuse, int nevents);
 
 #endif
 

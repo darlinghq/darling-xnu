@@ -220,32 +220,12 @@ resume_thread: // we want the thread to resume, but it might be just to die
 			thread_self = _pthread_getspecific_direct(_PTHREAD_TSD_SLOT_MACH_THREAD_SELF);
 			dthread = _pthread_getspecific_direct(_PTHREAD_TSD_SLOT_PTHREAD_SELF);
 
-#ifdef __x86_64__
-			// arguments are in rdi, rsi, rdx, rcx, r8, r9
-			__asm__ __volatile__ (
-					// "int3\n"
-					"movl %3, %%r8d\n" // 5th argument
-					"movl %5, %%r9d\n" // 6th argument
-					"movq %0, %%rsp\n"
-					"subq $32, %%rsp\n"
-					"jmpq *%2\n"
-					:: "D" (dthread), "S" (thread_self), "a" (wqueue_entry_point),
-					"r" (me.flags | WQ_FLAG_THREAD_REUSE), "c" ((!terminating && me.event) ? me.event->events : NULL),
-					"r" (terminating ? WORKQ_EXIT_THREAD_NKEVENT : (me.event ? me.event->nevents : 0)), "d" (dthread->stackbottom)
+			wqueue_entry_point_asm_jump(dthread, thread_self, dthread->stackbottom, 
+				(!terminating && me.event) ? me.event->events : NULL, 
+				me.flags | WQ_FLAG_THREAD_REUSE,
+				terminating ? WORKQ_EXIT_THREAD_NKEVENT : (me.event ? me.event->nevents : 0)
 			);
-#elif defined(__i386__)
-			// Arguments are in eax, ebx, ecx, edx, edi, esi
-			__asm__ __volatile__ (
-					"movl %0, %%esp\n"
-					"subl $32, %%esp\n"
-					"jmpl *%2\n"
-					:: "a" (dthread), "b" (thread_self), "S" (wqueue_entry_point),
-					"D" (me.flags | WQ_FLAG_THREAD_REUSE), "d" ((!terminating && me.event) ? me.event->events : NULL),
-					"S" (terminating ? WORKQ_EXIT_THREAD_NKEVENT : (me.event ? me.event->nevents : 0)), "c" (dthread->stackbottom)
-			);
-#else
-#	error Missing assembly!
-#endif
+			
 			__builtin_unreachable();
 
 			return 0;
