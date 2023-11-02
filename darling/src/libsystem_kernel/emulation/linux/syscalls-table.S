@@ -2,11 +2,26 @@
 .globl __darling_bsd_syscall
 .private_extern __darling_bsd_syscall
 
+// To better understand how XTRACE_RESERVED_SPACE
+// works, I recommend looking at `src/xtrace/xtracelib.c`
+// for details.
+#if defined(__x86_64__)
+.macro XTRACE_RESERVED_SPACE
+	.space 13, 0x90
+.endmacro
+
+#elif defined( __i386__)
+.macro XTRACE_RESERVED_SPACE
+	.space 7, 0x90
+.endmacro
+
+#endif
+
 #if defined(__x86_64__)
 
 __darling_bsd_syscall:
 Lentry_hook:
-	.space 13, 0x90
+	XTRACE_RESERVED_SPACE
 	movq    ___bsd_syscall_table@GOTPCREL(%rip), %r10
 	movq	(%r10,%rax,8), %r10
 	test	%r10, %r10
@@ -20,7 +35,7 @@ Lentry_hook:
 	addq	$16, %rsp
 .std_ret:
 Lexit_hook:
-	.space 13, 0x90
+	XTRACE_RESERVED_SPACE
 	ret
 .no_sys:
 	movq	%rax, %rdi
@@ -43,7 +58,7 @@ __darling_bsd_syscall_exit:
 
 __darling_bsd_syscall:
 Lentry_hook:
-	.space 7, 0x90
+	XTRACE_RESERVED_SPACE
 	calll	1f
 1:
 	popl	%ecx
@@ -73,7 +88,7 @@ Lentry_hook:
 	addl	$56, %esp
 .std_ret:
 Lexit_hook:
-	.space 7, 0x90
+	XTRACE_RESERVED_SPACE
 	ret
 .no_sys:
 	pushl	%ecx
