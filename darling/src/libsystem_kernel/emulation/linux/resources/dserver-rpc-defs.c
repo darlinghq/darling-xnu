@@ -7,6 +7,8 @@
 #include "../unistd/pipe.h"
 #include "../unistd/read.h"
 
+#include "../common_at.h"
+
 #ifndef DSERVER_RPC_USE_LOG_FILE
 	// CHANGE TO 0 BEFORE COMMITTING
 	#define DSERVER_RPC_USE_LOG_FILE 1
@@ -85,7 +87,7 @@ static int printf_file = -1;
 static libsimple_once_t printf_file_token = LIBSIMPLE_ONCE_INITIALIZER;
 
 static void printf_file_init(void* context) {
-	printf_file = LINUX_SYSCALL(__NR_open, "/tmp/dserver-client-rpc.log", LINUX_O_WRONLY | LINUX_O_CREAT | LINUX_O_APPEND, 0644);
+	printf_file = LINUX_SYSCALL(__NR_openat, LINUX_AT_FDCWD, "/tmp/dserver-client-rpc.log", LINUX_O_WRONLY | LINUX_O_CREAT | LINUX_O_APPEND, 0644);
 };
 #endif
 
