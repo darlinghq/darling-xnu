@@ -15,6 +15,16 @@
 
 #include <darlingserver/rpc.h>
 
+struct darwin_states {
+#if defined(__x86_64__)
+	x86_thread_state64_t tstate;
+	x86_float_state64_t fstate;
+#elif defined(__i386__)
+	x86_thread_state32_t tstate;
+	x86_float_state32_t fstate;
+#endif
+};
+
 // Support for Darwin debugging.
 // Unlike other Unix-like systems, macOS doesn't use wait() to handle events in the debugged process.
 // wait() only receives termination events.
@@ -56,8 +66,9 @@ static void thread_state_to_mcontext(const x86_thread_state32_t* s, struct linux
 static void float_state_to_mcontext(const x86_float_state32_t* s, linux_fpregset_t fx);
 #endif
 
-static void state_from_kernel(struct linux_ucontext* ctxt, const void* tstate, const void* fstate);
-static void state_to_kernel(struct linux_ucontext* ctxt, void* tstate, void* fstate);
+static void state_from_kernel(struct linux_ucontext* ctxt, const struct darwin_states* states);
+static void state_to_kernel(struct linux_ucontext* ctxt, struct darwin_states* states);
+int dserver_rpc_thread_suspended_wrapper(struct darwin_states* states);
 
 #define DEBUG_SIGEXC
 #ifdef DEBUG_SIGEXC
@@ -144,6 +155,14 @@ void sigexc_setup(void)
 #endif
 }
 
+int dserver_rpc_thread_suspended_wrapper(struct darwin_states* states) {
+#if defined(__x86_64__) || defined(__i386__)
+	return dserver_rpc_thread_suspended(&states->tstate, &states->fstate);
+#else
+#error "Missing dserver_rpc_thread_suspended_wrapper implementation for arch"
+#endif
+}
+
 void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
 	int status = dserver_rpc_interrupt_enter();
@@ -154,26 +173,20 @@ void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext
 	}
 
 	if (signum == SIGNAL_SIGEXC_SUSPEND) {
-#if defined(__x86_64__)
-	x86_thread_state64_t tstate;
-	x86_float_state64_t fstate;
-#elif defined(__i386__)
-	x86_thread_state32_t tstate;
-	x86_float_state32_t fstate;
-#endif
+		struct darwin_states states;
 
 	kern_printf("sigexc: sigrt_handler SUSPEND\n");
 
 	thread_t thread = mach_thread_self();
-	state_to_kernel(ctxt, &tstate, &fstate);
+		state_to_kernel(ctxt, &states);
 
-	int ret = dserver_rpc_thread_suspended(&tstate, &fstate);
+		int ret = dserver_rpc_thread_suspended_wrapper(&states);
 	if (ret < 0) {
 		__simple_printf("dserver_rpc_thread_suspended failed internally: %d", ret);
 		__simple_abort();
 	}
 
-	state_from_kernel(ctxt, &tstate, &fstate);
+		state_from_kernel(ctxt, &states);
 	} else if (signum == SIGNAL_S2C) {
 		__simple_kprintf("sigexc: sigrt_handler S2C");
 
@@ -235,33 +248,45 @@ void darling_sigexc_self(void)
 }
 
 
-static void state_to_kernel(struct linux_ucontext* ctxt, void* tstate, void* fstate)
+static void state_to_kernel(struct linux_ucontext* ctxt, struct darwin_states* states)
 {
 #if defined(__x86_64__)
-
 	dump_gregs(&ctxt->uc_mcontext.gregs);
-	mcontext_to_thread_state(&ctxt->uc_mcontext.gregs, (x86_thread_state64_t*) tstate);
-	mcontext_to_float_state(ctxt->uc_mcontext.fpregs, (x86_float_state64_t*) fstate);
+	mcontext_to_thread_state(&ctxt->uc_mcontext.gregs, &states->tstate);
+	mcontext_to_float_state(ctxt->uc_mcontext.fpregs, &states->fstate);
 
 #elif defined(__i386__)
-	mcontext_to_thread_state(&ctxt->uc_mcontext.gregs, (x86_thread_state32_t*) tstate);
-	mcontext_to_float_state(ctxt->uc_mcontext.fpregs, (x86_float_state32_t*) fstate);
+	mcontext_to_thread_state(&ctxt->uc_mcontext.gregs, &states->tstate);
+	mcontext_to_float_state(ctxt->uc_mcontext.fpregs, &states->fstate);
+
+#else
+#error "Missing mcontext to state conversion"
 #endif
 
 }
 
-static void state_from_kernel(struct linux_ucontext* ctxt, const void* tstate, const void* fstate)
+static void state_from_kernel(struct linux_ucontext* ctxt, const struct darwin_states* states)
 {
 #if defined(__x86_64__)
-
-	thread_state_to_mcontext((const x86_thread_state64_t*) tstate, &ctxt->uc_mcontext.gregs);
-	float_state_to_mcontext((const x86_float_state64_t*) fstate, ctxt->uc_mcontext.fpregs);
+	thread_state_to_mcontext((const x86_thread_state64_t*) &states->tstate, &ctxt->uc_mcontext.gregs);
+	float_state_to_mcontext((const x86_float_state64_t*) &states->fstate, ctxt->uc_mcontext.fpregs);
 
 	dump_gregs(&ctxt->uc_mcontext.gregs);
 
 #elif defined(__i386__)
-	thread_state_to_mcontext((const x86_thread_state32_t*) tstate, &ctxt->uc_mcontext.gregs);
-	float_state_to_mcontext((const x86_float_state32_t*) fstate, ctxt->uc_mcontext.fpregs);
+	thread_state_to_mcontext((const x86_thread_state32_t*) &states->tstate, &ctxt->uc_mcontext.gregs);
+	float_state_to_mcontext((const x86_float_state32_t*) &states->fstate, ctxt->uc_mcontext.fpregs);
+
+#else
+#error "Missing state to mcontext conversion"
+#endif
+}
+
+int dserver_rpc_sigprocess_wrapper(int32_t bsd_signal_number, int32_t linux_signal_number, int32_t sender_pid, int32_t code, uint64_t signal_address, struct darwin_states* states, int32_t* out_new_bsd_signal_number) {
+#if defined(__x86_64__) || defined(__i386__)
+	dserver_rpc_sigprocess(bsd_signal_number, linux_signal_number, sender_pid, code, signal_address, &states->tstate, &states->fstate, out_new_bsd_signal_number);
+#else
+#error "Missing dserver_rpc_sigprocess_wrapper implementation for arch"
 #endif
 }
 
@@ -293,21 +318,15 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 
 	thread_t thread = mach_thread_self();
 
-#if defined(__x86_64__)
-	x86_thread_state64_t tstate;
-	x86_float_state64_t fstate;
-#elif defined(__i386__)
-	x86_thread_state32_t tstate;
-	x86_float_state32_t fstate;
-#endif
+	struct darwin_states states;
 
-	state_to_kernel(ctxt, &tstate, &fstate);
-	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, info->si_pid, info->si_code, info->si_addr, &tstate, &fstate, &bsd_signum);
+	state_to_kernel(ctxt, &states);
+	int ret = dserver_rpc_sigprocess_wrapper(bsd_signum, linux_signum, info->si_pid, info->si_code, info->si_addr, &states, &bsd_signum);
 	if (ret < 0) {
 		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d", linux_signum, ret);
 		__simple_abort();
 	}
-	state_from_kernel(ctxt, &tstate, &fstate);
+	state_from_kernel(ctxt, &states);
 
 	if (!bsd_signum)
 	{
@@ -571,6 +590,9 @@ void float_state_to_mcontext(const x86_float_state32_t* s, linux_fpregset_t fx)
 	memcpy(fx->_st, &s->__fpu_stmm0, 128);
 	memcpy(fx->_xmm, &s->__fpu_xmm0, 128);
 }
+
+#else
+#error #error "Missing mcontext to state conversion functions"
 #endif
 
 void sigexc_thread_setup(void)
