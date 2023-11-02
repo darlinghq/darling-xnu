@@ -3,14 +3,18 @@
 .private_extern _sig_restorer
 
 #ifdef __x86_64__
+#define __NR_rt_sigreturn 15
 _sig_restorer:
-	movl $15, %eax
+	movl $__NR_rt_sigreturn, %eax
 	syscall
 
 #elif defined(__i386__)
-
+#define __NR_rt_sigreturn 173
 _sig_restorer:
-	movl $173, %eax
+	movl $__NR_rt_sigreturn, %eax
 	int $0x80
+
+#else
+#error "Missing sig_restorer implementation for arch"
 #endif
 
