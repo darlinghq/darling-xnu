@@ -183,16 +183,23 @@ static void ucontext_linux_to_bsd(const struct linux_ucontext* lc, struct bsd_uc
 	bc->uc_stack.ss_size = lc->uc_stack.ss_size;
 	bc->uc_stack.ss_sp = lc->uc_stack.ss_sp;
 	
+
+#if defined(__x86_64__) || defined(__i386__)
 	bm->es.trapno = lc->uc_mcontext.gregs.trapno;
 	bm->es.cpu = 0;
 	bm->es.err = lc->uc_mcontext.gregs.err;
 #ifdef __x86_64__
 	bm->es.faultvaddr = lc->uc_mcontext.gregs.rip;
-#else
+#elif defined(__i386__)
 	bm->es.faultvaddr = lc->uc_mcontext.gregs.eip;
 #endif
-	
+#else
+#error "Missing exception state (Linux to BSD) conversion"
+#endif
+
+#if defined(__x86_64__) || defined(__i386___)
 #define copyreg(__name) bm->ss.__name = lc->uc_mcontext.gregs.__name
+#endif
 	
 #ifdef __x86_64__
 	copyreg(rax); copyreg(rbx); copyreg(rcx); copyreg(rdx); copyreg(rdi); copyreg(rsi);
@@ -207,8 +214,18 @@ static void ucontext_linux_to_bsd(const struct linux_ucontext* lc, struct bsd_uc
 	copyreg(eip); copyreg(cs); copyreg(ds); copyreg(es); copyreg(fs); copyreg(gs);
 	bm->ss.eflags = lc->uc_mcontext.gregs.efl;
 	bm->ss.ss = 0;
+
 #else
-#	warning Missing code for current arch
+#error Missing thread state (Linux to BSD) conversion
+#endif
+
+#undef copyreg
+
+#if defined(__x86_64__) || defined(__i386__)
+#warning "Missing float state (Linux to BSD) conversion for x86_64/i386"
+
+#else
+#error "Missing float/simd state (Linux to BSD) conversion"
 #endif
 	
 #undef copyreg
@@ -216,7 +233,9 @@ static void ucontext_linux_to_bsd(const struct linux_ucontext* lc, struct bsd_uc
 
 static void mcontext_bsd_to_linux(const struct bsd_mcontext* bm, struct linux_mcontext* lm)
 {
+#if defined(__x86_64__) || defined(__i386__)
 #define copyreg(__name) lm->gregs.__name = bm->ss.__name
+#endif
 
 #ifdef __x86_64__
 	copyreg(rax); copyreg(rbx); copyreg(rcx); copyreg(rdx); copyreg(rdi); copyreg(rsi);
@@ -230,8 +249,10 @@ static void mcontext_bsd_to_linux(const struct bsd_mcontext* bm, struct linux_mc
 	copyreg(eip); copyreg(cs); copyreg(ds); copyreg(es); copyreg(fs); copyreg(gs);
 	lm->gregs.efl = bm->ss.eflags;
 #else
-#	warning Missing code for current arch
+#error Missing thread state (BSD to Linux) conversion
 #endif
+
+#undef copyreg
 
 }
 
