@@ -167,10 +167,42 @@ struct linux_mcontext
 #endif
 	// +reserved
 
+#elif defined(__arm64__)
+    unsigned long long int fault_address;
+    unsigned long long int regs[31];
+    unsigned long long int sp;
+    unsigned long long int pc;
+    unsigned long long int pstate;
+    unsigned char __reserved[4096] __attribute__((__aligned__(16)));
+
 #else
 #error "Missing linux_mcontext implementation for arch"
 #endif
 };
+
+// /usr/include/asm/sigcontext.h
+#ifdef __arm64__
+struct _aarch64_ctx {
+	__uint32_t magic;
+	__uint32_t size;
+};
+
+#define FPSIMD_MAGIC	0x46508001
+
+struct fpsimd_context {
+	struct _aarch64_ctx head;
+	__uint32_t fpsr;
+	__uint32_t fpcr;
+	__uint128_t vregs[32];
+};
+
+#define ESR_MAGIC	0x45535201
+
+struct esr_context {
+	struct _aarch64_ctx head;
+	__uint64_t esr;
+};
+#endif
 
 // /usr/include/asm-generic/ucontext.h (based on struct ucontext)
 struct linux_ucontext
@@ -191,6 +223,11 @@ struct bsd_exception_state
 	unsigned short cpu;
 	unsigned int err;
 	unsigned long faultvaddr;
+#elif defined(__arm64__)
+	// [xnu]/osfmk/mach/arm/_structs.h (based on `struct arm_exception_state64`)
+	__uint64_t far; // Fault Address Register
+	__uint32_t esr; // Exception Syndrome Register
+	__uint32_t exception;
 #else
 #error "Missing bsd_exception_state implementation for arch"
 #endif
@@ -206,6 +243,11 @@ struct bsd_thread_state
 // [xnu]/osfmk/mach/i386/_structs.h (based on `struct i386_thread_state`)
 	int eax, ebx, ecx, edx, edi, esi, ebp, esp, ss, eflags;
 	int eip, cs, ds, es, fs, gs;
+#elif defined(__arm64__)
+// [xnu]/osfmk/mach/arm/_structs.h (based on `struct arm_thread_state64`)
+	__uint64_t  x[29];
+	__uint64_t  fp, lr, sp, pc;
+	__uint32_t  cpsr, flags;
 #else
 #error "Missing bsd_thread_state implementation"
 #endif
@@ -216,17 +258,27 @@ struct bsd_float_state
 {
 	// TODO
 };
+#elif defined(__arm64__)
+// [xnu]/osfmk/mach/arm/_structs.h (based on `struct arm_neon_state64`)
+struct bsd_neon_state {
+	__uint128_t q[32];
+	__uint32_t    fpsr;
+	__uint32_t    fpcr;
+};
 #else
 #error "Missing float/simd state for arch"
 #endif
 
 // [xnu]/bsd/i386/_mcontext.h (see `struct mcontext64`)
+// [xnu]/bsd/arm/_mcontext.h (see `struct mcontext64`)
 struct bsd_mcontext
 {
 	struct bsd_exception_state es;
 	struct bsd_thread_state ss;
 #if defined(__x86_64__) || defined(__i386__)
 	struct bsd_float_state fs;
+#elif defined(__arm64__)
+	struct bsd_neon_state ns;
 #else
 #error "Missing float/simd state in bsd_mcontext"
 #endif

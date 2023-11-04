@@ -15,6 +15,14 @@
 	.space 7, 0x90
 .endmacro
 
+#elif defined(__arm64__)
+.macro XTRACE_RESERVED_SPACE
+	nop ; movk
+	nop ; movk
+	nop ; movk
+	nop ; movk
+	nop ; blr
+.endmacro
 #endif
 
 #if defined(__x86_64__)
@@ -121,6 +129,37 @@ __darling_mach_syscall_exit:
 
 .subsections_via_symbols
 
+#elif defined(__arm64__)
+
+__darling_mach_syscall:
+Lentry_hook:
+	XTRACE_RESERVED_SPACE
+
+	// // void* x9 = &__mach_syscall_table 
+	adrp	x9, ___mach_syscall_table@PAGE
+	add		x9, x9, ___mach_syscall_table@PAGEOFF
+
+	// void* x10 = __mach_syscall_table[0-x16]
+	neg		x10, x16		// Convert negative syscall number to positive 
+	lsl		x10, x10, #3	// x10 = x9 * 8 (size of a pointer)
+	add		x10, x9, x10
+
+	// x10(...)
+	blr		x10
+
+Lexit_hook:
+	XTRACE_RESERVED_SPACE
+	ret
+
+
+.section        __DATA,__data
+.globl __darling_mach_syscall_entry
+.globl __darling_mach_syscall_exit
+
+__darling_mach_syscall_entry:
+	.long Lentry_hook
+__darling_mach_syscall_exit:
+	.long Lexit_hook
 #else
 #	error Missing assembly
 #endif

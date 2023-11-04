@@ -63,6 +63,9 @@ L___machdep_syscall_table$non_lazy_ptr:
 
 .subsections_via_symbols
 
+#elif defined(__arm64__)
+// Not required for arm64
+
 #else
 #	error Missing assembly
 #endif

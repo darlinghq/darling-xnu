@@ -14,6 +14,12 @@ _sig_restorer:
 	movl $__NR_rt_sigreturn, %eax
 	int $0x80
 
+#elif defined(__arm64__)
+#define __NR_rt_sigreturn 139
+_sig_restorer:
+	mov w8, #__NR_rt_sigreturn
+	svc #0
+
 #else
 #error "Missing sig_restorer implementation for arch"
 #endif

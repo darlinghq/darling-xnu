@@ -18,6 +18,20 @@
 		ret
 .endm
 
+#elif defined(__arm64__)
+
+.macro xtrace_hook name
+	.text
+	.globl _\name
+	_\name\():
+		nop
+		nop
+		nop
+		nop
+		nop
+		ret
+.endm
+
 #else
 
 #error Missing xtrace hook dummy function macro for this architecture

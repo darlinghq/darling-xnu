@@ -15,6 +15,15 @@
 	.space 7, 0x90
 .endmacro
 
+#elif defined(__arm64__)
+.macro XTRACE_RESERVED_SPACE
+	nop ; movk
+	nop ; movk
+	nop ; movk
+	nop ; movk
+	nop ; blr
+.endmacro
+
 #endif
 
 #if defined(__x86_64__)
@@ -110,6 +119,84 @@ __darling_bsd_syscall_exit:
 	.long Lexit_hook
 
 .subsections_via_symbols
+
+#elif defined(__arm64__)
+
+// On ARM64, the syscall number lives in x16
+.globl __darling_handle_svc
+__darling_handle_svc:
+	
+	// if (trap_no == 0x80000000)
+	mov w9, 0x80000000
+	cmp w16, w9
+	b.ne not_platform_syscall
+
+	// TODO: Do we need to implement platform syscalls?
+	// Throw an exception
+	brk #0x1
+
+not_platform_syscall:
+	// if (trap_no < 0) {
+	cmp x16, #0
+	b.pl trap_no_is_positive_or_zero_branch
+
+		// if (trap_no == -3)
+		cmn w8, #3
+		b.eq mach_absolute_time_trap_branch
+		// else if (trap_no == -4)
+		cmn	w8, #4
+		b.eq mach_continuous_time_trap_branch
+		// else
+		b darling_mach_syscall_branch
+
+	mach_absolute_time_trap_branch:
+		// Call mach_approximate_time() and return
+		bl _mach_approximate_time
+		b darling_svc_return
+		
+	mach_continuous_time_trap_branch:
+		// Call mach_continuous_time() and return
+		bl _mach_continuous_time
+		b darling_svc_return
+	
+	darling_mach_syscall_branch:
+		// Call mach syscalls and return 
+		bl __darling_mach_syscall
+		b darling_svc_return
+
+trap_no_is_positive_or_zero_branch:
+	// Call UNIX syscalls
+	bl __darling_bsd_syscall
+darling_svc_return:
+	ret
+
+__darling_bsd_syscall:
+Lentry_hook:
+	XTRACE_RESERVED_SPACE
+
+	// void* x9 = &__bsd_syscall_table 
+	adrp	x9, ___bsd_syscall_table@PAGE
+	add		x9, x9, ___bsd_syscall_table@PAGEOFF
+	
+	// void* x10 = __bsd_syscall_table[x16]
+	mov		x10, x16
+	lsl		x10, x10, #3 // x10 = x9 * 8 (size of a pointer)
+	add		x10, x9, x10
+	
+	// x10(...)
+	blr		x10
+	
+Lexit_hook:
+	XTRACE_RESERVED_SPACE
+	ret
+
+.section        __DATA,__data
+.globl __darling_bsd_syscall_entry
+.globl __darling_bsd_syscall_exit
+__darling_bsd_syscall_entry:
+	.quad Lentry_hook
+__darling_bsd_syscall_exit:
+	.quad Lexit_hook
 
 #else
 #	error Missing assembly

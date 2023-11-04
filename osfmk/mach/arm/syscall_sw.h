@@ -113,7 +113,11 @@
 .align  2                                                     %% \
 _##trap_name:                                                 %% \
     mov x16, #(trap_number)                                   %% \
+#ifdef DARLING                                                %% \
+	bl	__darling_handle_svc                                   %% \
+#else                                                         %% \
     svc #SWI_SYSCALL                                          %% \
+#endif
     ret
 
 #else

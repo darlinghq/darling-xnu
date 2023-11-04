@@ -477,7 +477,11 @@ pseudo:									;\
 
 #define DO_SYSCALL(num, cerror)                 \
 	mov   x16, #(num)                     %%\
+#ifdef DARLING                            %%\
+	bl    __darling_handle_svc            %%\
+#else                                     %%\
 	svc   #SWI_SYSCALL                    %%\
+#endif                                    %%\
 	b.cc  2f                              %%\
 	ARM64_STACK_PROLOG                    %%\
 	PUSH_FRAME                            %%\

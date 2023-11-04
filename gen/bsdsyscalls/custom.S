@@ -139,7 +139,11 @@ __thread_set_tsd_base:
 __thread_set_tsd_base:
 	mov	x3, #2
 	mov	x16, #0x80000000
+#ifdef DARLING
+	bl	__darling_handle_svc
+#else
 	svc 	#SWI_SYSCALL
+#endif
 	ret
 
 #else
