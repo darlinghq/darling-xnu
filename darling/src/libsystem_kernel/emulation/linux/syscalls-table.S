@@ -124,6 +124,7 @@ __darling_bsd_syscall_exit:
 
 // On ARM64, the syscall number lives in x16
 .globl __darling_handle_svc
+.balign 4
 __darling_handle_svc:
 	
 	// if (trap_no == 0x80000000)
