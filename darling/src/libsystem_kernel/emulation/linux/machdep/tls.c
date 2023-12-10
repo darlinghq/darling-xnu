@@ -38,6 +38,8 @@ void sys_thread_set_tsd_base(void* ptr, int unk)
 
 	entry_number = desc.entry_number;
 	__asm__ ("movl %0, %%fs" :: "r" (desc.entry_number*8 + 3));
+#else
+#error "Missing sys_thread_set_tsd_base implementation for arch"
 #endif
 }
 
