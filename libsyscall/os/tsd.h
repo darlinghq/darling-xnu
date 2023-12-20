@@ -146,8 +146,13 @@ _os_tsd_get_base(void)
 	/* lower 2-bits contain CPU number */
 #elif defined(__arm64__)
 	uint64_t tsd;
+#ifdef DARLING
+	__asm__("mrs %0, TPIDR_EL0\n"
+                "bic %0, %0, #0x7\n" : "=r" (tsd));
+#else
 	__asm__("mrs %0, TPIDRRO_EL0\n"
                 "bic %0, %0, #0x7\n" : "=r" (tsd));
+#endif
 	/* lower 3-bits contain CPU number */
 #endif
 
@@ -221,10 +226,17 @@ _os_ptr_munge(uintptr_t ptr)
 
 #elif defined(__arm64__)
 
+#ifdef DARLING
+#define _OS_PTR_MUNGE_TOKEN(_reg, _token) \
+	mrs _reg, TPIDR_EL0 %% \
+	and	_reg, _reg, #~0x7 %% \
+	ldr	_token, [ _reg,  #_OS_TSD_OFFSET(__TSD_PTR_MUNGE) ]
+#else
 #define _OS_PTR_MUNGE_TOKEN(_reg, _token) \
 	mrs _reg, TPIDRRO_EL0 %% \
 	and	_reg, _reg, #~0x7 %% \
 	ldr	_token, [ _reg,  #_OS_TSD_OFFSET(__TSD_PTR_MUNGE) ]
+#endif
 
 #endif // defined(__arm64__)
 
