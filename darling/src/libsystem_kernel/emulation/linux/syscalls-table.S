@@ -134,9 +134,9 @@ __darling_handle_svc:
 	cmp w16, w9
 	b.ne not_platform_syscall
 
-	// TODO: Do we need to implement platform syscalls?
-	// Throw an exception
-	brk #0x1
+	bl __darling_platform_syscall
+	// Apple's code throw an exception, but does it make sense to implement that here...
+	b darling_svc_return
 
 not_platform_syscall:
 	// if (trap_no < 0) {
@@ -199,6 +199,34 @@ Lexit_hook:
 	ldp fp, lr, [sp], #16
 	ret
 
+
+__darling_platform_syscall:
+	stp fp, lr, [sp, #-16]!
+	mov fp, sp
+
+Lentry_hook_platform:
+	XTRACE_RESERVED_SPACE
+
+	cmp x3, #2
+	b.ne dont_set_tpidr
+
+		msr TPIDR_EL0, x0
+		b return_platform_syscall
+
+dont_set_tpidr:
+	cmp x3, #3
+	b.ne dont_get_tpidr
+
+		mrs x0, TPIDR_EL0
+
+return_platform_syscall:
+dont_get_tpidr:
+Lexit_hook_platform:
+	XTRACE_RESERVED_SPACE
+
+	ldp fp, lr, [sp], #16
+	ret
+
 .section        __DATA,__data
 .globl __darling_bsd_syscall_entry
 .globl __darling_bsd_syscall_exit
@@ -206,6 +234,13 @@ __darling_bsd_syscall_entry:
 	.quad Lentry_hook
 __darling_bsd_syscall_exit:
 	.quad Lexit_hook
+
+.globl __darling_platform_syscall_entry
+.globl __darling_platform_syscall_exit
+__darling_platform_syscall_entry:
+	.quad Lentry_hook_platform
+__darling_platform_syscall_exit:
+	.quad Lexit_hook_platform
 
 #else
 #	error Missing assembly
