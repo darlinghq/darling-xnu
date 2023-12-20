@@ -133,6 +133,9 @@ __darling_mach_syscall_exit:
 
 .balign 4
 __darling_mach_syscall:
+	stp fp, lr, [sp, #-16]!
+	mov fp, sp
+
 Lentry_hook:
 	XTRACE_RESERVED_SPACE
 
@@ -150,6 +153,8 @@ Lentry_hook:
 
 Lexit_hook:
 	XTRACE_RESERVED_SPACE
+
+	ldp fp, lr, [sp], #16
 	ret
 
 

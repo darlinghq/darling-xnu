@@ -137,14 +137,22 @@ __thread_set_tsd_base:
 	.align 2
 	.globl __thread_set_tsd_base
 __thread_set_tsd_base:
+#ifdef DARLING
+	stp fp, lr, [sp, #-16]!
+	mov fp, sp
+
 	mov	x3, #2
 	mov	x16, #0x80000000
-#ifdef DARLING
 	bl	__darling_handle_svc
-#else
-	svc 	#SWI_SYSCALL
-#endif
+
+	ldp fp, lr, [sp], #16
 	ret
+#else
+	mov	x3, #2
+	mov	x16, #0x80000000
+	svc 	#SWI_SYSCALL
+	ret
+#endif
 
 #else
 #error unknown architecture

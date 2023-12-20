@@ -126,6 +126,8 @@ __darling_bsd_syscall_exit:
 .globl __darling_handle_svc
 .balign 4
 __darling_handle_svc:
+	stp fp, lr, [sp, #-16]!
+	mov fp, sp
 	
 	// if (trap_no == 0x80000000)
 	mov w9, 0x80000000
@@ -169,9 +171,13 @@ trap_no_is_positive_or_zero_branch:
 	// Call UNIX syscalls
 	bl __darling_bsd_syscall
 darling_svc_return:
+	ldp fp, lr, [sp], #16
 	ret
 
 __darling_bsd_syscall:
+	stp fp, lr, [sp, #-16]!
+	mov fp, sp
+
 Lentry_hook:
 	XTRACE_RESERVED_SPACE
 
@@ -189,6 +195,8 @@ Lentry_hook:
 	
 Lexit_hook:
 	XTRACE_RESERVED_SPACE
+
+	ldp fp, lr, [sp], #16
 	ret
 
 .section        __DATA,__data
