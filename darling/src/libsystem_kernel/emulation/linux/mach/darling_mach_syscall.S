@@ -131,6 +131,7 @@ __darling_mach_syscall_exit:
 
 #elif defined(__arm64__)
 
+.balign 4
 __darling_mach_syscall:
 Lentry_hook:
 	XTRACE_RESERVED_SPACE

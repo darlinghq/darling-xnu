@@ -22,6 +22,7 @@
 
 .macro xtrace_hook name
 	.text
+	.balign 4
 	.globl _\name
 	_\name\():
 		nop

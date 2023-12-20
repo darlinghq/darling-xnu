@@ -16,6 +16,7 @@ _sig_restorer:
 
 #elif defined(__arm64__)
 #define __NR_rt_sigreturn 139
+.balign 4
 _sig_restorer:
 	mov w8, #__NR_rt_sigreturn
 	svc #0
