@@ -128,7 +128,7 @@ __darling_bsd_syscall_exit:
 __darling_handle_svc:
 	stp fp, lr, [sp, #-16]!
 	mov fp, sp
-	
+
 	// if (trap_no == 0x80000000)
 	mov w9, 0x80000000
 	cmp w16, w9
@@ -173,6 +173,7 @@ trap_no_is_positive_or_zero_branch:
 darling_svc_return:
 	ldp fp, lr, [sp], #16
 	ret
+
 
 __darling_bsd_syscall:
 	stp fp, lr, [sp, #-16]!
