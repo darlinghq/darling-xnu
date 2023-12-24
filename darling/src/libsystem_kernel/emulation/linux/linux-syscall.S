@@ -73,7 +73,7 @@ _linux_syscall:
 	ret
 
 #elif defined(__arm64__)
-	mov x7, x6
+	mov x8, x6
 	svc #0
 	ret
 
