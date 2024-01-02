@@ -54,6 +54,7 @@
 
 #ifdef DARLING
 #include <darling/emulation/linux-syscalls.h>
+#include <darling/emulation/base.h>
 #endif
 
 extern void _thread_set_tsd_base(void *tsd_base);
@@ -63,10 +64,8 @@ static __inline__ unsigned int
 _os_cpu_number(void)
 {
 #ifdef DARLING
-	extern int __linux_syscall(int nr, ...);
-
 	unsigned int cpu_num = 0;
-	int status = __linux_syscall(__NR_getcpu, &cpu_num, 0, 0, 0, 0, 0);
+	int status = __linux_syscall_3args(__NR_getcpu, (long)&cpu_num, 0, 0);
 	// should we even check? i don't think it's possible for it to fail with these arguments
 	if (status < 0) {
 		return 0; // i guess?
