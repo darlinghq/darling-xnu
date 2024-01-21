@@ -5,6 +5,7 @@
 #include <linux-syscalls/linux.h>
 #include "mach/lkm.h"
 #include "signal/kill.h"
+#include "unistd/getpid.h"
 #include <sys/signal.h>
 #include <darlingserver/rpc.h>
 
@@ -574,6 +575,6 @@ have_nl:
 
 __attribute__ ((visibility ("default")))
 void __simple_abort(void) {
-	sys_kill(0, SIGABRT, 1);
+	sys_kill(sys_getpid(), SIGABRT, 1);
 	__builtin_unreachable();
 };
