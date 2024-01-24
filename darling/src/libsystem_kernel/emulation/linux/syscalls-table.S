@@ -210,15 +210,13 @@ Lentry_hook_platform:
 
 	cmp x3, #2
 	b.ne dont_set_tpidr
-
-		msr TPIDR_EL0, x0
+		bl ___darling_thread_set_tsd
 		b return_platform_syscall
 
 dont_set_tpidr:
 	cmp x3, #3
 	b.ne dont_get_tpidr
-
-		mrs x0, TPIDR_EL0
+		bl ___darling_thread_get_tsd
 
 return_platform_syscall:
 dont_get_tpidr:
