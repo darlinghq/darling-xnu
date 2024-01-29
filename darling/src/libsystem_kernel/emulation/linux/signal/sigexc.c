@@ -611,8 +611,8 @@ void float_state_to_mcontext(const x86_float_state32_t* s, linux_fpregset_t fx)
 
 #elif defined(__arm64__)
 static void mcontext_to_thread_and_neon_state(const struct linux_mcontext* lm, arm_thread_state64_t* ts, arm_neon_state64_t* ns) {
-	struct fpsimd_context* reserved_neon_context;
-	struct esr_context* reserved_esr_el1_context;
+	struct fpsimd_context* reserved_neon_context = NULL;
+	struct esr_context* reserved_esr_el1_context = NULL;
 	grab_contexts_from_reserved(lm, &reserved_neon_context, &reserved_esr_el1_context);
 	
 	for (int i=0; i<29; i++) {
