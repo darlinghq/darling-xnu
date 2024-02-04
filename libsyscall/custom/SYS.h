@@ -475,13 +475,12 @@ pseudo:									;\
  * TBD
  */
 
+#ifdef DARLING
 #define DO_SYSCALL(num, cerror)                 \
 	mov   x16, #(num)                     %%\
-#ifdef DARLING                            %%\
+	PUSH_FRAME                            %%\
 	bl    __darling_handle_svc            %%\
-#else                                     %%\
-	svc   #SWI_SYSCALL                    %%\
-#endif                                    %%\
+	POP_FRAME                             %%\
 	b.cc  2f                              %%\
 	ARM64_STACK_PROLOG                    %%\
 	PUSH_FRAME                            %%\
@@ -489,6 +488,18 @@ pseudo:									;\
 	POP_FRAME                             %%\
 	ARM64_STACK_EPILOG                    %%\
 2:
+#else
+#define DO_SYSCALL(num, cerror)                 \
+	mov   x16, #(num)                     %%\
+	svc   #SWI_SYSCALL                    %%\
+	b.cc  2f                              %%\
+	ARM64_STACK_PROLOG                    %%\
+	PUSH_FRAME                            %%\
+	bl    _##cerror                       %%\
+	POP_FRAME                             %%\
+	ARM64_STACK_EPILOG                    %%\
+2:
+#endif
 
 #define MI_GET_ADDRESS(reg,var)  \
    adrp	reg, var@page      %%\
