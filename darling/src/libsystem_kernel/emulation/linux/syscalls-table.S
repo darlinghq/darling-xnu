@@ -188,8 +188,9 @@ Lentry_hook:
 	
 	// void* x10 = __bsd_syscall_table[x16]
 	mov		x10, x16
-	lsl		x10, x10, #3 // x10 = x9 * 8 (size of a pointer)
-	add		x10, x9, x10
+	lsl		x10, x10, #3	// x10 = syscall_number * 8 (size of a pointer)
+	add		x10, x9, x10	// x10 = __bsd_syscall_table + x10
+	ldr		x10, [x10]		// x10 = *x10
 	
 	// x10(...)
 	blr		x10

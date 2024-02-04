@@ -145,8 +145,9 @@ Lentry_hook:
 
 	// void* x10 = __mach_syscall_table[0-x16]
 	neg		x10, x16		// Convert negative syscall number to positive 
-	lsl		x10, x10, #3	// x10 = x9 * 8 (size of a pointer)
-	add		x10, x9, x10
+	lsl		x10, x10, #3	// x10 = syscall_number * 8 (size of a pointer)
+	add		x10, x9, x10	// x10 = __mach_syscall_table + x10
+	ldr		x10, [x10]		// x10 = *x10
 
 	// x10(...)
 	blr		x10
