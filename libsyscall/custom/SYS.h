@@ -476,11 +476,14 @@ pseudo:									;\
  */
 
 #ifdef DARLING
+// In addition to changing the macro to use __darling_handle_svc instead of the
+// syscall (svc) instruction, We are also setting the carry flag as well.
 #define DO_SYSCALL(num, cerror)                 \
 	mov   x16, #(num)                     %%\
 	PUSH_FRAME                            %%\
 	bl    __darling_handle_svc            %%\
 	POP_FRAME                             %%\
+	cmn x0, #4095                         %%\
 	b.cc  2f                              %%\
 	ARM64_STACK_PROLOG                    %%\
 	PUSH_FRAME                            %%\
