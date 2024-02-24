@@ -42,7 +42,7 @@ struct linux_stat {
 	unsigned long long      st_ino;
 };
 
-#else
+#elif defined(__x86_64__)
 
 typedef unsigned long long __kernel_ulong_t;
 typedef long long __kernel_long_t;
@@ -77,6 +77,8 @@ struct linux_stat {
 	__kernel_long_t         __unused_var[3];
 };
 
+#else
+#error "Missing stat for arch"
 #endif
 
 struct bsd_statfs
