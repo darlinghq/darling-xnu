@@ -186,15 +186,21 @@ Lentry_hook:
 	adrp	x9, ___bsd_syscall_table@PAGE
 	add		x9, x9, ___bsd_syscall_table@PAGEOFF
 	
-	// void* x10 = __bsd_syscall_table[x16]
-	mov		x10, x16
-	lsl		x10, x10, #3	// x10 = syscall_number * 8 (size of a pointer)
-	add		x10, x9, x10	// x10 = __bsd_syscall_table + x10
-	ldr		x10, [x10]		// x10 = *x10
+	// void* x9 = __bsd_syscall_table[x16]
+	ldr     x9, [x9, x16, lsl #3]
 	
-	// x10(...)
-	blr		x10
+	// If x9 is null
+	cbz		x9, bsd_no_syscall
+
+	// x9(...)
+	blr		x9
+	b		bsd_return
+
+bsd_no_syscall:
+	mov		x0, x16
+	bl		___unknown_syscall
 	
+bsd_return: 
 Lexit_hook:
 	XTRACE_RESERVED_SPACE
 

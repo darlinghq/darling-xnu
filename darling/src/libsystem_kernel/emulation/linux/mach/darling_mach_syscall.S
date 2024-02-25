@@ -139,19 +139,25 @@ __darling_mach_syscall:
 Lentry_hook:
 	XTRACE_RESERVED_SPACE
 
-	// // void* x9 = &__mach_syscall_table 
+	// void* x9 = &__mach_syscall_table 
 	adrp	x9, ___mach_syscall_table@PAGE
 	add		x9, x9, ___mach_syscall_table@PAGEOFF
 
-	// void* x10 = __mach_syscall_table[0-x16]
-	neg		x10, x16		// Convert negative syscall number to positive 
-	lsl		x10, x10, #3	// x10 = syscall_number * 8 (size of a pointer)
-	add		x10, x9, x10	// x10 = __mach_syscall_table + x10
-	ldr		x10, [x10]		// x10 = *x10
+	neg		x10, x16				// Convert negative syscall number to positive 
+	ldr     x10, [x9, x10, lsl #3]	// x10 = __mach_syscall_table[x10]
+
+	// If x9 is null
+	cbz		x10, mach_no_syscall
 
 	// x10(...)
 	blr		x10
+	b		mach_return
 
+mach_no_syscall:
+	mov		x0, x16
+	bl		___unknown_mach_syscall
+
+mach_return:
 Lexit_hook:
 	XTRACE_RESERVED_SPACE
 
