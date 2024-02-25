@@ -1,5 +1,9 @@
+#if defined(__x86_64__) || defined(__i386__)
 // This is needed so stat is not stat64
+// Only i386/x86_64 are allowed to have seperate stat/stat64 (this is due to
+// `__DARWIN_ONLY_64_BIT_INO_T` being set to false only on those architectures)
 #define _DARWIN_NO_64_BIT_INODE
+#endif
 
 // NOTE: in this case, platform-include/sys/stat.h is used
 #include <sys/stat.h>
@@ -7,6 +11,7 @@
 #include "../unistd/getuid.h"
 #include "../unistd/getgid.h"
 
+#if defined(__i386__) || defined(__x86_64__)
 void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat)
 {
 	stat->st_dev = lstat->st_dev;
@@ -27,8 +32,14 @@ void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat)
 	stat->st_ctimespec.tv_nsec = lstat->st_ctime_nsec;
 	stat->st_flags = 0;
 }
+#endif
 
+#if defined(__i386__) || defined(__x86_64__)
 void stat_linux_to_bsd64(const struct linux_stat* lstat, struct stat64* stat)
+#elif defined(__arm64__)
+// For arm64, stat is the same as stat64 
+void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat)
+#endif
 {
 	stat->st_dev = lstat->st_dev;
 	stat->st_mode = lstat->st_mode;

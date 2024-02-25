@@ -2,12 +2,6 @@
 #define LINUX_EPOLL_H
 #include <stdint.h>
 
-#define epoll_create	__linux_epoll_create
-#define epoll_create1	__linux_epoll_create1
-#define epoll_ctl		__linux_epoll_ctl
-#define epoll_wait		__linux_epoll_wait
-#define epoll_pwait		__linux_epoll_pwait
-
 #ifndef __THROW
 #	define __THROW
 #endif
@@ -49,6 +43,8 @@ struct epoll_event
 } __attribute__((packed));
 
 extern int epoll_create (int __size) __THROW;
+
+extern int epoll_create1 (int __flags);
 
 extern int epoll_ctl (int __epfd, int __op, int __fd,
 						struct epoll_event *__event) __THROW;

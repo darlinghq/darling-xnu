@@ -475,6 +475,23 @@ pseudo:									;\
  * TBD
  */
 
+#ifdef DARLING
+// In addition to changing the macro to use __darling_handle_svc instead of the
+// syscall (svc) instruction, We are also setting the carry flag as well.
+#define DO_SYSCALL(num, cerror)                 \
+	mov   x16, #(num)                     %%\
+	PUSH_FRAME                            %%\
+	bl    __darling_handle_svc            %%\
+	POP_FRAME                             %%\
+	cmn x0, #4095                         %%\
+	b.cc  2f                              %%\
+	ARM64_STACK_PROLOG                    %%\
+	PUSH_FRAME                            %%\
+	bl    _##cerror                       %%\
+	POP_FRAME                             %%\
+	ARM64_STACK_EPILOG                    %%\
+2:
+#else
 #define DO_SYSCALL(num, cerror)                 \
 	mov   x16, #(num)                     %%\
 	svc   #SWI_SYSCALL                    %%\
@@ -485,6 +502,7 @@ pseudo:									;\
 	POP_FRAME                             %%\
 	ARM64_STACK_EPILOG                    %%\
 2:
+#endif
 
 #define MI_GET_ADDRESS(reg,var)  \
    adrp	reg, var@page      %%\

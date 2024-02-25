@@ -15,6 +15,19 @@
 
 #include <darlingserver/rpc.h>
 
+struct darwin_states {
+#if defined(__x86_64__)
+	x86_thread_state64_t tstate;
+	x86_float_state64_t fstate;
+#elif defined(__i386__)
+	x86_thread_state32_t tstate;
+	x86_float_state32_t fstate;
+#elif defined(__arm64__)
+	arm_thread_state64_t tstate;
+	arm_neon_state64_t nstate;
+#endif
+};
+
 // Support for Darwin debugging.
 // Unlike other Unix-like systems, macOS doesn't use wait() to handle events in the debugged process.
 // wait() only receives termination events.
@@ -54,10 +67,15 @@ static void mcontext_to_thread_state(const struct linux_gregset* regs, x86_threa
 static void mcontext_to_float_state(const linux_fpregset_t fx, x86_float_state32_t* s);
 static void thread_state_to_mcontext(const x86_thread_state32_t* s, struct linux_gregset* regs);
 static void float_state_to_mcontext(const x86_float_state32_t* s, linux_fpregset_t fx);
+#elif defined(__arm64__)
+static void mcontext_to_thread_and_neon_state(const struct linux_mcontext* lm, arm_thread_state64_t* ts, arm_neon_state64_t* ns);
+static void thread_and_neon_state_to_mcontext(const arm_thread_state64_t* ts, const arm_neon_state64_t* ns, struct linux_mcontext* lm);
+extern void grab_contexts_from_reserved(struct linux_mcontext* lm, struct fpsimd_context** reserved_neon_context, struct esr_context** reserved_esr_el1_context);
 #endif
 
-static void state_from_kernel(struct linux_ucontext* ctxt, const void* tstate, const void* fstate);
-static void state_to_kernel(struct linux_ucontext* ctxt, void* tstate, void* fstate);
+static void state_from_kernel(struct linux_ucontext* ctxt, const struct darwin_states* states);
+static void state_to_kernel(struct linux_ucontext* ctxt, struct darwin_states* states);
+int dserver_rpc_thread_suspended_wrapper(struct darwin_states* states);
 
 #define DEBUG_SIGEXC
 #ifdef DEBUG_SIGEXC
@@ -144,6 +162,16 @@ void sigexc_setup(void)
 #endif
 }
 
+int dserver_rpc_thread_suspended_wrapper(struct darwin_states* states) {
+#if defined(__x86_64__) || defined(__i386__)
+	return dserver_rpc_thread_suspended(&states->tstate, &states->fstate, NULL);
+#elif defined(__arm64__)
+	return dserver_rpc_thread_suspended(&states->tstate, NULL, &states->nstate);
+#else
+#error "Missing dserver_rpc_thread_suspended_wrapper implementation for arch"
+#endif
+}
+
 void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
 	int status = dserver_rpc_interrupt_enter();
@@ -154,26 +182,20 @@ void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext
 	}
 
 	if (signum == SIGNAL_SIGEXC_SUSPEND) {
-#if defined(__x86_64__)
-	x86_thread_state64_t tstate;
-	x86_float_state64_t fstate;
-#elif defined(__i386__)
-	x86_thread_state32_t tstate;
-	x86_float_state32_t fstate;
-#endif
+		struct darwin_states states;
 
-	kern_printf("sigexc: sigrt_handler SUSPEND\n");
+		kern_printf("sigexc: sigrt_handler SUSPEND\n");
 
-	thread_t thread = mach_thread_self();
-	state_to_kernel(ctxt, &tstate, &fstate);
+		thread_t thread = mach_thread_self();
+		state_to_kernel(ctxt, &states);
 
-	int ret = dserver_rpc_thread_suspended(&tstate, &fstate);
-	if (ret < 0) {
-		__simple_printf("dserver_rpc_thread_suspended failed internally: %d", ret);
-		__simple_abort();
-	}
+		int ret = dserver_rpc_thread_suspended_wrapper(&states);
+		if (ret < 0) {
+			__simple_printf("dserver_rpc_thread_suspended failed internally: %d", ret);
+			__simple_abort();
+		}
 
-	state_from_kernel(ctxt, &tstate, &fstate);
+		state_from_kernel(ctxt, &states);
 	} else if (signum == SIGNAL_S2C) {
 		__simple_kprintf("sigexc: sigrt_handler S2C");
 
@@ -235,33 +257,54 @@ void darling_sigexc_self(void)
 }
 
 
-static void state_to_kernel(struct linux_ucontext* ctxt, void* tstate, void* fstate)
+static void state_to_kernel(struct linux_ucontext* ctxt, struct darwin_states* states)
 {
 #if defined(__x86_64__)
-
 	dump_gregs(&ctxt->uc_mcontext.gregs);
-	mcontext_to_thread_state(&ctxt->uc_mcontext.gregs, (x86_thread_state64_t*) tstate);
-	mcontext_to_float_state(ctxt->uc_mcontext.fpregs, (x86_float_state64_t*) fstate);
+	mcontext_to_thread_state(&ctxt->uc_mcontext.gregs, &states->tstate);
+	mcontext_to_float_state(ctxt->uc_mcontext.fpregs, &states->fstate);
 
 #elif defined(__i386__)
-	mcontext_to_thread_state(&ctxt->uc_mcontext.gregs, (x86_thread_state32_t*) tstate);
-	mcontext_to_float_state(ctxt->uc_mcontext.fpregs, (x86_float_state32_t*) fstate);
+	mcontext_to_thread_state(&ctxt->uc_mcontext.gregs, &states->tstate);
+	mcontext_to_float_state(ctxt->uc_mcontext.fpregs, &states->fstate);
+
+#elif defined(__arm64__)
+	mcontext_to_thread_and_neon_state(&ctxt->uc_mcontext, &states->tstate, &states->nstate);
+
+#else
+#error "Missing mcontext to state conversion"
 #endif
 
 }
 
-static void state_from_kernel(struct linux_ucontext* ctxt, const void* tstate, const void* fstate)
+static void state_from_kernel(struct linux_ucontext* ctxt, const struct darwin_states* states)
 {
 #if defined(__x86_64__)
-
-	thread_state_to_mcontext((const x86_thread_state64_t*) tstate, &ctxt->uc_mcontext.gregs);
-	float_state_to_mcontext((const x86_float_state64_t*) fstate, ctxt->uc_mcontext.fpregs);
+	thread_state_to_mcontext((const x86_thread_state64_t*) &states->tstate, &ctxt->uc_mcontext.gregs);
+	float_state_to_mcontext((const x86_float_state64_t*) &states->fstate, ctxt->uc_mcontext.fpregs);
 
 	dump_gregs(&ctxt->uc_mcontext.gregs);
 
 #elif defined(__i386__)
-	thread_state_to_mcontext((const x86_thread_state32_t*) tstate, &ctxt->uc_mcontext.gregs);
-	float_state_to_mcontext((const x86_float_state32_t*) fstate, ctxt->uc_mcontext.fpregs);
+	thread_state_to_mcontext((const x86_thread_state32_t*) &states->tstate, &ctxt->uc_mcontext.gregs);
+	float_state_to_mcontext((const x86_float_state32_t*) &states->fstate, ctxt->uc_mcontext.fpregs);
+
+#elif defined(__arm64__)
+	thread_and_neon_state_to_mcontext(&states->tstate, &states->nstate, &ctxt->uc_mcontext);
+
+#else
+#error "Missing state to mcontext conversion"
+#endif
+}
+
+int dserver_rpc_sigprocess_wrapper(int32_t bsd_signal_number, int32_t linux_signal_number, int32_t sender_pid, int32_t code, uint64_t signal_address, struct darwin_states* states, int32_t* out_new_bsd_signal_number) {
+#if defined(__x86_64__) || defined(__i386__)
+	dserver_rpc_sigprocess(bsd_signal_number, linux_signal_number, sender_pid, code, signal_address, &states->tstate, &states->fstate, NULL, out_new_bsd_signal_number);
+#elif defined(__arm64__)
+	dserver_rpc_sigprocess(bsd_signal_number, linux_signal_number, sender_pid, code, signal_address, &states->tstate, NULL, &states->nstate, out_new_bsd_signal_number);
+
+#else
+#error "Missing dserver_rpc_sigprocess_wrapper implementation for arch"
 #endif
 }
 
@@ -293,21 +336,15 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 
 	thread_t thread = mach_thread_self();
 
-#if defined(__x86_64__)
-	x86_thread_state64_t tstate;
-	x86_float_state64_t fstate;
-#elif defined(__i386__)
-	x86_thread_state32_t tstate;
-	x86_float_state32_t fstate;
-#endif
+	struct darwin_states states;
 
-	state_to_kernel(ctxt, &tstate, &fstate);
-	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, info->si_pid, info->si_code, info->si_addr, &tstate, &fstate, &bsd_signum);
+	state_to_kernel(ctxt, &states);
+	int ret = dserver_rpc_sigprocess_wrapper(bsd_signum, linux_signum, info->si_pid, info->si_code, info->si_addr, &states, &bsd_signum);
 	if (ret < 0) {
 		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d", linux_signum, ret);
 		__simple_abort();
 	}
-	state_from_kernel(ctxt, &tstate, &fstate);
+	state_from_kernel(ctxt, &states);
 
 	if (!bsd_signum)
 	{
@@ -571,6 +608,62 @@ void float_state_to_mcontext(const x86_float_state32_t* s, linux_fpregset_t fx)
 	memcpy(fx->_st, &s->__fpu_stmm0, 128);
 	memcpy(fx->_xmm, &s->__fpu_xmm0, 128);
 }
+
+#elif defined(__arm64__)
+static void mcontext_to_thread_and_neon_state(const struct linux_mcontext* lm, arm_thread_state64_t* ts, arm_neon_state64_t* ns) {
+	struct fpsimd_context* reserved_neon_context = NULL;
+	struct esr_context* reserved_esr_el1_context = NULL;
+	grab_contexts_from_reserved(lm, &reserved_neon_context, &reserved_esr_el1_context);
+	
+	for (int i=0; i<29; i++) {
+		ts->__x[i] = lm->regs[i];
+	}
+	ts->__fp = lm->regs[29];
+	ts->__lr = lm->regs[30];
+	ts->__sp = lm->sp;
+	ts->__pc = lm->pc;
+
+	// Not sure about this one...
+	ts->__cpsr = 0xFFFFFFFF & lm->pstate;
+	ts->__pad = 0xFFFFFFFF & (lm->pstate >> 32);
+
+	if (reserved_neon_context != NULL) {
+		for (int i=0; i<32; i++) {
+			ns->__v[i] = reserved_neon_context->vregs[i];
+		}
+		ns->__fpsr = reserved_neon_context->fpsr;
+		ns->__fpcr = reserved_neon_context->fpcr;
+	}
+}
+
+static void thread_and_neon_state_to_mcontext(const arm_thread_state64_t* ts, const arm_neon_state64_t* ns, struct linux_mcontext* lm) {
+	struct fpsimd_context* reserved_neon_context;
+	struct esr_context* reserved_esr_el1_context;
+	grab_contexts_from_reserved(lm, &reserved_neon_context, &reserved_esr_el1_context);
+	
+	for (int i=0; i<29; i++) {
+		lm->regs[i] = ts->__x[i];
+	}
+	lm->regs[29] = ts->__fp;
+	lm->regs[30] = ts->__lr;
+	lm->sp = ts->__sp;
+	lm->pc = ts->__pc;
+
+	lm->pstate = (ts->__cpsr & 0xFFFFFFFF);
+	lm->pstate |= ((unsigned long long int)ts->__pad << 32) & 0xFFFFFFFF00000000;
+
+	if (reserved_neon_context != NULL) {
+		for (int i=0; i<32; i++) {
+			reserved_neon_context->vregs[i] = ns->__v[i];
+		}
+		
+		reserved_neon_context->fpsr = ns->__fpsr;
+		reserved_neon_context->fpcr = ns->__fpcr;
+	}
+}
+
+#else
+#error #error "Missing mcontext to state conversion functions"
 #endif
 
 void sigexc_thread_setup(void)

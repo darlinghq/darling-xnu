@@ -124,7 +124,7 @@ struct linux_gregset
 	long long err, trapno, oldmask, cr2;
 };
 
-#else // now the i386 version
+#elif defined(__i386__)
 
 typedef struct _fpstate {
         unsigned long cw, sw, tag, ipoff, cssel, dataoff, datasel;
@@ -151,20 +151,60 @@ struct linux_gregset
 	int trapno, err, eip, cs, efl, uesp;
 	int ss;
 };
+
 #endif
 
+// /usr/include/sys/ucontext.h (based on `typedef struct {...} mcontext_t`)
 struct linux_mcontext
 {
+#if defined(__x86_64__) || defined(__i386__)
 	struct linux_gregset gregs;
 	linux_fpregset_t fpregs;
 #ifdef __x86_64__
 	unsigned long long __reserved[8];
-#else
+#elif defined(__i386__)
 	unsigned long oldmask, cr2;
 #endif
 	// +reserved
+
+#elif defined(__arm64__)
+    unsigned long long int fault_address;
+    unsigned long long int regs[31];
+    unsigned long long int sp;
+    unsigned long long int pc;
+    unsigned long long int pstate;
+    unsigned char __reserved[4096] __attribute__((__aligned__(16)));
+
+#else
+#error "Missing linux_mcontext implementation for arch"
+#endif
 };
 
+// /usr/include/asm/sigcontext.h
+#ifdef __arm64__
+struct _aarch64_ctx {
+	__uint32_t magic;
+	__uint32_t size;
+};
+
+#define FPSIMD_MAGIC	0x46508001
+
+struct fpsimd_context {
+	struct _aarch64_ctx head;
+	__uint32_t fpsr;
+	__uint32_t fpcr;
+	__uint128_t vregs[32];
+};
+
+#define ESR_MAGIC	0x45535201
+
+struct esr_context {
+	struct _aarch64_ctx head;
+	__uint64_t esr;
+};
+#endif
+
+// /usr/include/asm-generic/ucontext.h (based on struct ucontext)
 struct linux_ucontext
 {
 	unsigned long uc_flags;
@@ -177,35 +217,74 @@ struct linux_ucontext
 
 struct bsd_exception_state
 {
+#if defined(__x86_64__) || defined(__i386__)
+	// [xnu]/osfmk/mach/i386/_structs.h (based on `struct x86_exception_state64`)
 	unsigned short trapno;
 	unsigned short cpu;
 	unsigned int err;
 	unsigned long faultvaddr;
+#elif defined(__arm64__)
+	// [xnu]/osfmk/mach/arm/_structs.h (based on `struct arm_exception_state64`)
+	__uint64_t far; // Fault Address Register
+	__uint32_t esr; // Exception Syndrome Register
+	__uint32_t exception;
+#else
+#error "Missing bsd_exception_state implementation for arch"
+#endif
 };
 
 struct bsd_thread_state
 {
 #ifdef __x86_64__
+// [xnu]/osfmk/mach/i386/_structs.h (based on `struct x86_thread_state64`)
 	long long rax, rbx, rcx, rdx, rdi, rsi, rbp, rsp, r8, r9, r10;
 	long long r11, r12, r13, r14, r15, rip, rflags, cs, fs, gs;
-#else
+#elif defined(__i386__)
+// [xnu]/osfmk/mach/i386/_structs.h (based on `struct i386_thread_state`)
 	int eax, ebx, ecx, edx, edi, esi, ebp, esp, ss, eflags;
 	int eip, cs, ds, es, fs, gs;
+#elif defined(__arm64__)
+// [xnu]/osfmk/mach/arm/_structs.h (based on `struct arm_thread_state64`)
+	__uint64_t  x[29];
+	__uint64_t  fp, lr, sp, pc;
+	__uint32_t  cpsr, flags;
+#else
+#error "Missing bsd_thread_state implementation"
 #endif
 };
 
+#if defined(__x86_64__) || defined(__i386__)
 struct bsd_float_state
 {
 	// TODO
 };
+#elif defined(__arm64__)
+// [xnu]/osfmk/mach/arm/_structs.h (based on `struct arm_neon_state64`)
+struct bsd_neon_state {
+	__uint128_t q[32];
+	__uint32_t    fpsr;
+	__uint32_t    fpcr;
+};
+#else
+#error "Missing float/simd state for arch"
+#endif
 
+// [xnu]/bsd/i386/_mcontext.h (see `struct mcontext64`)
+// [xnu]/bsd/arm/_mcontext.h (see `struct mcontext64`)
 struct bsd_mcontext
 {
 	struct bsd_exception_state es;
 	struct bsd_thread_state ss;
+#if defined(__x86_64__) || defined(__i386__)
 	struct bsd_float_state fs;
+#elif defined(__arm64__)
+	struct bsd_neon_state ns;
+#else
+#error "Missing float/simd state in bsd_mcontext"
+#endif
 };
 
+// [xnu]/bsd/sys/ucontext.h (based on `struct user_ucontext64`?)
 struct bsd_ucontext
 {
 	int uc_onstack;

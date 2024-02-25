@@ -46,7 +46,11 @@ long sys_lstat(const char* path, struct stat* stat)
 	return 0;
 }
 
+#if defined(__i386__) || defined(__x86_64__)
 long sys_lstat64(const char* path, struct stat64* stat)
+#elif defined(__arm64__)
+long sys_lstat64(const char* path, struct stat* stat)
+#endif
 {
 	int ret;
 	struct linux_stat lstat;
@@ -76,7 +80,13 @@ long sys_lstat64(const char* path, struct stat64* stat)
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
+#if defined(__i386__) || defined(__x86_64__)
 	stat_linux_to_bsd64(&lstat, stat);
+#elif defined(__arm64__)
+	stat_linux_to_bsd(&lstat, stat);
+#else
+#error "Missing stat conversion method for arch"
+#endif
 
 	return 0;
 }

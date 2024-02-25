@@ -231,7 +231,13 @@ Ltry_set_vfork:
 	
 	// ARM sets r1 to 1 here.  I don't see why.
 	mov		w16, #SYS_vfork		// Set syscall code
+#ifdef DARLING
+	PUSH_FRAME
+	bl		__darling_handle_svc
+	POP_FRAME
+#else
 	svc		#SWI_SYSCALL
+#endif
 	b.cs 	Lbotch
 	cbz		w1, Lparent
 

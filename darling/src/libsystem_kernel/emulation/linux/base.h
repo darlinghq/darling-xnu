@@ -21,8 +21,13 @@ long linux_syscall(long a1, long a2, long a3, long a4, long a5, long a6, int nr)
 
 #ifndef BUILDING_BASE_C
 
-VISIBLE
-int __linux_syscall(int nr, ...);
+VISIBLE int __linux_syscall_noargs(int);
+VISIBLE int __linux_syscall_1arg(int,long);
+VISIBLE int __linux_syscall_2args(int,long,long);
+VISIBLE int __linux_syscall_3args(int,long,long,long);
+VISIBLE int __linux_syscall_4args(int,long,long,long,long);
+VISIBLE int __linux_syscall_5args(int,long,long,long,long,long);
+VISIBLE int __linux_syscall_6args(int,long,long,long,long,long,long);
 
 #endif /* BUILDING_BASE_C */
 

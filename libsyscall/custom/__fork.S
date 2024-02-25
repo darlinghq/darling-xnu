@@ -154,7 +154,11 @@ MI_ENTRY_POINT(___fork)
 	PUSH_FRAME
 	// ARM moves a 1 in to r1 here, but I can't see why.
 	mov		x16, #SYS_fork				// Syscall code
+#ifdef DARLING
+	bl		__darling_handle_svc
+#else
 	svc		#SWI_SYSCALL				// Trap to kernel
+#endif
 	b.cs	Lbotch						// Carry bit indicates failure
 	cbz		x1, Lparent					// x1 == 0 indicates that we are the parent
 

@@ -2,6 +2,9 @@
 .globl _linux_syscall
 .private_extern _linux_syscall
 
+#if defined(__arm64__)
+.balign 4
+#endif
 _linux_syscall:
 
 #if defined(__x86_64__)
@@ -67,6 +70,11 @@ _linux_syscall:
 	pop %esi
 	pop %ebx
 	pop %ebp
+	ret
+
+#elif defined(__arm64__)
+	mov x8, x6
+	svc #0
 	ret
 
 #else

@@ -19,8 +19,10 @@ typedef short                   __int16_t;
 typedef unsigned short          __uint16_t;
 typedef int                     __int32_t;
 typedef unsigned int            __uint32_t;
+#ifndef DARLING_LINUX_MIGCOM
 typedef long long               __int64_t;
 typedef unsigned long long      __uint64_t;
+#endif
 
 typedef long                    __darwin_intptr_t;
 typedef unsigned int            __darwin_natural_t;
@@ -52,9 +54,14 @@ typedef int                     __darwin_ct_rune_t;     /* ct_rune_t */
 typedef union {
 	char            __mbstate8[128];
 	long long       _mbstateL;                      /* for alignment */
+#ifndef DARLING_LINUX_MIGCOM
 } __mbstate_t;
 
 typedef __mbstate_t             __darwin_mbstate_t;     /* mbstate_t */
+#else
+// Redefinition conflict
+} __darwin_mbstate_t;
+#endif
 
 #if defined(__PTRDIFF_TYPE__)
 typedef __PTRDIFF_TYPE__        __darwin_ptrdiff_t;     /* ptr1 - ptr2 */

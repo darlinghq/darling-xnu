@@ -2,6 +2,7 @@
 #include <elfcalls.h>
 #include <dlfcn.h>
 #include "simple.h"
+#include "base.h"
 
 extern struct elf_calls* _elfcalls;
 
@@ -91,6 +92,16 @@ void __dserver_per_thread_socket_refresh(void) {
 void __dserver_close_socket(int socket) {
 	return elfcalls()->dserver_close_socket(socket);
 };
+
+VISIBLE
+void* __darling_thread_get_tsd() {
+	return elfcalls()->get_tsd();
+}
+
+VISIBLE
+void __darling_thread_set_tsd(void* value) {
+	elfcalls()->set_tsd(value);
+}
 
 int __dserver_get_process_lifetime_pipe() {
 	return elfcalls()->dserver_get_process_lifetime_pipe();

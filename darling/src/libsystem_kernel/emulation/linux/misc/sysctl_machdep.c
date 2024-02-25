@@ -50,6 +50,7 @@ const struct known_sysctl sysctls_machdep[] = {
 	{ .oid = -1 }
 };
 
+#if defined(__x86_64__) || defined(__i386__)
 #ifndef __cpuid
 #define __cpuid(level, a, b, c, d)			\
   __asm__ ("cpuid\n\t"					\
@@ -65,7 +66,7 @@ const struct known_sysctl sysctls_machdep[] = {
             unsigned int edx;           \
             unsigned int ecx
 #endif
-
+#endif //  defined(__x86_64__) || defined(__i386__)
 
 static inline void copyout_int(int value, char* to_copy, size_t* to_copy_length)
 {
@@ -77,6 +78,7 @@ static inline void copyout_int(int value, char* to_copy, size_t* to_copy_length)
 
 sysctl_handler(handle_vendor)
 {
+#if defined(__x64_64__) || defined(__i386__)
 	unsigned int level = 0;
     unsigned int eax = 0;
 	union
@@ -95,11 +97,16 @@ sysctl_handler(handle_vendor)
 	v.name[12] = 0;
 	copyout_string(v.name, (char*) old, oldlen);
 
+#else
+#warning "Missing sysctl_handler(handle_vendor) implementation for arch"
+#endif
+
 	return 0;
 }
 
 sysctl_handler(handle_max_basic)
 {
+#if defined(__x86_64__) || defined(__i386__)
 	setup(0);
 
 
@@ -107,11 +114,16 @@ sysctl_handler(handle_max_basic)
 
 	copyout_int(eax, (char*)old,oldlen);
 
+#else
+#warning "Missing sysctl_handler(handle_max_basic) implementation for arch"
+#endif
+
 	return 0;
 }
 
 sysctl_handler(handle_family)
 {
+#if defined(__x86_64__) || defined(__i386__)
     setup(1);
 
     __cpuid(level, eax, ebx, ecx, edx);
@@ -121,11 +133,16 @@ sysctl_handler(handle_family)
 
     copyout_int(eax, old, oldlen);
 
+#else
+#warning "Missing sysctl_handler(handle_family) implementation for arch"
+#endif
+
     return 0;
 }
 
 sysctl_handler(handle_model)
 {
+#if defined(__x86_64__) || defined(__i386__)
     setup(1);
 
     __cpuid(level, eax, ebx, ecx, edx);
@@ -135,11 +152,16 @@ sysctl_handler(handle_model)
 
     copyout_int(eax,(char*)old, oldlen);
 
+#else
+#warning "Missing sysctl_handler(handle_model) implementation for arch"
+#endif
+
     return 0;
 }
 
 sysctl_handler(handle_stepping)
 {
+#if defined(__x86_64__) || defined(__i386__)
     setup(1);
 
     __cpuid(level, eax, ebx, ecx, edx);
@@ -148,11 +170,16 @@ sysctl_handler(handle_stepping)
 
     copyout_int(eax,(char*)old, oldlen);
 
+#else
+#warning "Missing sysctl_handler(handle_stepping) implementation for arch"
+#endif
+
     return 0;
 }
 
 sysctl_handler(handle_brand_string)
 {
+#if defined(__x86_64__) || defined(__i386__)
     setup(0x80000000);
 
     __cpuid(level,eax,ebx, ecx, edx);
@@ -181,12 +208,16 @@ sysctl_handler(handle_brand_string)
     v.name[48] = 0;
     copyout_string(v.name, (char*) old, oldlen);
 
+#else
+#warning "Missing sysctl_handler(handle_brand_string) implementation for arch"
+#endif
+
     return 0;
 }
 
 sysctl_handler(handle_features)
 {
-
+#if defined(__x86_64__) || defined(__i386__)
     setup(1);
 
     static const char features[][7] = {"FPU","VME", "DE", "PSE", "TSC", "MSR", "PAE", "MCE", "CX8", "APIC", "","SEP","MTRR","PGE",
@@ -256,7 +287,9 @@ sysctl_handler(handle_features)
 
     }
         
-
+#else
+#warning "Missing sysctl_handler(handle_features) implementation for arch"
+#endif
 
     return 0;
 
