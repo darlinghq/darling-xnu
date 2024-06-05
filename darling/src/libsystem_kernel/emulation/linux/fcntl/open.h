@@ -5,6 +5,13 @@ long sys_open(const char* filename, int flags, unsigned int mode);
 long sys_open_nocancel(const char* filename, int flags, unsigned int mode);
 
 
+#if defined(__arm64__)
+#define LINUX_O_DIRECTORY 040000
+#define LINUX_O_NOFOLLOW 0100000
+#define LINUX_O_DIRECT 0200000
+#define LINUX_O_LARGEFILE 0400000
+#endif
+
 // Based on <bits/fcntl-linux.h>
 #define LINUX_O_ACCMODE 0003
 #define LINUX_O_RDONLY 00
