@@ -1,3 +1,4 @@
+#include <emulation/linux/elfcalls_wrapper.h>
 #include <linux-syscalls/linux.h>
 #include "tls.h"
 
@@ -39,7 +40,7 @@ void sys_thread_set_tsd_base(void* ptr, int unk)
 	entry_number = desc.entry_number;
 	__asm__ ("movl %0, %%fs" :: "r" (desc.entry_number*8 + 3));
 #elif defined(__arm64__)
-	__asm__ ("msr TPIDR_EL0, %0" :: "r" (ptr));
+	__darling_thread_set_tsd(ptr);
 #else
 #error "Missing sys_thread_set_tsd_base implementation for arch"
 #endif
