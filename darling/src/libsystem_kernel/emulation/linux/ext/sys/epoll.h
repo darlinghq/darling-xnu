@@ -30,6 +30,8 @@ enum EPOLL_EVENTS
 
 #if defined(__x86_64__) || defined(__i386__)
 #define __EPOLL_PACKED __attribute__ ((__packed__))
+#elif defined(__arm64__)
+#define __EPOLL_PACKED
 #else
 #error "Missing __EPOLL_PACKED definition for arch"
 #endif
