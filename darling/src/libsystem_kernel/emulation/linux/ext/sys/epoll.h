@@ -28,6 +28,12 @@ enum EPOLL_EVENTS
 #define EPOLL_CTL_DEL 2
 #define EPOLL_CTL_MOD 3
 
+#if defined(__x86_64__) || defined(__i386__)
+#define __EPOLL_PACKED __attribute__ ((__packed__))
+#else
+#error "Missing __EPOLL_PACKED definition for arch"
+#endif
+
 typedef union epoll_data
 {
 	void *ptr;
@@ -40,7 +46,7 @@ struct epoll_event
 {
 	uint32_t events;
 	epoll_data_t data;
-} __attribute__((packed));
+} __EPOLL_PACKED;
 
 extern int epoll_create (int __size) __THROW;
 
