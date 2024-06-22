@@ -156,6 +156,10 @@ MI_ENTRY_POINT(___fork)
 	mov		x16, #SYS_fork				// Syscall code
 #ifdef DARLING
 	bl		__darling_handle_svc
+	mov		x1, #0						// The fork syscall in XNU seems to always set the second return
+										// value to 0 (parent return). See [xnu]/bsd/kern/kern_fork.c 
+										// for details.
+	cmn		x0, #4095					// Check if result is negative
 #else
 	svc		#SWI_SYSCALL				// Trap to kernel
 #endif
@@ -170,6 +174,9 @@ MI_ENTRY_POINT(___fork)
 	ARM64_STACK_EPILOG
 
 Lbotch:
+#ifdef DARLING
+	neg		x0, x0						// errno must be positive
+#endif
 	MI_CALL_EXTERNAL(_cerror)			// Handle error
 	mov		w0, #-1						// Return value is -1
 Lparent:

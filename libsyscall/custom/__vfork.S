@@ -234,6 +234,11 @@ Ltry_set_vfork:
 #ifdef DARLING
 	PUSH_FRAME
 	bl		__darling_handle_svc
+	cmp		x0, #0				// if (x0 == 0) { x1 = 1 /* child flag */ }
+    cset	x1, eq				// else { x1 = 0 /* parent flag */}
+								// See [xnu]/bsd/kern/kern_fork.c for more details
+								// on the x1 values.
+	cmn		x0, #4095			// Check if result is negative
 	POP_FRAME
 #else
 	svc		#SWI_SYSCALL
@@ -248,6 +253,9 @@ Ltry_set_vfork:
 	// Error case
 Lbotch:
 	PUSH_FRAME
+#ifdef DARLING
+	neg 	x0, x0				// errno must be positive
+#endif
 	bl 		_cerror				// Update errno
 	mov		w0, #-1				// Set return value
 	MI_GET_ADDRESS(x9, __current_pid) // Reload current pid address
