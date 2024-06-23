@@ -42,7 +42,7 @@ struct linux_stat {
 	unsigned long long      st_ino;
 };
 
-#else
+#elif defined(__x86_64__)
 
 typedef unsigned long long __kernel_ulong_t;
 typedef long long __kernel_long_t;
@@ -77,6 +77,50 @@ struct linux_stat {
 	__kernel_long_t         __unused_var[3];
 };
 
+#elif defined(__arm64__)
+
+typedef unsigned long int __linux_dev_t;
+typedef unsigned long int __linux_ino64_t;
+typedef unsigned int __linux_mode_t;
+typedef unsigned int __linux_nlink_t;
+typedef unsigned int __linux_uid_t;
+typedef unsigned int __linux_gid_t;
+typedef long int __linux_off64_t;
+typedef int __linux_blksize_t;
+typedef long int __linux_blkcnt64_t;
+typedef long int __linux_time_t;
+
+#ifdef st_atime
+#	undef st_atime
+#	undef st_mtime
+#	undef st_ctime
+#endif
+
+struct linux_stat
+  {
+    __linux_dev_t st_dev;
+    __linux_ino64_t st_ino;
+    __linux_mode_t st_mode;
+    __linux_nlink_t st_nlink;
+    __linux_uid_t st_uid;
+    __linux_gid_t st_gid;
+    __linux_dev_t st_rdev;
+    __linux_dev_t __pad1;
+    __linux_off64_t st_size;
+    __linux_blksize_t st_blksize;
+    int __pad2;
+    __linux_blkcnt64_t st_blocks;
+    __linux_time_t st_atime;
+    unsigned long int st_atime_nsec;
+    __linux_time_t st_mtime;
+    unsigned long int st_mtime_nsec;
+    __linux_time_t st_ctime;
+    unsigned long int st_ctime_nsec;
+    int __glibc_reserved[2];
+  };
+
+#else
+#error "Missing stat for arch"
 #endif
 
 struct bsd_statfs

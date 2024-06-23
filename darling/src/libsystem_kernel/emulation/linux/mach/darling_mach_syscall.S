@@ -2,6 +2,29 @@
 .globl __darling_mach_syscall
 .private_extern __darling_mach_syscall
 
+// To better understand how XTRACE_RESERVED_SPACE
+// works, I recommend looking at `src/xtrace/xtracelib.c`
+// for details.
+#if defined(__x86_64__)
+.macro XTRACE_RESERVED_SPACE
+	.space 13, 0x90
+.endmacro
+
+#elif defined(__i386__)
+.macro XTRACE_RESERVED_SPACE
+	.space 7, 0x90
+.endmacro
+
+#elif defined(__arm64__)
+.macro XTRACE_RESERVED_SPACE
+	nop ; movk
+	nop ; movk
+	nop ; movk
+	nop ; movk
+	nop ; blr
+.endmacro
+#endif
+
 #if defined(__x86_64__)
 
 __darling_mach_syscall:
@@ -10,7 +33,7 @@ __darling_mach_syscall:
 	negl	%eax
 Lpositive:
 Lentry_hook:
-	.space 13, 0x90
+	XTRACE_RESERVED_SPACE
 	movq    ___mach_syscall_table@GOTPCREL(%rip), %r10
 	movq	(%r10,%rax,8), %r10
 	test	%r10, %r10
@@ -24,7 +47,7 @@ Lentry_hook:
 	addq	$16, %rsp
 .std_ret:
 Lexit_hook:
-	.space 13, 0x90
+	XTRACE_RESERVED_SPACE
 	ret
 .no_sys:
 	movq	%rax, %rdi
@@ -51,7 +74,7 @@ __darling_mach_syscall:
 	negl	%eax
 Lpositive:
 Lentry_hook:
-	.space 7, 0x90
+	XTRACE_RESERVED_SPACE
 	calll	1f
 1:
 	popl	%ecx
@@ -82,7 +105,7 @@ Lentry_hook:
 	addl	$56, %esp
 .std_ret:
 Lexit_hook:
-	.space 7, 0x90
+	XTRACE_RESERVED_SPACE
 	ret
 .no_sys:
 	pushl	%ecx
@@ -106,6 +129,50 @@ __darling_mach_syscall_exit:
 
 .subsections_via_symbols
 
+#elif defined(__arm64__)
+
+.balign 4
+__darling_mach_syscall:
+	stp fp, lr, [sp, #-16]!
+	mov fp, sp
+
+Lentry_hook:
+	XTRACE_RESERVED_SPACE
+
+	// void* x9 = &__mach_syscall_table 
+	adrp	x9, ___mach_syscall_table@PAGE
+	add		x9, x9, ___mach_syscall_table@PAGEOFF
+
+	neg		x10, x16				// Convert negative syscall number to positive 
+	ldr     x10, [x9, x10, lsl #3]	// x10 = __mach_syscall_table[x10]
+
+	// If x9 is null
+	cbz		x10, mach_no_syscall
+
+	// x10(...)
+	blr		x10
+	b		mach_return
+
+mach_no_syscall:
+	mov		x0, x16
+	bl		___unknown_mach_syscall
+
+mach_return:
+Lexit_hook:
+	XTRACE_RESERVED_SPACE
+
+	ldp fp, lr, [sp], #16
+	ret
+
+
+.section        __DATA,__data
+.globl __darling_mach_syscall_entry
+.globl __darling_mach_syscall_exit
+
+__darling_mach_syscall_entry:
+	.long Lentry_hook
+__darling_mach_syscall_exit:
+	.long Lexit_hook
 #else
 #	error Missing assembly
 #endif

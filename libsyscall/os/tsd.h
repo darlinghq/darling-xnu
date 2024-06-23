@@ -53,7 +53,9 @@
 #endif
 
 #ifdef DARLING
+#include <darling/emulation/linux/elfcalls_wrapper.h>
 #include <darling/emulation/linux-syscalls.h>
+#include <darling/emulation/base.h>
 #endif
 
 extern void _thread_set_tsd_base(void *tsd_base);
@@ -63,10 +65,8 @@ static __inline__ unsigned int
 _os_cpu_number(void)
 {
 #ifdef DARLING
-	extern int __linux_syscall(int nr, ...);
-
 	unsigned int cpu_num = 0;
-	int status = __linux_syscall(__NR_getcpu, &cpu_num, 0, 0, 0, 0, 0);
+	int status = __linux_syscall_3args(__NR_getcpu, (long)&cpu_num, 0, 0);
 	// should we even check? i don't think it's possible for it to fail with these arguments
 	if (status < 0) {
 		return 0; // i guess?
@@ -146,8 +146,12 @@ _os_tsd_get_base(void)
 	/* lower 2-bits contain CPU number */
 #elif defined(__arm64__)
 	uint64_t tsd;
+#ifdef DARLING
+	tsd = (uint64_t)__darling_thread_get_tsd();
+#else
 	__asm__("mrs %0, TPIDRRO_EL0\n"
                 "bic %0, %0, #0x7\n" : "=r" (tsd));
+#endif
 	/* lower 3-bits contain CPU number */
 #endif
 
@@ -221,10 +225,21 @@ _os_ptr_munge(uintptr_t ptr)
 
 #elif defined(__arm64__)
 
+#ifdef DARLING
+#define _OS_PTR_MUNGE_TOKEN(_reg, _token) \
+	stp fp, lr, [sp, #-16]! %% \
+	mov fp, sp %% \
+	bl ___darling_thread_get_tsd %% \
+	ldp fp, lr, [sp], #16 %% \
+	mov _reg, x0 %% \
+	and	_reg, _reg, #~0x7 %% \
+	ldr	_token, [ _reg,  #_OS_TSD_OFFSET(__TSD_PTR_MUNGE) ]
+#else
 #define _OS_PTR_MUNGE_TOKEN(_reg, _token) \
 	mrs _reg, TPIDRRO_EL0 %% \
 	and	_reg, _reg, #~0x7 %% \
 	ldr	_token, [ _reg,  #_OS_TSD_OFFSET(__TSD_PTR_MUNGE) ]
+#endif
 
 #endif // defined(__arm64__)
 

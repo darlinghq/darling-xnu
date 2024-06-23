@@ -1,6 +1,7 @@
 #ifndef LINUX_SIGALTSTACK_H
 #define LINUX_SIGALTSTACK_H
 
+// [xnu]/bsd/sys/signal.h (based on `struct user64_sigaltstack`?)
 struct bsd_stack
 {
 	void* ss_sp;
@@ -8,6 +9,7 @@ struct bsd_stack
 	int ss_flags;
 };
 
+// /usr/include/asm-generic/signal.h (based on `typedef struct sigaltstack {...} stack_t`)
 struct linux_stack
 {
 	void* ss_sp;

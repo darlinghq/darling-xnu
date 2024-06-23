@@ -1,6 +1,7 @@
 #include "select.h"
 #include "../base.h"
 #include "../errno.h"
+#include "pselect.h"
 #include <stddef.h>
 #include <linux-syscalls/linux.h>
 #include "../bsdthread/cancelable.h"

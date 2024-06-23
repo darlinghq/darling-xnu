@@ -2,11 +2,35 @@
 .globl __darling_bsd_syscall
 .private_extern __darling_bsd_syscall
 
+// To better understand how XTRACE_RESERVED_SPACE
+// works, I recommend looking at `src/xtrace/xtracelib.c`
+// for details.
+#if defined(__x86_64__)
+.macro XTRACE_RESERVED_SPACE
+	.space 13, 0x90
+.endmacro
+
+#elif defined( __i386__)
+.macro XTRACE_RESERVED_SPACE
+	.space 7, 0x90
+.endmacro
+
+#elif defined(__arm64__)
+.macro XTRACE_RESERVED_SPACE
+	nop ; movk
+	nop ; movk
+	nop ; movk
+	nop ; movk
+	nop ; blr
+.endmacro
+
+#endif
+
 #if defined(__x86_64__)
 
 __darling_bsd_syscall:
 Lentry_hook:
-	.space 13, 0x90
+	XTRACE_RESERVED_SPACE
 	movq    ___bsd_syscall_table@GOTPCREL(%rip), %r10
 	movq	(%r10,%rax,8), %r10
 	test	%r10, %r10
@@ -20,7 +44,7 @@ Lentry_hook:
 	addq	$16, %rsp
 .std_ret:
 Lexit_hook:
-	.space 13, 0x90
+	XTRACE_RESERVED_SPACE
 	ret
 .no_sys:
 	movq	%rax, %rdi
@@ -43,7 +67,7 @@ __darling_bsd_syscall_exit:
 
 __darling_bsd_syscall:
 Lentry_hook:
-	.space 7, 0x90
+	XTRACE_RESERVED_SPACE
 	calll	1f
 1:
 	popl	%ecx
@@ -73,7 +97,7 @@ Lentry_hook:
 	addl	$56, %esp
 .std_ret:
 Lexit_hook:
-	.space 7, 0x90
+	XTRACE_RESERVED_SPACE
 	ret
 .no_sys:
 	pushl	%ecx
@@ -95,6 +119,134 @@ __darling_bsd_syscall_exit:
 	.long Lexit_hook
 
 .subsections_via_symbols
+
+#elif defined(__arm64__)
+
+// On ARM64, the syscall number lives in x16
+.globl __darling_handle_svc
+.balign 4
+__darling_handle_svc:
+	stp fp, lr, [sp, #-16]!
+	mov fp, sp
+
+	// if (trap_no == 0x80000000)
+	mov w9, 0x80000000
+	cmp w16, w9
+	b.ne not_platform_syscall
+
+	bl __darling_platform_syscall
+	// Apple's code throw an exception, but does it make sense to implement that here...
+	b darling_svc_return
+
+not_platform_syscall:
+	// if (trap_no < 0) {
+	cmp x16, #0
+	b.pl trap_no_is_positive_or_zero_branch
+
+		// if (trap_no == -3)
+		cmn w8, #3
+		b.eq mach_absolute_time_trap_branch
+		// else if (trap_no == -4)
+		cmn	w8, #4
+		b.eq mach_continuous_time_trap_branch
+		// else
+		b darling_mach_syscall_branch
+
+	mach_absolute_time_trap_branch:
+		// Call mach_approximate_time() and return
+		bl _mach_approximate_time
+		b darling_svc_return
+		
+	mach_continuous_time_trap_branch:
+		// Call mach_continuous_time() and return
+		bl _mach_continuous_time
+		b darling_svc_return
+	
+	darling_mach_syscall_branch:
+		// Call mach syscalls and return 
+		bl __darling_mach_syscall
+		b darling_svc_return
+
+trap_no_is_positive_or_zero_branch:
+	// Call UNIX syscalls
+	bl __darling_bsd_syscall
+darling_svc_return:
+	ldp fp, lr, [sp], #16
+	ret
+
+
+__darling_bsd_syscall:
+	stp fp, lr, [sp, #-16]!
+	mov fp, sp
+
+Lentry_hook:
+	XTRACE_RESERVED_SPACE
+
+	// void* x9 = &__bsd_syscall_table 
+	adrp	x9, ___bsd_syscall_table@PAGE
+	add		x9, x9, ___bsd_syscall_table@PAGEOFF
+	
+	// void* x9 = __bsd_syscall_table[x16]
+	ldr     x9, [x9, x16, lsl #3]
+	
+	// If x9 is null
+	cbz		x9, bsd_no_syscall
+
+	// x9(...)
+	blr		x9
+	b		bsd_return
+
+bsd_no_syscall:
+	mov		x0, x16
+	bl		___unknown_syscall
+	
+bsd_return: 
+Lexit_hook:
+	XTRACE_RESERVED_SPACE
+
+	ldp fp, lr, [sp], #16
+	ret
+
+
+__darling_platform_syscall:
+	stp fp, lr, [sp, #-16]!
+	mov fp, sp
+
+Lentry_hook_platform:
+	XTRACE_RESERVED_SPACE
+
+	cmp x3, #2
+	b.ne dont_set_tpidr
+		bl ___darling_thread_set_tsd
+		b return_platform_syscall
+
+dont_set_tpidr:
+	cmp x3, #3
+	b.ne dont_get_tpidr
+		bl ___darling_thread_get_tsd
+
+return_platform_syscall:
+dont_get_tpidr:
+Lexit_hook_platform:
+	XTRACE_RESERVED_SPACE
+
+	ldp fp, lr, [sp], #16
+	ret
+
+.section        __DATA,__data
+.globl __darling_bsd_syscall_entry
+.globl __darling_bsd_syscall_exit
+__darling_bsd_syscall_entry:
+	.quad Lentry_hook
+__darling_bsd_syscall_exit:
+	.quad Lexit_hook
+
+.globl __darling_platform_syscall_entry
+.globl __darling_platform_syscall_exit
+__darling_platform_syscall_entry:
+	.quad Lentry_hook_platform
+__darling_platform_syscall_exit:
+	.quad Lexit_hook_platform
 
 #else
 #	error Missing assembly

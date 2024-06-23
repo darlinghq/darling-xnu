@@ -2,12 +2,6 @@
 #define LINUX_EPOLL_H
 #include <stdint.h>
 
-#define epoll_create	__linux_epoll_create
-#define epoll_create1	__linux_epoll_create1
-#define epoll_ctl		__linux_epoll_ctl
-#define epoll_wait		__linux_epoll_wait
-#define epoll_pwait		__linux_epoll_pwait
-
 #ifndef __THROW
 #	define __THROW
 #endif
@@ -34,6 +28,14 @@ enum EPOLL_EVENTS
 #define EPOLL_CTL_DEL 2
 #define EPOLL_CTL_MOD 3
 
+#if defined(__x86_64__) || defined(__i386__)
+#define __EPOLL_PACKED __attribute__ ((__packed__))
+#elif defined(__arm64__)
+#define __EPOLL_PACKED
+#else
+#error "Missing __EPOLL_PACKED definition for arch"
+#endif
+
 typedef union epoll_data
 {
 	void *ptr;
@@ -46,9 +48,11 @@ struct epoll_event
 {
 	uint32_t events;
 	epoll_data_t data;
-} __attribute__((packed));
+} __EPOLL_PACKED;
 
 extern int epoll_create (int __size) __THROW;
+
+extern int epoll_create1 (int __flags);
 
 extern int epoll_ctl (int __epfd, int __op, int __fd,
 						struct epoll_event *__event) __THROW;

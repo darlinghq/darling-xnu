@@ -475,6 +475,29 @@ pseudo:									;\
  * TBD
  */
 
+#ifdef DARLING
+// Changes compared to Apple's implementation:
+//   * Replace `svc` instruction by calling `__darling_handle_svc` (as a 
+//     consequence, an additional `PUSH_FRAME` and `POP_FRAME` has been
+//     added)
+//   * Set the carry flag, by using the `cmn` instruction.
+//   * Convert the negative error code into a positive error code before
+//     calling `cerror` (errno must be a positive integer).
+#define DO_SYSCALL(num, cerror)                 \
+	mov   x16, #(num)                     %%\
+	PUSH_FRAME                            %%\
+	bl    __darling_handle_svc            %%\
+	POP_FRAME                             %%\
+	cmn x0, #4095                         %%\
+	b.cc  2f                              %%\
+	ARM64_STACK_PROLOG                    %%\
+	PUSH_FRAME                            %%\
+	neg x0, x0                            %%\
+	bl    _##cerror                       %%\
+	POP_FRAME                             %%\
+	ARM64_STACK_EPILOG                    %%\
+2:
+#else
 #define DO_SYSCALL(num, cerror)                 \
 	mov   x16, #(num)                     %%\
 	svc   #SWI_SYSCALL                    %%\
@@ -485,6 +508,7 @@ pseudo:									;\
 	POP_FRAME                             %%\
 	ARM64_STACK_EPILOG                    %%\
 2:
+#endif
 
 #define MI_GET_ADDRESS(reg,var)  \
    adrp	reg, var@page      %%\

@@ -106,7 +106,23 @@
 #elif defined(__arm64__)
 
 #include <mach/machine/vm_param.h>
+#ifdef DARLING
+// For PUSH_FRAME & POP_FRAME
+#include <mach/arm64/asm.h>
+#endif
 
+#ifdef DARLING
+#define kernel_trap(trap_name, trap_number, num_args) \
+.globl _##trap_name                                           %% \
+.text                                                         %% \
+.align  2                                                     %% \
+_##trap_name:                                                 %% \
+	PUSH_FRAME                                                %% \
+    mov x16, #(trap_number)                                   %% \
+    bl	__darling_handle_svc                                  %% \
+	POP_FRAME                                                 %% \
+	ret
+#else
 #define kernel_trap(trap_name, trap_number, num_args) \
 .globl _##trap_name                                           %% \
 .text                                                         %% \
@@ -114,7 +130,8 @@
 _##trap_name:                                                 %% \
     mov x16, #(trap_number)                                   %% \
     svc #SWI_SYSCALL                                          %% \
-    ret
+	ret
+#endif
 
 #else
 #error Unsupported architecture
