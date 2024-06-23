@@ -59,9 +59,20 @@ MI_ENTRY_POINT(___pipe)
 #elif defined(__arm64__)
 
 MI_ENTRY_POINT(___pipe)
+#if DARLING
+	// Dead code due to changes below
+#else
 	mov		x9, x0				// Stash FD array
+#endif
 	SYSCALL_NONAME(pipe, 0, cerror_nocancel)
+#if DARLING
+	// the results are already stored into the fd array,
+	// so we don't need to worry about saving the results
+	// back into the fd array (plus our svc implementation,
+	// overwrites the x9 register anyway).
+#else
 	stp		w0, w1, [x9]		// Save results
+#endif
 	mov		x0, #0				// Success
 	ret							// Done
 
