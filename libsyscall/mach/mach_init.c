@@ -64,7 +64,7 @@
 
 #ifdef DARLING
 #include <darlingserver/rpc.h>
-#include "emulation/linux/duct_errno.h"
+#include <emulation/conversion/errno.h>
 #endif
 
 mach_port_t bootstrap_port = MACH_PORT_NULL;

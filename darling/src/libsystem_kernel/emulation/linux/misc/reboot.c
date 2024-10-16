@@ -1,10 +1,12 @@
 #include "reboot.h"
+
 #include "../base.h"
 #include "../simple.h"
 #include "../errno.h"
-#include "../unistd/exit.h"
 #include <sys/errno.h>
 #include <stddef.h>
+
+#include <emulation/xnu_syscall/bsd/impl/unistd/exit.h>
 
 long sys_reboot(int opt, const char* cmd)
 {

@@ -8,7 +8,7 @@ endif(COMMAND cmake_policy)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-add_subdirectory(emulation/linux)
+add_subdirectory(emulation)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -msse -msse2 -msse3 -w -fblocks -ffreestanding")
 
@@ -41,8 +41,11 @@ add_circular(system_kernel FAT
 		$<TARGET_OBJECTS:libsyscall>
 		$<TARGET_OBJECTS:libsyscall_dynamic>
 		#$<TARGET_OBJECTS:kqueue>
-		$<TARGET_OBJECTS:emulation>
-		$<TARGET_OBJECTS:mach_server_client>
+		$<TARGET_OBJECTS:emulation_common>
+		$<TARGET_OBJECTS:emulation_conversion>
+		$<TARGET_OBJECTS:emulation_darling>
+		$<TARGET_OBJECTS:emulation_linux_api>
+		$<TARGET_OBJECTS:emulation_xnu_syscall>
 	SIBLINGS
 		system_c
 		compiler_rt
@@ -56,15 +59,21 @@ make_fat(system_kernel)
 add_library(system_kernel_static32 STATIC
 	$<TARGET_OBJECTS:libsyscall_32>
 	$<TARGET_OBJECTS:libsyscall>
-	$<TARGET_OBJECTS:emulation_dyld>
-	$<TARGET_OBJECTS:mach_server_client_dyld>
+	$<TARGET_OBJECTS:emulation_common>
+	$<TARGET_OBJECTS:emulation_conversion>
+	$<TARGET_OBJECTS:emulation_darling_dyld>
+	$<TARGET_OBJECTS:emulation_linux_api>
+	$<TARGET_OBJECTS:emulation_xnu_syscall_dyld>
 )
 
 add_library(system_kernel_static64 STATIC
 	$<TARGET_OBJECTS:libsyscall_64>
 	$<TARGET_OBJECTS:libsyscall>
-	$<TARGET_OBJECTS:emulation_dyld>
-	$<TARGET_OBJECTS:mach_server_client_dyld>
+	$<TARGET_OBJECTS:emulation_common>
+	$<TARGET_OBJECTS:emulation_conversion>
+	$<TARGET_OBJECTS:emulation_darling_dyld>
+	$<TARGET_OBJECTS:emulation_linux_api>
+	$<TARGET_OBJECTS:emulation_xnu_syscall_dyld>
 )
 
 target_link_libraries(system_kernel_static32 PRIVATE

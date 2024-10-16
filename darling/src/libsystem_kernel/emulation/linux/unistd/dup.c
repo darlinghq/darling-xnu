@@ -3,10 +3,6 @@
 #include "../errno.h"
 #include <linux-syscalls/linux.h>
 
-__attribute__((weak))
-__attribute__((visibility("default")))
-void kqueue_dup(int oldfd, int newfd) { }
-
 long sys_dup(int fd)
 {
 	int ret;
