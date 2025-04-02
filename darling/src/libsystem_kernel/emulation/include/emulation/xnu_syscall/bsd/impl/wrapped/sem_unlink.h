@@ -1,0 +1,6 @@
+#ifndef DARLING_BSD_EMULATION_SEM_UNLINK_H
+#define DARLING_BSD_EMULATION_SEM_UNLINK_H
+
+long sys_sem_unlink(const char* name);
+
+#endif // DARLING_BSD_EMULATION_SEM_UNLINK_H

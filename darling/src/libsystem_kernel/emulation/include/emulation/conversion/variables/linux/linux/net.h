@@ -1,0 +1,8 @@
+#ifndef DARLING_EMULATION_CONVERSION_LINUX_LINUX_NET_H
+#define DARLING_EMULATION_CONVERSION_LINUX_LINUX_NET_H
+
+#include <emulation/conversion/variables/linux/asm/socket.h>
+
+#define LINUX_SYS_GETSOCKOPT    15
+
+#endif // DARLING_EMULATION_CONVERSION_LINUX_LINUX_NET_H

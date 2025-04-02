@@ -1,0 +1,6 @@
+#ifndef DARLING_EMULATION_CONVERSION_LINUX_SYS_SOCKET_H
+#define DARLING_EMULATION_CONVERSION_LINUX_SYS_SOCKET_H
+
+#include <emulation/conversion/variables/linux/bits/socket.h>
+
+#endif // DARLING_EMULATION_CONVERSION_LINUX_SYS_SOCKET_H

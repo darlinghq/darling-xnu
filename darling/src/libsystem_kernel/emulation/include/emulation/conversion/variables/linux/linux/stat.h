@@ -1,0 +1,12 @@
+#ifndef DARLING_EMULATION_CONVERSION_LINUX_LINUX_STAT_H
+#define DARLING_EMULATION_CONVERSION_LINUX_LINUX_STAT_H
+
+#include <emulation/conversion/variables/linux/linux/types.h>
+
+#define LINUX_S_IFMT    00170000
+// S_IFSOCK
+#define LINUX_S_IFLNK	 0120000
+
+#define LINUX_S_ISLNK(m)	(((m) & LINUX_S_IFMT) == LINUX_S_IFLNK)
+
+#endif // DARLING_EMULATION_CONVERSION_LINUX_LINUX_STAT_H

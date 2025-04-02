@@ -1,1 +1,6 @@
-../../../../linux_api/c_api/sched_yield.h
+#ifndef DARLING_EMULATION_LINUX_API_SCHED_YIELD_H
+#define DARLING_EMULATION_LINUX_API_SCHED_YIELD_H
+
+extern void __linux_sched_yield();
+
+#endif // DARLING_EMULATION_LINUX_API_SCHED_YIELD_H

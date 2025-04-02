@@ -1,0 +1,13 @@
+#ifndef DARLING_EMULATION_CONVERSION_LINUX_ASM_BITSPERLONG_H
+#define DARLING_EMULATION_CONVERSION_LINUX_ASM_BITSPERLONG_H
+
+#if defined(__x86_64__) && !defined(__ILP32__)
+    #define LINUX___BITS_PER_LONG 64
+#elif defined(__i386__)
+    #define LINUX___BITS_PER_LONG 32
+#else
+#error "Missing __BITS_PER_LONG for arch"
+#endif
+
+#endif // DARLING_EMULATION_CONVERSION_LINUX_ASM_BITSPERLONG_H
+

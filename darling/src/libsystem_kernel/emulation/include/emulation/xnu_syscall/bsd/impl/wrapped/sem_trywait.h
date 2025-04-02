@@ -1,0 +1,6 @@
+#ifndef DARLING_BSD_EMULATION_SEM_TRYWAIT_H
+#define DARLING_BSD_EMULATION_SEM_TRYWAIT_H
+
+long sys_sem_trywait(int* sem);
+
+#endif // DARLING_BSD_EMULATION_SEM_TRYWAIT_H

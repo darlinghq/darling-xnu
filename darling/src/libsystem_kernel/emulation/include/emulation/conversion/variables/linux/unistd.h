@@ -1,0 +1,6 @@
+#ifndef DARLING_EMULATION_CONVERSION_LINUX_UNISTD_H
+#define DARLING_EMULATION_CONVERSION_LINUX_UNISTD_H
+
+#include <emulation/conversion/variables/linux/bits/posix_opt.h>
+
+#endif // DARLING_EMULATION_CONVERSION_LINUX_UNISTD_H

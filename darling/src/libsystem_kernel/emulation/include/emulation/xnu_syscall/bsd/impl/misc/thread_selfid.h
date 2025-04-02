@@ -1,1 +1,6 @@
-../../../../../../xnu_syscall/bsd/impl/misc/thread_selfid.h
+#ifndef DARLING_BSD_EMULATION_THREAD_SELFID_H
+#define DARLING_BSD_EMULATION_THREAD_SELFID_H
+
+long sys_thread_selfid(void);
+
+#endif // DARLING_BSD_EMULATION_THREAD_SELFID_H

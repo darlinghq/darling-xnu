@@ -1,0 +1,6 @@
+#ifndef DARLING_BSD_EMULATION_SETGID_H
+#define DARLING_BSD_EMULATION_SETGID_H
+
+long sys_setgid(int gid);
+
+#endif // DARLING_BSD_EMULATION_SETGID_H

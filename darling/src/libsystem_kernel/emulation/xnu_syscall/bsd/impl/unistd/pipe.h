@@ -1,6 +1,0 @@
-#ifndef DARLING_BSD_EMULATION_PIPE_H
-#define DARLING_BSD_EMULATION_PIPE_H
-
-long sys_pipe(int fd[2]);
-
-#endif // DARLING_BSD_EMULATION_PIPE_H

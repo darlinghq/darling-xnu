@@ -14,11 +14,13 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src/libsimple/include
 )
 
+set(DARLING_XNU_EMULATION_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+
 # Some projects may include build time checks for `VARIANT_DYLD`. It's important that
 # those projects also have a `*_dyld` varient as well.
 
-add_subdirectory(common)
-add_subdirectory(conversion)
-add_subdirectory(darling)
-add_subdirectory(linux_api)
-add_subdirectory(xnu_syscall)
+add_subdirectory(src/common)
+add_subdirectory(src/conversion)
+add_subdirectory(src/darling)
+add_subdirectory(src/linux_api)
+add_subdirectory(src/xnu_syscall)

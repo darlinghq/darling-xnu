@@ -1,0 +1,7 @@
+#ifndef DARLING_BSD_EMULATION_FCHDIR_H
+#define DARLING_BSD_EMULATION_FCHDIR_H
+
+long sys_fchdir(int fd);
+
+#endif // DARLING_BSD_EMULATION_FCHDIR_H
+

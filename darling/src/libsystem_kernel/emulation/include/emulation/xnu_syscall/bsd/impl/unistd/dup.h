@@ -1,0 +1,6 @@
+#ifndef DARLING_BSD_EMULATION_DUP_H
+#define DARLING_BSD_EMULATION_DUP_H
+
+long sys_dup(int fd);
+
+#endif // DARLING_BSD_EMULATION_DUP_H

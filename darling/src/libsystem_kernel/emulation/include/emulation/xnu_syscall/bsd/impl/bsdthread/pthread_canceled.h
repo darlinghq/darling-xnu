@@ -1,1 +1,6 @@
-../../../../../../xnu_syscall/bsd/impl/bsdthread/pthread_canceled.h
+#ifndef DARLING_BSD_EMULATION_PTHREAD_CANCELED_H
+#define DARLING_BSD_EMULATION_PTHREAD_CANCELED_H
+
+long sys_pthread_canceled(int action);
+
+#endif // DARLING_BSD_EMULATION_PTHREAD_CANCELED_H

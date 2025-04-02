@@ -1,0 +1,6 @@
+#ifndef DARLING_BSD_EMULATION_SETUID_H
+#define DARLING_BSD_EMULATION_SETUID_H
+
+long sys_setuid(int uid);
+
+#endif // DARLING_BSD_EMULATION_SETUID_H

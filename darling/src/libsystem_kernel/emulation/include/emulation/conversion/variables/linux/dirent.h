@@ -1,0 +1,6 @@
+#ifndef DARLING_EMULATION_CONVERSION_LINUX_DIRENT_H
+#define DARLING_EMULATION_CONVERSION_LINUX_DIRENT_H
+
+#include <emulation/conversion/variables/linux/bits/dirent.h>
+
+#endif // DARLING_EMULATION_CONVERSION_LINUX_DIRENT_H

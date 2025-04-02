@@ -1,0 +1,6 @@
+#ifndef DARLING_BSD_EMULATION_FORK_H
+#define DARLING_BSD_EMULATION_FORK_H
+
+long sys_fork(void);
+
+#endif // DARLING_BSD_EMULATION_FORK_H

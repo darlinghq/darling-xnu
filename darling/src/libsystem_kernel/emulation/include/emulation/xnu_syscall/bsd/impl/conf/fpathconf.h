@@ -1,0 +1,6 @@
+#ifndef DARLING_BSD_EMULATION_FPATHCONF_H
+#define DARLING_BSD_EMULATION_FPATHCONF_H
+
+long sys_fpathconf(int fd, int name);
+
+#endif // DARLING_BSD_EMULATION_FPATHCONF_H

@@ -1,0 +1,8 @@
+#ifndef DARLING_EMULATION_CONVERSION_LINUX_ASM_MMAN_H
+#define DARLING_EMULATION_CONVERSION_LINUX_ASM_MMAN_H
+
+#define LINUX_MAP_32BIT 0x40
+
+#include <emulation/conversion/variables/linux/asm-generic/mman.h>
+
+#endif // DARLING_EMULATION_CONVERSION_LINUX_ASM_MMAN_H

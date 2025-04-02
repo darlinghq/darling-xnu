@@ -1,0 +1,6 @@
+#ifndef DARLING_BSD_EMULATION_SEM_CLOSE_H
+#define DARLING_BSD_EMULATION_SEM_CLOSE_H
+
+long sys_sem_close(int sem);
+
+#endif // DARLING_BSD_EMULATION_SEM_CLOSE_H

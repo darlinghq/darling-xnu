@@ -1,0 +1,6 @@
+#ifndef DARLING_BSD_EMULATION_SEM_POST_H
+#define DARLING_BSD_EMULATION_SEM_POST_H
+
+long sys_sem_post(int* sem);
+
+#endif // DARLING_BSD_EMULATION_SEM_POST_H

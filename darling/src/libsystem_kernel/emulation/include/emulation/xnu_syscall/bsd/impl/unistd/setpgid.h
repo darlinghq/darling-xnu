@@ -1,0 +1,6 @@
+#ifndef DARLING_BSD_EMULATION_SETPGID_H
+#define DARLING_BSD_EMULATION_SETPGID_H
+
+long sys_setpgid(int pid, int pgid);
+
+#endif // DARLING_BSD_EMULATION_SETPGID_H

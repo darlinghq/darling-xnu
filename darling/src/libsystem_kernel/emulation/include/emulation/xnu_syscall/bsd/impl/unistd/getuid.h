@@ -1,1 +1,6 @@
-../../../../../../xnu_syscall/bsd/impl/unistd/getuid.h
+#ifndef DARLING_BSD_EMULATION_GETUID_H
+#define DARLING_BSD_EMULATION_GETUID_H
+
+long sys_getuid(void);
+
+#endif // DARLING_BSD_EMULATION_GETUID_H

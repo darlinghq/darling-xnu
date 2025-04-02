@@ -1,0 +1,6 @@
+#ifndef DARLING_EMULATION_SHARED_AT_H
+#define DARLING_EMULATION_SHARED_AT_H
+
+int atfd(int fd);
+
+#endif // DARLING_EMULATION_SHARED_AT_H

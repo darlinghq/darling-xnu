@@ -1,1 +1,6 @@
-../../../../../../xnu_syscall/bsd/impl/unistd/getpid.h
+#ifndef DARLING_BSD_EMULATION_GETPID_H
+#define DARLING_BSD_EMULATION_GETPID_H
+
+long sys_getpid(void);
+
+#endif // DARLING_BSD_EMULATION_GETPID_H

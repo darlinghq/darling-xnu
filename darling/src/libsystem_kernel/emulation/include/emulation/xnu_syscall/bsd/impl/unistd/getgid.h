@@ -1,1 +1,6 @@
-../../../../../../xnu_syscall/bsd/impl/unistd/getgid.h
+#ifndef DARLING_BSD_EMULATION_GETGID_H
+#define DARLING_BSD_EMULATION_GETGID_H
+
+long sys_getgid(void);
+
+#endif // DARLING_BSD_EMULATION_GETGID_H

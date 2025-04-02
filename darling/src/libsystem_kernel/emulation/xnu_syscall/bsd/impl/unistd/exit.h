@@ -1,6 +1,0 @@
-#ifndef DARLING_BSD_EMULATION_EXIT_H
-#define DARLING_BSD_EMULATION_EXIT_H
-
-long sys_exit(int status);
-
-#endif // DARLING_BSD_EMULATION_EXIT_H
