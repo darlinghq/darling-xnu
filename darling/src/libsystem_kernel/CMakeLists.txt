@@ -8,7 +8,7 @@ endif(COMMAND cmake_policy)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-add_subdirectory(emulation/linux)
+add_subdirectory(emulation)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -msse -msse2 -msse3 -w -fblocks -ffreestanding")
 

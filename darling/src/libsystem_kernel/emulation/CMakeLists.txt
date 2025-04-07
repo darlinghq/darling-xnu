@@ -1,0 +1,335 @@
+project(emulation)
+
+add_subdirectory(src/legacy_path/mach)
+
+cmake_policy(SET CMP0005 NEW)
+enable_language(ASM)
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99 -fvisibility=hidden -fPIC -fno-builtin -ggdb -Wno-int-conversion -Wno-compare-distinct-pointer-types")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -nostdlib")
+
+add_definitions(-DBSDTHREAD_WRAP_LINUX_PTHREAD
+	-DEMULATED_SYSNAME="Darwin"
+	-DEMULATED_RELEASE="20.6.0"
+	-DEMULATED_VERSION="Darwin Kernel Version 20.6.0"
+	-DEMULATED_OSVERSION="20G1120"
+	-DEMULATED_OSPRODUCTVERSION="11.7.4"
+)
+
+# include src/startup for rtsig.h
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/legacy_path/
+	${CMAKE_BINARY_DIR}/src/startup
+	${CMAKE_BINARY_DIR}/src/external/xnu/darling/src/libsystem_kernel/libsyscall
+	${CMAKE_CURRENT_BINARY_DIR}/src/legacy_path
+	${CMAKE_BINARY_DIR}/src/external/darlingserver/include
+	${CMAKE_SOURCE_DIR}/src/external/darlingserver/include
+)
+
+mig(src/legacy_path/signal/mach_exc.defs)
+mig(src/legacy_path/signal/exc.defs)
+
+set(emulation_sources
+	${CMAKE_CURRENT_BINARY_DIR}/src/legacy_path/signal/mach_excUser.c
+	src/legacy_path/elfcalls_wrapper.c
+	src/legacy_path/base.c
+	src/legacy_path/syscalls.c
+	src/legacy_path/simple.c
+	src/legacy_path/errno.c
+	src/legacy_path/readline.c
+	src/legacy_path/common_at.c
+	src/legacy_path/fdpath.c
+	src/legacy_path/wrapped/shm_open.c
+	src/legacy_path/wrapped/shm_unlink.c
+	src/legacy_path/wrapped/sem_open.c
+	src/legacy_path/wrapped/sem_unlink.c
+	src/legacy_path/wrapped/sem_wait.c
+	src/legacy_path/wrapped/sem_trywait.c
+	src/legacy_path/wrapped/sem_close.c
+	src/legacy_path/wrapped/sem_post.c
+	src/legacy_path/guarded/guarded_open_np.c
+	src/legacy_path/guarded/guarded_close_np.c
+	src/legacy_path/guarded/guarded_kqueue_np.c
+	src/legacy_path/guarded/table.c
+	src/legacy_path/machdep/machdeps.c
+	src/legacy_path/machdep/machdep-table.S
+	src/legacy_path/machdep/tls.c
+	src/legacy_path/unistd/write.c
+	src/legacy_path/unistd/read.c
+	src/legacy_path/unistd/pread.c
+	src/legacy_path/unistd/pwrite.c
+	src/legacy_path/unistd/readv.c
+	src/legacy_path/unistd/writev.c
+	src/legacy_path/unistd/flock.c
+	src/legacy_path/unistd/initgroups.c
+	src/legacy_path/mount/unmount.c
+	src/legacy_path/mman/mman.c
+	src/legacy_path/mman/madvise.c
+	src/legacy_path/mman/msync.c
+	src/legacy_path/kqueue/kqueue.c
+	src/legacy_path/kqueue/kevent.c
+	src/legacy_path/kqueue/kevent64.c
+	src/legacy_path/kqueue/kevent_qos.c
+	src/legacy_path/unistd/getsid.c
+	src/legacy_path/unistd/fsync.c
+	src/legacy_path/unistd/sync.c
+	src/legacy_path/unistd/fdatasync.c
+	src/legacy_path/unistd/dup.c
+	src/legacy_path/unistd/dup2.c
+	src/legacy_path/unistd/exit.c
+	src/legacy_path/unistd/close.c
+	src/legacy_path/unistd/fchdir.c
+	src/legacy_path/unistd/fchown.c
+	src/legacy_path/unistd/fchownat.c
+	src/legacy_path/unistd/fchmod.c
+	src/legacy_path/unistd/fchmodat.c
+	src/legacy_path/unistd/getegid.c
+	src/legacy_path/unistd/setgid.c
+	src/legacy_path/unistd/setuid.c
+	src/legacy_path/unistd/settid.c
+	src/legacy_path/unistd/setegid.c
+	src/legacy_path/unistd/seteuid.c
+	src/legacy_path/unistd/setsid.c
+	src/legacy_path/unistd/getuid.c
+	src/legacy_path/unistd/gettid.c
+	src/legacy_path/unistd/geteuid.c
+	src/legacy_path/unistd/getpid.c
+	src/legacy_path/unistd/lseek.c
+	src/legacy_path/unistd/ftruncate.c
+	src/legacy_path/unistd/truncate.c
+	src/legacy_path/unistd/access.c
+	src/legacy_path/unistd/faccessat.c
+	src/legacy_path/unistd/readlink.c
+	src/legacy_path/unistd/readlinkat.c
+	src/legacy_path/unistd/symlink.c
+	src/legacy_path/unistd/symlinkat.c
+	src/legacy_path/unistd/link.c
+	src/legacy_path/unistd/linkat.c
+	src/legacy_path/unistd/unlink.c
+	src/legacy_path/unistd/unlinkat.c
+	src/legacy_path/unistd/chdir.c
+	src/legacy_path/unistd/mknod.c
+	src/legacy_path/unistd/chmod.c
+	src/legacy_path/unistd/chown.c
+	src/legacy_path/unistd/lchown.c
+	src/legacy_path/unistd/umask.c
+	src/legacy_path/unistd/chroot.c
+	src/legacy_path/unistd/getgid.c
+	src/legacy_path/unistd/getppid.c
+	src/legacy_path/unistd/rename.c
+	src/legacy_path/unistd/renameat.c
+	src/legacy_path/unistd/getpgrp.c
+	src/legacy_path/unistd/getdtablesize.c
+	src/legacy_path/unistd/setpgid.c
+	src/legacy_path/unistd/setgroups.c
+	src/legacy_path/unistd/getgroups.c
+	src/legacy_path/unistd/getpgid.c
+	src/legacy_path/unistd/pipe.c
+	src/legacy_path/unistd/chmod_extended.c
+	src/legacy_path/unistd/fchmod_extended.c
+	src/legacy_path/unistd/fchflags.c
+	src/legacy_path/unistd/chflags.c
+	src/legacy_path/unistd/issetugid.c
+	src/legacy_path/select/select.c
+	src/legacy_path/select/pselect.c
+	src/legacy_path/select/poll.c
+	src/legacy_path/process/vfork.c
+	src/legacy_path/process/fork.c
+	src/legacy_path/process/wait4.c
+	src/legacy_path/process/waitid.c
+	src/legacy_path/process/execve.c
+	src/legacy_path/process/posix_spawn.c
+	src/legacy_path/process/getpriority.c
+	src/legacy_path/process/setpriority.c
+	src/legacy_path/signal/duct_signals.c
+	src/legacy_path/signal/kill.c
+	src/legacy_path/signal/sigaltstack.c
+	src/legacy_path/signal/sigaction.c
+	src/legacy_path/signal/sigreturn.c
+	src/legacy_path/signal/sigprocmask.c
+	src/legacy_path/signal/sig_restorer.S
+	src/legacy_path/signal/sigsuspend.c
+	src/legacy_path/signal/sigpending.c
+	src/legacy_path/signal/sigexc.c
+	src/legacy_path/signal/sigwait.c
+	src/legacy_path/misc/ptrace.c
+	src/legacy_path/misc/getentropy.c
+	src/legacy_path/misc/syscall.c
+	src/legacy_path/misc/shared_region_check_np.c
+	src/legacy_path/misc/ioctl.c
+	src/legacy_path/misc/thread_selfid.c
+	src/legacy_path/misc/proc_info.c
+	src/legacy_path/misc/sysctl.c
+	src/legacy_path/misc/sysctl_proc.c
+	src/legacy_path/misc/sysctl_hw.c
+	src/legacy_path/misc/sysctl_kern.c
+	src/legacy_path/misc/sysctl_unspec.c
+	src/legacy_path/misc/sysctl_machdep.c
+	src/legacy_path/misc/sysctl_sysctl.c
+	src/legacy_path/misc/sysctl_net.c
+	src/legacy_path/misc/sysctl_vm.c
+	src/legacy_path/misc/getrlimit.c
+	src/legacy_path/misc/setrlimit.c
+	src/legacy_path/misc/gethostuuid.c
+	src/legacy_path/misc/getrusage.c
+	src/legacy_path/misc/getlogin.c
+	src/legacy_path/misc/setlogin.c
+	src/legacy_path/misc/reboot.c
+	src/legacy_path/misc/iopolicysys.c
+	src/legacy_path/misc/csops.c
+	src/legacy_path/misc/fileport_makeport.c
+	src/legacy_path/misc/fileport_makefd.c
+	src/legacy_path/misc/csrctl.c
+	src/legacy_path/misc/fsgetpath.c
+	src/legacy_path/misc/abort_with_payload.c
+	src/legacy_path/misc/clonefile.c
+	src/legacy_path/fcntl/open.c
+	src/legacy_path/fcntl/openat.c
+	src/legacy_path/fcntl/fcntl.c
+	src/legacy_path/network/socket.c
+	src/legacy_path/network/socketpair.c
+	src/legacy_path/network/connect.c
+	src/legacy_path/network/recvmsg.c
+	src/legacy_path/network/sendmsg.c
+	src/legacy_path/network/duct.c
+	src/legacy_path/network/recvfrom.c
+	src/legacy_path/network/accept.c
+	src/legacy_path/network/getpeername.c
+	src/legacy_path/network/getsockname.c
+	src/legacy_path/network/shutdown.c
+	src/legacy_path/network/getsockopt.c
+	src/legacy_path/network/setsockopt.c
+	src/legacy_path/network/sendto.c
+	src/legacy_path/network/bind.c
+	src/legacy_path/network/listen.c
+	src/legacy_path/stat/fstat.c
+	src/legacy_path/stat/fstatat.c
+	src/legacy_path/stat/lstat.c
+	src/legacy_path/stat/stat.c
+	src/legacy_path/stat/stat64_extended.c
+	src/legacy_path/stat/lstat64_extended.c
+	src/legacy_path/stat/fstat64_extended.c
+	src/legacy_path/stat/getfsstat.c
+	src/legacy_path/stat/statfs.c
+	src/legacy_path/stat/fstatfs.c
+	src/legacy_path/stat/mkdir.c
+	src/legacy_path/stat/mkdirat.c
+	src/legacy_path/stat/mkfifo.c
+	src/legacy_path/stat/rmdir.c
+	src/legacy_path/stat/common.c
+	src/legacy_path/xattr/getattrlistbulk.c
+	src/legacy_path/xattr/getattrlistat.c
+	src/legacy_path/xattr/getattrlist.c
+	src/legacy_path/xattr/fgetattrlist.c
+	src/legacy_path/xattr/setattrlistat.c
+	src/legacy_path/xattr/setattrlist.c
+	src/legacy_path/xattr/fsetattrlist.c
+	src/legacy_path/xattr/listxattr.c
+	src/legacy_path/xattr/flistxattr.c
+	src/legacy_path/xattr/removexattr.c
+	src/legacy_path/xattr/fremovexattr.c
+	src/legacy_path/xattr/getxattr.c
+	src/legacy_path/xattr/fgetxattr.c
+	src/legacy_path/xattr/setxattr.c
+	src/legacy_path/xattr/fsetxattr.c
+	src/legacy_path/synch/semwait_signal.c
+	src/legacy_path/hfs/stub.c
+	src/legacy_path/dirent/getdirentries.c
+	src/legacy_path/time/gettimeofday.c
+	src/legacy_path/time/utimes.c
+	src/legacy_path/time/futimes.c
+	src/legacy_path/time/setitimer.c
+	src/legacy_path/time/getitimer.c
+	src/legacy_path/ioctl/ioctl.c
+	src/legacy_path/ioctl/termios.c
+	src/legacy_path/ioctl/filio.c
+	src/legacy_path/ioctl/socket.c
+	src/legacy_path/ext/sysinfo.c
+	src/legacy_path/ext/uname.c
+	src/legacy_path/ext/nanosleep.c
+	src/legacy_path/ext/epoll_create.c
+	src/legacy_path/ext/epoll_create1.c
+	src/legacy_path/ext/epoll_ctl.c
+	src/legacy_path/ext/epoll_wait.c
+	src/legacy_path/ext/inotify_init.c
+	src/legacy_path/ext/inotify_init1.c
+	src/legacy_path/ext/inotify_add_watch.c
+	src/legacy_path/ext/inotify_rm_watch.c
+	src/legacy_path/ext/eventfd.c
+	src/legacy_path/ext/eventfd_read.c
+	src/legacy_path/ext/eventfd_write.c
+	src/legacy_path/ext/signalfd.c
+	src/legacy_path/ext/timerfd_create.c
+	src/legacy_path/ext/timerfd_settime.c
+	src/legacy_path/ext/timerfd_gettime.c
+	src/legacy_path/ext/clock_nanosleep.c
+	src/legacy_path/ext/clock_gettime.c
+	src/legacy_path/ext/sched_yield.c
+	src/legacy_path/ext/syslog.c
+	src/legacy_path/ext/futex.c
+	src/legacy_path/ext/mremap.c
+	src/legacy_path/ext/file_handle.c
+	src/legacy_path/ext/fanotify.c
+	src/legacy_path/ext/for-xtrace.c
+	src/legacy_path/ext/for-libelfloader.c
+	src/legacy_path/ext/for-libkqueue.c
+	src/legacy_path/bsdthread/bsdthread_register.c
+	src/legacy_path/bsdthread/bsdthread_create.c
+	src/legacy_path/bsdthread/bsdthread_ctl.c
+	src/legacy_path/bsdthread/bsdthread_terminate.c
+	src/legacy_path/bsdthread/disable_threadsignal.c
+	src/legacy_path/bsdthread/workq_kernreturn.c
+	src/legacy_path/bsdthread/workq_open.c
+	src/legacy_path/bsdthread/pthread_kill.c
+	src/legacy_path/bsdthread/pthread_chdir.c
+	src/legacy_path/bsdthread/pthread_fchdir.c
+	src/legacy_path/bsdthread/pthread_markcancel.c
+	src/legacy_path/bsdthread/pthread_canceled.c
+	src/legacy_path/psynch/psynch_rw_rdlock.c
+	src/legacy_path/psynch/psynch_rw_wrlock.c
+	src/legacy_path/psynch/psynch_rw_unlock.c
+	src/legacy_path/psynch/psynch_cvclrprepost.c
+	src/legacy_path/psynch/psynch_mutexwait.c
+	src/legacy_path/psynch/psynch_mutexdrop.c
+	src/legacy_path/psynch/psynch_cvwait.c
+	src/legacy_path/psynch/psynch_cvbroad.c
+	src/legacy_path/psynch/psynch_cvsignal.c
+	src/legacy_path/psynch/ulock_wait.c
+	src/legacy_path/psynch/ulock_wake.c
+	src/legacy_path/sysv_sem/semget.c
+	src/legacy_path/sysv_sem/semctl.c
+	src/legacy_path/sysv_sem/semop.c
+	src/legacy_path/conf/pathconf.c
+	src/legacy_path/conf/fpathconf.c
+	src/legacy_path/audit/audit_session_self.c
+	src/legacy_path/audit/audit_addr.c
+	src/legacy_path/audit/audit_session_join.c
+	src/legacy_path/audit/audit_session_port.c
+	src/legacy_path/vchroot_userspace.c
+	src/legacy_path/syscalls-table.S
+	src/legacy_path/linux-syscall.S
+	src/legacy_path/xtrace-hooks.S
+
+	${CMAKE_BINARY_DIR}/src/external/darlingserver/src/rpc.c
+	src/legacy_path/resources/dserver-rpc-defs.c
+)
+	
+set_source_files_properties(src/legacy_path/signal/duct_signals.c PROPERTIES COMPILE_FLAGS "-nostdinc")
+set_source_files_properties(src/legacy_path/signal/sigexc.c PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/src/legacy_path/signal/exc.h)
+set_source_files_properties(${CMAKE_BINARY_DIR}/src/external/darlingserver/src/rpc.c PROPERTIES
+	GENERATED TRUE
+	COMPILE_FLAGS "-include ${CMAKE_CURRENT_SOURCE_DIR}/include/legacy_path/resources/dserver-rpc-defs.h"
+)
+
+include_directories(
+	${CMAKE_SOURCE_DIR}/src/libsimple/include
+)
+
+add_darling_object_library(emulation ${emulation_sources})
+add_darling_object_library(emulation_dyld ${emulation_sources})
+set_target_properties(emulation_dyld PROPERTIES COMPILE_FLAGS "-ffunction-sections -DVARIANT_DYLD")
+add_dependencies(emulation rtsig_h generate_dserver_rpc_wrappers)
+add_dependencies(emulation_dyld rtsig_h generate_dserver_rpc_wrappers)
+
+make_fat(emulation)
+make_fat(emulation_dyld)
+

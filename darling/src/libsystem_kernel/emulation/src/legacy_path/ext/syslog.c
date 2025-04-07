@@ -1,0 +1,23 @@
+#include <darling/emulation/legacy_path/ext/syslog.h>
+
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+
+extern long cerror(int __err);
+
+VISIBLE
+int __linux_syslog (int type, char* bufp, int len)
+{
+	int rv;
+
+	rv = LINUX_SYSCALL(__NR_syslog, type, bufp, len);
+	if (rv < 0)
+	{
+		cerror(errno_linux_to_bsd(-rv));
+		return -1;
+	}
+
+	return rv;
+}
+

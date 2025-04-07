@@ -63,8 +63,8 @@
 #include "externs.h"
 
 #ifdef DARLING
+#include <darling/emulation/legacy_path/duct_errno.h>
 #include <darlingserver/rpc.h>
-#include "emulation/linux/duct_errno.h"
 #endif
 
 mach_port_t bootstrap_port = MACH_PORT_NULL;
