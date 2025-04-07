@@ -1,8 +1,9 @@
-#include "for-xtrace.h"
-#include "../mman/mman.h"
-#include "../misc/abort_with_payload.h"
-#include "../fcntl/open.h"
-#include "../unistd/close.h"
+#include <darling/emulation/legacy_path/ext/for-xtrace.h>
+
+#include <darling/emulation/legacy_path/mman/mman.h>
+#include <darling/emulation/legacy_path/misc/abort_with_payload.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
 
 VISIBLE
 void* _mmap_for_xtrace(void* start, unsigned long len, int prot, int flags, int fd, long pos) {

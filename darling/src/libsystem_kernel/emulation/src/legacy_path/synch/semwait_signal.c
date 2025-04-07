@@ -1,10 +1,12 @@
-#include "semwait_signal.h"
-#include "../base.h"
+#include <darling/emulation/legacy_path/synch/semwait_signal.h>
+
 #include <sys/errno.h>
-#include "../time/gettimeofday.h"
-#include <linux-syscalls/linux.h>
 #include <stddef.h>
-#include "../bsdthread/cancelable.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/time/gettimeofday.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
 
 typedef int kern_return_t;
 extern kern_return_t semaphore_timedwait_signal_trap(int cond_sem, int mutex_sem, unsigned int tv_sec, unsigned int tv_nsec);

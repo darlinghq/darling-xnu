@@ -1,30 +1,34 @@
+#include <darling/emulation/legacy_path/misc/proc_info.h>
+
 #define PRIVATE 1
-#include "proc_info.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+
 #include <sys/errno.h>
 #include <sys/proc_info.h>
 #include <mach/vm_prot.h>
-#include "../dirent/getdirentries.h"
-#include "../ext/syslog.h"
-#include "../fcntl/open.h"
-#include "../unistd/close.h"
-#include "../unistd/read.h"
-#include "../unistd/readlink.h"
-#include "../unistd/getuid.h"
-#include "../unistd/getgid.h"
-#include "../simple.h"
-#include "../readline.h"
-#include "../elfcalls_wrapper.h"
-#include "../vchroot_expand.h"
 #include <stdbool.h>
 #include <sys/proc.h>
-#include "sysctl_proc.h"
 #include <stddef.h>
-#include "../elfcalls_wrapper.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/dirent/getdirentries.h>
+#include <darling/emulation/legacy_path/ext/syslog.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/unistd/read.h>
+#include <darling/emulation/legacy_path/unistd/readlink.h>
+#include <darling/emulation/legacy_path/unistd/getuid.h>
+#include <darling/emulation/legacy_path/unistd/getgid.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/readline.h>
+#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
+#include <darling/emulation/legacy_path/vchroot_expand.h>
+#include <darling/emulation/legacy_path/misc/sysctl_proc.h>
+#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
+#include <darling/emulation/legacy_path/readline.h>
+
 #include <darlingserver/rpc.h>
-#include "../readline.h"
 
 #define LINUX_PR_SET_NAME 15
 

@@ -1,8 +1,10 @@
-#include "psynch_mutexdrop.h"
-#include "../base.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/psynch/psynch_mutexdrop.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/simple.h>
+
 #include <darlingserver/rpc.h>
-#include "../simple.h"
 
 long sys_psynch_mutexdrop(void* mutex, uint32_t mgen, uint32_t ugen, uint64_t tid, uint32_t flags)
 {

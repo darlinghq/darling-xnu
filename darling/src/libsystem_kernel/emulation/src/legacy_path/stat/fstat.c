@@ -1,8 +1,9 @@
-#include "fstat.h"
-#include "common.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/stat/fstat.h>
+
+#include <darling/emulation/legacy_path/stat/common.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 long sys_fstat(int fd, struct stat* stat)
 {

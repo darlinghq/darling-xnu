@@ -1,17 +1,19 @@
-#include "file_handle.h"
-#include "../errno.h"
-#include "../base.h"
-#include "../vchroot_expand.h"
-#include "../bsdthread/per_thread_wd.h"
-#include "../fcntl/open.h"
-#include "../simple.h"
+#include <darling/emulation/legacy_path/ext/file_handle.h>
+
 #include <sys/errno.h>
-#include "../unistd/close.h"
-#include "../mach/lkm.h"
-#include "../duct_errno.h"
-#include "../unistd/access.h"
-#include <linux-syscalls/linux.h>
 #include <os/lock.h>
+
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/vchroot_expand.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/duct_errno.h>
+#include <darling/emulation/legacy_path/unistd/access.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 extern void free(void* ptr);
 

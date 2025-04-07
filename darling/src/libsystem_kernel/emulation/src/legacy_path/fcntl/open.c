@@ -1,12 +1,13 @@
-#include "open.h"
-#include "openat.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-//#include "../../../../platform-include/sys/fcntl.h"
+#include <darling/emulation/legacy_path/fcntl/open.h>
+
 #include <sys/fcntl.h>
-#include "../bsdthread/per_thread_wd.h"
-#include "../bsdthread/cancelable.h"
+
+#include <darling/emulation/legacy_path/fcntl/openat.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
 
 #ifndef O_NOFOLLOW
 #	define O_NOFOLLOW 0x0100

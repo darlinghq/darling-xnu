@@ -1,17 +1,19 @@
-#include "sigaction.h"
-#include "sigexc.h"
-#include "../base.h"
-#include "../unistd/exit.h"
+#include <darling/emulation/legacy_path/signal/sigexc.h>
+
 #include <stddef.h>
 #include <sys/signal.h>
-#include <linux-syscalls/linux.h>
-#include "sigaltstack.h"
-#include "../mach/lkm.h"
-#include "../../../libsyscall/wrappers/_libkernel_init.h"
 #include <sys/mman.h>
-#include "../mman/mman.h"
-#include "kill.h"
-#include "../simple.h"
+#include <_libkernel_init.h>
+
+#include <darling/emulation/legacy_path/signal/sigaction.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/unistd/exit.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/signal/sigaltstack.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/mman/mman.h>
+#include <darling/emulation/legacy_path/signal/kill.h>
+#include <darling/emulation/legacy_path/simple.h>
 
 #include <darlingserver/rpc.h>
 

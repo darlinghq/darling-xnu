@@ -1,37 +1,36 @@
-#include "posix_spawn.h"
-#include "execve.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "../fcntl/open.h"
-#include "../unistd/read.h"
-#include "../unistd/write.h"
-#include "../unistd/exit.h"
-#include "../unistd/close.h"
-#include "../unistd/pipe.h"
-#include "../unistd/dup2.h"
-#include "../unistd/dup.h"
-#include "../unistd/getuid.h"
-#include "../unistd/getgid.h"
-#include "../unistd/setuid.h"
-#include "../unistd/setgid.h"
-#include "../unistd/setpgid.h"
-#include "../signal/sigprocmask.h"
-#include "../mach/lkm.h"
-#include "../simple.h"
-#include "fork.h"
+#include <darling/emulation/legacy_path/process/posix_spawn.h>
+
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/spawn.h>
-#include "../unistd/chdir.h"
-#include "../unistd/fchdir.h"
-#include "../fcntl/fcntl.h"
-#include "../dirent/getdirentries.h"
-#include "../../../libsyscall/wrappers/_libkernel_init.h"
+#include <sys/fcntl.h>
+#include <_libkernel_init.h>
 
-// for debugging only; remove before committing
-#include "../signal/kill.h"
-#include "../unistd/getpid.h"
+#include <darling/emulation/legacy_path/process/execve.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/unistd/read.h>
+#include <darling/emulation/legacy_path/unistd/write.h>
+#include <darling/emulation/legacy_path/unistd/exit.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/unistd/pipe.h>
+#include <darling/emulation/legacy_path/unistd/dup2.h>
+#include <darling/emulation/legacy_path/unistd/dup.h>
+#include <darling/emulation/legacy_path/unistd/getuid.h>
+#include <darling/emulation/legacy_path/unistd/getgid.h>
+#include <darling/emulation/legacy_path/unistd/setuid.h>
+#include <darling/emulation/legacy_path/unistd/setgid.h>
+#include <darling/emulation/legacy_path/unistd/setpgid.h>
+#include <darling/emulation/legacy_path/signal/sigprocmask.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/process/fork.h>
+#include <darling/emulation/legacy_path/unistd/chdir.h>
+#include <darling/emulation/legacy_path/unistd/fchdir.h>
+#include <darling/emulation/legacy_path/fcntl/fcntl.h>
+#include <darling/emulation/legacy_path/dirent/getdirentries.h>
 
 #include <darlingserver/rpc.h>
 

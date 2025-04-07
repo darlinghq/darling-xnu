@@ -1,14 +1,17 @@
+#include <darling/emulation/legacy_path/misc/sysctl_proc.h>
+
 #include <sys/sysctl.h>
 #include <sys/errno.h>
 #include <stdbool.h>
-#include "../dirent/getdirentries.h"
-#include "../unistd/close.h"
-#include "../unistd/read.h"
-#include "../unistd/getuid.h"
-#include "../unistd/getgid.h"
-#include "../fcntl/open.h"
-#include "../simple.h"
-#include "sysctl_proc.h"
+
+#include <darling/emulation/legacy_path/dirent/getdirentries.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/unistd/read.h>
+#include <darling/emulation/legacy_path/unistd/getuid.h>
+#include <darling/emulation/legacy_path/unistd/getgid.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/simple.h>
+
 #include <darlingserver/rpc.h>
 
 #ifndef isdigit

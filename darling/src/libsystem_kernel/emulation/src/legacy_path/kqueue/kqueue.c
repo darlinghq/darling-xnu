@@ -1,10 +1,12 @@
-#include "kqueue.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/kqueue/kqueue.h>
+
 #include <stddef.h>
 #include <sys/errno.h>
-#include "../simple.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/simple.h>
 
 int __attribute__((weak)) __attribute__((visibility("default"))) kqueue_impl(void)
 {

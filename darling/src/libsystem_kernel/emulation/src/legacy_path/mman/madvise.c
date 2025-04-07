@@ -1,8 +1,10 @@
-#include "madvise.h"
-#include "../errno.h"
-#include "../base.h"
+#include <darling/emulation/legacy_path/mman/madvise.h>
+
 #include <sys/errno.h>
-#include <linux-syscalls/linux.h>
+
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 #define MADV_FREE 5
 #define MADV_FREE_REUSABLE 7

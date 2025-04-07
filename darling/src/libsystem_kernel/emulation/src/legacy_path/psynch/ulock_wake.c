@@ -1,11 +1,13 @@
-#include "ulock_wait.h"
-#include "ulock_wake.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/psynch/ulock_wake.h>
+
 #include <sys/errno.h>
 #include <stdbool.h>
 #include <limits.h>
+
+#include <darling/emulation/legacy_path/psynch/ulock_wait.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 long sys_ulock_wake(uint32_t operation, void* addr, uint64_t wake_value)
 {

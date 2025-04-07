@@ -1,9 +1,10 @@
-#include "../fcntl/fcntl.h"
-#include "./sys/signalfd.h"
-#include "../errno.h"
-#include "../base.h"
-#include "../signal/duct_signals.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/ext/sys/signalfd.h>
+
+#include <darling/emulation/legacy_path/fcntl/fcntl.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/signal/duct_signals.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 extern long cerror(int __err);
 

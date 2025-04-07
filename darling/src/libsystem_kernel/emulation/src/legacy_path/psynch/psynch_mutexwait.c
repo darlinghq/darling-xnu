@@ -1,9 +1,12 @@
-#include "psynch_mutexwait.h"
-#include "../base.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/psynch/psynch_mutexwait.h>
+
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/duct_errno.h>
+
 #include <darlingserver/rpc.h>
-#include "../simple.h"
-#include "../duct_errno.h"
 
 long sys_psynch_mutexwait(void* mutex, uint32_t mgen, uint32_t ugen, uint64_t tid, uint32_t flags)
 {

@@ -1,11 +1,13 @@
-#include "sysctl_vm.h"
-#include "../readline.h"
-#include "../elfcalls_wrapper.h"
-#include "../unistd/close.h"
-#include "../fcntl/open.h"
+#include <darling/emulation/legacy_path/misc/sysctl_vm.h>
+
 #include <errno.h>
-#include "../string.h"
-#include "../simple.h"
+
+#include <darling/emulation/legacy_path/readline.h>
+#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/string.h>
+#include <darling/emulation/legacy_path/simple.h>
 
 #define LINUX_SC_PAGESIZE 30
 

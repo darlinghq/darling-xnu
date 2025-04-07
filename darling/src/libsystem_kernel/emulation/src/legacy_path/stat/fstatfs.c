@@ -1,15 +1,17 @@
-#include "fstatfs.h"
-#include "common.h"
-#include "../base.h"
-#include "../errno.h"
-#include "../simple.h"
-#include "../fcntl/open.h"
-#include "../unistd/close.h"
-#include "../unistd/readlink.h"
-#include "../fdpath.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/stat/fstatfs.h>
+
 #include <stddef.h>
 #include <sys/fcntl.h>
+
+#include <darling/emulation/legacy_path/stat/common.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/unistd/readlink.h>
+#include <darling/emulation/legacy_path/fdpath.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 extern char *strtok_r(char *str, const char *delim, char **saveptr);
 extern __SIZE_TYPE__ strlcpy(char* dst, const char* src, __SIZE_TYPE__ size);

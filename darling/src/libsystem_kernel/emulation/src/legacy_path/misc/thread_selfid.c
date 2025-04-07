@@ -1,7 +1,8 @@
-#include "thread_selfid.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/misc/thread_selfid.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 VISIBLE // made visible for xtrace
 long sys_thread_selfid(void)

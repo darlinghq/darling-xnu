@@ -1,10 +1,12 @@
-#include "socketpair.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/network/socketpair.h>
+
 #include <sys/socket.h>
 #include <sys/errno.h>
-#include "duct.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/network/duct.h>
 
 long sys_socketpair(int domain, int type, int protocol, int sv[2])
 {

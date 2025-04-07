@@ -1,6 +1,8 @@
-#include "readline.h"
+#include <darling/emulation/legacy_path/readline.h>
+
 #include <stddef.h>
-#include "unistd/read.h"
+
+#include <darling/emulation/legacy_path/unistd/read.h>
 
 extern void *memmove(void *dest, const void *src, __SIZE_TYPE__ n);
 extern char* memchr(char* buf, int c, __SIZE_TYPE__ n);

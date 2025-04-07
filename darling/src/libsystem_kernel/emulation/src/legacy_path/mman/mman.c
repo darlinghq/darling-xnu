@@ -1,8 +1,9 @@
-#include "mman.h"
-#include "duct_mman.h"
-#include "../errno.h"
-#include "../base.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/mman/mman.h>
+
+#include <darling/emulation/legacy_path/mman/duct_mman.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 static int prot_bsd_to_linux(int prot)
 {

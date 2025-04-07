@@ -1,11 +1,13 @@
-#include "sigwait.h"
-#include "../base.h"
-#include "../errno.h"
-#include "duct_signals.h"
+#include <darling/emulation/legacy_path/signal/sigwait.h>
+
 #include <stddef.h>
-#include <linux-syscalls/linux.h>
-#include "../bsdthread/cancelable.h"
-#include "sigaction.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/signal/duct_signals.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
+#include <darling/emulation/legacy_path/signal/sigaction.h>
 
 long sys_sigwait(sigset_t* set, int* sig)
 {

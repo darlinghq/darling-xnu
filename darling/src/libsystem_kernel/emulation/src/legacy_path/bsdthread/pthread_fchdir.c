@@ -1,13 +1,16 @@
-#include "pthread_fchdir.h"
-#include "../base.h"
-#include "../errno.h"
+#include <darling/emulation/legacy_path/bsdthread/pthread_fchdir.h>
+
 #include <stddef.h>
-#include "../mach/lkm.h"
-#include "../fcntl/open.h"
-#include "../fcntl/fcntl.h"
-#include "../unistd/close.h"
-#include "../unistd/dup.h"
-#include "per_thread_wd.h"
+#include <sys/fcntl.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/fcntl/fcntl.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/unistd/dup.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
 
 long sys_pthread_fchdir(int newfd)
 {

@@ -1,11 +1,12 @@
-#include "issetugid.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "getuid.h"
-#include "geteuid.h"
-#include "getgid.h"
-#include "getegid.h"
+#include <darling/emulation/legacy_path/unistd/issetugid.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/unistd/getuid.h>
+#include <darling/emulation/legacy_path/unistd/geteuid.h>
+#include <darling/emulation/legacy_path/unistd/getgid.h>
+#include <darling/emulation/legacy_path/unistd/getegid.h>
 
 long sys_issetugid(void)
 {

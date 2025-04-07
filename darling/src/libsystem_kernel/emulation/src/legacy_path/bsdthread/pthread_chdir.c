@@ -1,11 +1,13 @@
-#include "pthread_chdir.h"
-#include "../base.h"
-#include "../errno.h"
+#include <darling/emulation/legacy_path/bsdthread/pthread_chdir.h>
+
 #include <stddef.h>
-#include "../mach/lkm.h"
-#include "../fcntl/open.h"
-#include "../unistd/close.h"
-#include "per_thread_wd.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
 
 long sys_pthread_chdir(const char* path)
 {

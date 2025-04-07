@@ -5,12 +5,14 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include "mach_traps.h"
 #include <mach/mach_init.h>
-#include "../ext/mremap.h"
+
+#include <darling/emulation/legacy_path/mach/mach_traps.h>
+#include <darling/emulation/legacy_path/ext/mremap.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/duct_errno.h>
+
 #include <darlingserver/rpc.h>
-#include "../simple.h"
-#include "../duct_errno.h"
 
 #define UNIMPLEMENTED_TRAP() { char msg[] = "Called unimplemented Mach trap: "; write(2, msg, sizeof(msg)-1); write(2, __FUNCTION__, sizeof(__FUNCTION__)-1); write(2, "\n", 1); }
 

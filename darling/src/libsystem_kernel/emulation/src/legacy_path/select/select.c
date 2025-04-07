@@ -1,9 +1,11 @@
-#include "select.h"
-#include "../base.h"
-#include "../errno.h"
+#include <darling/emulation/legacy_path/select/select.h>
+
 #include <stddef.h>
-#include <linux-syscalls/linux.h>
-#include "../bsdthread/cancelable.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
 
 long sys_select(int nfds, void* rfds, void* wfds, void* efds, struct bsd_timeval* timeout)
 {

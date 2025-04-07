@@ -1,29 +1,31 @@
-#include "workq_kernreturn.h"
-#include "bsdthread_register.h"
-#include "bsdthread_create.h"
-#include "../base.h"
-#include "../errno.h"
+#include <darling/emulation/legacy_path/bsdthread/workq_kernreturn.h>
+
 #include <sys/errno.h>
-#include <linux-syscalls/linux.h>
 #include <stddef.h>
-#include <pthread/tsd_private.h>
-#include "../ext/futex.h"
-#include "../simple.h"
 #include <sys/queue.h>
 #include <os/lock.h>
-#include <elfcalls/threads.h>
-#include "../machdep/tls.h"
-#include "../mach/mach_traps.h"
+#include <pthread/tsd_private.h>
 
 #define __PTHREAD_EXPOSE_INTERNALS__ 1
 #include <pthread/priority_private.h>
 
-// much easier to include than libpthread's `internal.h`
-#include "../../../../../../../../startup/mldr/elfcalls/dthreads.h"
+#include <darling/emulation/legacy_path/bsdthread/bsdthread_register.h>
+#include <darling/emulation/legacy_path/bsdthread/bsdthread_create.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/ext/futex.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/machdep/tls.h>
+#include <darling/emulation/legacy_path/mach/mach_traps.h>
+#include <darling/emulation/legacy_path/guarded/table.h>
+#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
 
+#include <elfcalls/threads.h>
 #include <darlingserver/rpc.h>
-#include "../guarded/table.h"
-#include "../elfcalls_wrapper.h"
+
+// much easier to include than libpthread's `internal.h`
+#include <darling/mldr/elfcalls/dthreads.h>
 
 #define WQ_MAX_THREADS	64
 

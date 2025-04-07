@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include <darling/emulation/base.h>
+#include <darling/emulation/legacy_path/base.h>
 
 VISIBLE
 int _dserver_rpc_kqchan_mach_port_open_4libkqueue(uint32_t port_name, void* receive_buffer, uint64_t receive_buffer_size, uint64_t saved_filter_flags, int* out_socket);

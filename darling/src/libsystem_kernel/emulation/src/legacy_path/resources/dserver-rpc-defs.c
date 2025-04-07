@@ -1,11 +1,12 @@
-#include "dserver-rpc-defs.h"
-#include <darlingserver/rpc.h>
+#include <darling/emulation/legacy_path/resources/dserver-rpc-defs.h>
 
 #include <libsimple/lock.h>
-#include "../fcntl/open.h"
 
-#include "../unistd/pipe.h"
-#include "../unistd/read.h"
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/unistd/pipe.h>
+#include <darling/emulation/legacy_path/unistd/read.h>
+
+#include <darlingserver/rpc.h>
 
 #ifndef DSERVER_RPC_USE_LOG_FILE
 	// CHANGE TO 0 BEFORE COMMITTING

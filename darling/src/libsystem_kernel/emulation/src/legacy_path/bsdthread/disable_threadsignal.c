@@ -1,12 +1,14 @@
-#include "disable_threadsignal.h"
-#include "../base.h"
-#include "../errno.h"
-#include "../signal/duct_signals.h"
-#include "../signal/sigprocmask.h"
+#include <darling/emulation/legacy_path/bsdthread/disable_threadsignal.h>
+
 #include <sys/errno.h>
-#include <linux-syscalls/linux.h>
 #include <stddef.h>
-#include "pthread_canceled.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/signal/duct_signals.h>
+#include <darling/emulation/legacy_path/signal/sigprocmask.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/pthread_canceled.h>
 
 #ifndef SIG_BLOCK
 #	define SIG_BLOCK	1

@@ -1,8 +1,10 @@
-#include "getlogin.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/misc/getlogin.h>
+
 #include <stddef.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 extern char *getenv(const char *name);
 extern unsigned long strlcpy(char* dst, const char* src, unsigned long size);

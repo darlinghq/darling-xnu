@@ -1,14 +1,16 @@
-#include "wait4.h"
-#include "../base.h"
-#include "../errno.h"
-#include "../signal/duct_signals.h"
-#include "../signal/sigexc.h"
-#include "../misc/ptrace.h"
-#include "../mach/lkm.h"
+#include <darling/emulation/legacy_path/process/wait4.h>
+
 #include <sys/signal.h>
 #include <stddef.h>
-#include <linux-syscalls/linux.h>
-#include "../bsdthread/cancelable.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/signal/duct_signals.h>
+#include <darling/emulation/legacy_path/signal/sigexc.h>
+#include <darling/emulation/legacy_path/misc/ptrace.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
 
 extern int getpid(void);
 

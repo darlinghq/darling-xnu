@@ -1,10 +1,12 @@
-#include "pthread_canceled.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/pthread_canceled.h>
+
 #include <stddef.h>
-#include "bsdthread_create.h"
 #include <sys/errno.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/bsdthread_create.h>
 
 #include <darlingserver/rpc.h>
 

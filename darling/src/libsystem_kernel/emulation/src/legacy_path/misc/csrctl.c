@@ -1,7 +1,9 @@
-#include "csrctl.h"
-#include "../duct_errno.h"
+#include <darling/emulation/legacy_path/misc/csrctl.h>
+
 #define PRIVATE
 #include <sys/csr.h>
+
+#include <darling/emulation/legacy_path/duct_errno.h>
 
 long sys_csrctl(uint32_t op, void* useraddr, size_t usersize) {
 	switch (op) {

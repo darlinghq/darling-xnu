@@ -1,8 +1,11 @@
-#include "futimes.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/time/futimes.h>
+
 #include <stddef.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+
 
 long sys_futimes(int fd, struct bsd_timeval* tv)
 {

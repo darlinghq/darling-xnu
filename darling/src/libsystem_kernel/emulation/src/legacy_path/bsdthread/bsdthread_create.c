@@ -1,20 +1,22 @@
-#include "bsdthread_create.h"
-#include "bsdthread_register.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/bsdthread_create.h>
+
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/mman.h>
 #include <sys/errno.h>
-#include "../mman/mman.h"
-#include "../simple.h"
-#include "../elfcalls_wrapper.h"
-#include "../machdep/tls.h"
-#include "../mach/mach_traps.h"
+
+#include <darling/emulation/legacy_path/bsdthread/bsdthread_register.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/mman/mman.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
+#include <darling/emulation/legacy_path/machdep/tls.h>
+#include <darling/emulation/legacy_path/mach/mach_traps.h>
+#include <darling/emulation/legacy_path/guarded/table.h>
 
 #include <darlingserver/rpc.h>
-#include "../guarded/table.h"
 
 extern void *memset(void *s, int c, size_t n);
 

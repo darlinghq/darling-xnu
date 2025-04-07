@@ -1,14 +1,15 @@
-#include "../base.h"
-#include "../errno.h"
-#include <sys/errno.h>
-#include "../common_at.h"
-#include "../vchroot_expand.h"
-#include "../dirent/getdirentries.h"
-#include "../unistd/dup.h"
-#include "../fcntl/open.h"
-#include "../unistd/close.h"
-#include <linux-syscalls/linux.h>
 #include <stddef.h>
+#include <sys/errno.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/common_at.h>
+#include <darling/emulation/legacy_path/vchroot_expand.h>
+#include <darling/emulation/legacy_path/dirent/getdirentries.h>
+#include <darling/emulation/legacy_path/unistd/dup.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 #define ATTR_BIT_MAP_COUNT 5
 

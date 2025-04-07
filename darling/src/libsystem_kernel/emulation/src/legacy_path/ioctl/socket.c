@@ -1,4 +1,5 @@
-#include "socket.h"
+#include <darling/emulation/legacy_path/ioctl/socket.h>
+
 #include <sys/errno.h>
 #include <sys/socket.h>
 #include <ifaddrs.h>

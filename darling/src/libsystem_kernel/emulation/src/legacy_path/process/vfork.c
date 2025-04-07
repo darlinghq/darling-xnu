@@ -1,10 +1,10 @@
-#include "vfork.h"
-#include "../base.h"
-#include "../errno.h"
-#include "../signal/duct_signals.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/process/vfork.h>
 
-#include "fork.h"
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/signal/duct_signals.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/process/fork.h>
 
 long sys_vfork(void)
 {

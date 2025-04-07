@@ -1,8 +1,9 @@
-#include "exit.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "../elfcalls_wrapper.h"
+#include <darling/emulation/legacy_path/unistd/exit.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
 
 long sys_exit(int status)
 {

@@ -1,8 +1,10 @@
-#include "csops.h"
+#include <darling/emulation/legacy_path/misc/csops.h>
+
 #include <stdint.h>
 #include <sys/codesign.h>
-#include "../duct_errno.h"
 #include <strings.h>
+
+#include <darling/emulation/legacy_path/duct_errno.h>
 
 // TODO: actually implement this
 // this is just a dummy implementation for now that returns no actual data for any operation

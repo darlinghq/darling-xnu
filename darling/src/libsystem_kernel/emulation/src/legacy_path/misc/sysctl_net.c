@@ -1,14 +1,16 @@
-#include "sysctl_net.h"
-#include "../network/socket.h"
-#include "../network/duct.h"
-#include "../ioctl/ioctl.h"
-#include "../unistd/close.h"
+#include <darling/emulation/legacy_path/misc/sysctl_net.h>
+
 #include <sys/errno.h>
 #include <net/route.h>
 #include <sys/socket.h>
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <netinet/in.h>
+
+#include <darling/emulation/legacy_path/network/socket.h>
+#include <darling/emulation/legacy_path/network/duct.h>
+#include <darling/emulation/legacy_path/ioctl/ioctl.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
 
 extern void* memset(void* destination, int value, size_t length);
 extern void* memcpy(void* destination, const void* source, size_t n);

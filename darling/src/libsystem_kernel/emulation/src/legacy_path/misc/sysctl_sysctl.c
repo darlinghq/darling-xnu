@@ -1,6 +1,8 @@
-#include "sysctl_sysctl.h"
+#include <darling/emulation/legacy_path/misc/sysctl_sysctl.h>
+
 #include <mach/machine.h>
 #include <sys/errno.h>
+
 #include <darlingserver/rpc.h>
 
 enum {

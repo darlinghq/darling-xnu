@@ -1,8 +1,9 @@
-#include "fileport_makeport.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "../mach/lkm.h"
+#include <darling/emulation/legacy_path/misc/fileport_makeport.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
 
 long sys_fileport_makeport(int fd, int* port)
 {

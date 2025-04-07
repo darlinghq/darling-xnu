@@ -1,13 +1,14 @@
-#include "getxattr.h"
+#include <darling/emulation/legacy_path/xattr/getxattr.h>
+
+#include <sys/errno.h>
 
 extern char* strcpy(char* dst, const char* src);
 
-#include "../base.h"
-#include "../errno.h"
-#include <sys/errno.h>
-#include "../vchroot_expand.h"
-#include "../bsdthread/per_thread_wd.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/vchroot_expand.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 long sys_getxattr(const char* path, const char* name, char* value,
 		unsigned long size, unsigned int pos, int options)

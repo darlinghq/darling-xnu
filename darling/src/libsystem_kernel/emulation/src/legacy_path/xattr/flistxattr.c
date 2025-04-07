@@ -1,12 +1,14 @@
-#include "flistxattr.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "../stat/common.h"
-#include "../fdpath.h"
+#include <darling/emulation/legacy_path/xattr/flistxattr.h>
+
 #include <sys/stat.h>
-#include "../simple.h"
-#include "../common_at.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/stat/common.h>
+#include <darling/emulation/legacy_path/fdpath.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/common_at.h>
 
 #ifdef __NR_fstat64
 	#define STAT_CALL __NR_fstat64

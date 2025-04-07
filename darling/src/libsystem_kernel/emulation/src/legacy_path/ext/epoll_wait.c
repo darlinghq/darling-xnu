@@ -1,8 +1,9 @@
-#include "./sys/epoll.h"
-#include "../errno.h"
-#include "../base.h"
-#include <linux-syscalls/linux.h>
 #include <string.h>
+
+#include <darling/emulation/legacy_path/ext/sys/epoll.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 extern long cerror(int __err);
 

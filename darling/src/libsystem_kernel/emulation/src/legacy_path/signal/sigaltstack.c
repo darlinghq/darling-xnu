@@ -1,8 +1,10 @@
-#include "sigaltstack.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/signal/sigaltstack.h>
+
 #include <stddef.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 long sys_sigaltstack(const struct bsd_stack* ss, struct bsd_stack* oss)
 {

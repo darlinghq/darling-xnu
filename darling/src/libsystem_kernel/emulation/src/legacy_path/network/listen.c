@@ -1,7 +1,8 @@
-#include "listen.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/network/listen.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 void __attribute__((weak)) __attribute__((visibility("default"))) __darling_kqueue_register_listen(int fd) { }
 

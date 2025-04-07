@@ -1,14 +1,16 @@
-#include "bsdthread_terminate.h"
-#include "bsdthread_register.h"
-#include "../base.h"
-#include "../errno.h"
+#include <darling/emulation/legacy_path/bsdthread/bsdthread_terminate.h>
+
 #include <sys/errno.h>
-#include <linux-syscalls/linux.h>
 #include <stddef.h>
 #include <stdint.h>
-#include "../elfcalls_wrapper.h"
-#include "../guarded/table.h"
-#include "../mach/lkm.h"
+
+#include <darling/emulation/legacy_path/bsdthread/bsdthread_register.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
+#include <darling/emulation/legacy_path/guarded/table.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
 
 int bsdthread_terminate_trap(
                 uintptr_t stackaddr,

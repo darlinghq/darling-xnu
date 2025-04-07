@@ -1,5 +1,6 @@
-#include <linux-syscalls/linux.h>
-#include "tls.h"
+#include <darling/emulation/legacy_path/machdep/tls.h>
+
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 #define ARCH_SET_GS	0x1001
 

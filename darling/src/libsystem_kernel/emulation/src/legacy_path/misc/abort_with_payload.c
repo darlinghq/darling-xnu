@@ -1,7 +1,9 @@
-#include "abort_with_payload.h"
-#include "../signal/kill.h"
-#include "../simple.h"
+#include <darling/emulation/legacy_path/misc/abort_with_payload.h>
+
 #include <sys/signal.h>
+
+#include <darling/emulation/legacy_path/signal/kill.h>
+#include <darling/emulation/legacy_path/simple.h>
 
 long sys_abort_with_payload(unsigned int reason_namespace, unsigned long long reason_code, void *payload, unsigned int payload_size, const char *reason_string, unsigned long long reason_flags)
 {

@@ -1,12 +1,14 @@
-#include "mkdirat.h"
-#include "common.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "../common_at.h"
-#include "../vchroot_expand.h"
-#include <mach/lkm.h>
+#include <darling/emulation/legacy_path/stat/mkdirat.h>
+
 #include <sys/errno.h>
+
+#include <darling/emulation/legacy_path/stat/common.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/common_at.h>
+#include <darling/emulation/legacy_path/vchroot_expand.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
 
 extern char* strcpy(char* dst, const char* src);
 

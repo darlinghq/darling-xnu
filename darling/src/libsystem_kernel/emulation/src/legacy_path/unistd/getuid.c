@@ -1,10 +1,13 @@
-#include "getuid.h"
-#include "../base.h"
+#include <darling/emulation/legacy_path/unistd/getuid.h>
+
 #include <stddef.h>
-#include <darlingserver/rpc.h>
-#include "../simple.h"
 #include <libsimple/lock.h>
-#include "../errno.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/errno.h>
+
+#include <darlingserver/rpc.h>
 
 // the UID and GID related calls are called frequently, so making a server call for them each time is expensive.
 // instead, since the server never changes our UID and GID on its own (we're always the ones that tell it to change it),

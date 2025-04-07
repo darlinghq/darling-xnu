@@ -1,9 +1,10 @@
-#include "for-libelfloader.h"
-#include "../base.h"
-#include "../errno.h"
-#include "../bsdthread/cancelable.h"
-#include "../bsdthread/per_thread_wd.h"
-#include "../fcntl/open.h"
+#include <darling/emulation/legacy_path/ext/for-libelfloader.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
 
 VISIBLE
 long _open_for_libelfloader(const char* path, int flags, unsigned int mode) {

@@ -1,18 +1,20 @@
-#include "fork.h"
-#include "../base.h"
-#include "../errno.h"
-#include "../signal/duct_signals.h"
-#include "../bsdthread/per_thread_wd.h"
-#include "../unistd/fchdir.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/process/fork.h>
+
+#include <_libkernel_init.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/signal/duct_signals.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
+#include <darling/emulation/legacy_path/unistd/fchdir.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/guarded/table.h>
 
 #include <darlingserver/rpc.h>
-#include "../simple.h"
-#include "../elfcalls_wrapper.h"
-#include "../mach/lkm.h"
-#include "../unistd/close.h"
-#include "../../../libsyscall/wrappers/_libkernel_init.h"
-#include "../guarded/table.h"
 
 extern _libkernel_functions_t _libkernel_functions;
 

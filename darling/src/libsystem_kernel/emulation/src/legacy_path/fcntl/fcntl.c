@@ -1,12 +1,15 @@
-#include "fcntl.h"
-#include "open.h"
-#include "../base.h"
-#include "../simple.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/fcntl/fcntl.h>
+
 #include <sys/errno.h>
-#include "../bsdthread/cancelable.h"
-#include "../fdpath.h"
+#include <sys/fcntl.h>
+
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
+#include <darling/emulation/legacy_path/fdpath.h>
 
 #ifndef O_NOFOLLOW
 #   define O_NOFOLLOW 0x0100

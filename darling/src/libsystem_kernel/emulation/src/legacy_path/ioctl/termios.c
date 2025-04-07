@@ -1,13 +1,15 @@
-#include "termios.h"
+#include <darling/emulation/legacy_path/ioctl/termios.h>
+
 #include <sys/errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <sys/ioctl_compat.h>
-#include "../simple.h"
 
 #define USE_OLD_TTY
 #include <sys/ioctl_compat.h>
+
+#include <darling/emulation/legacy_path/simple.h>
 
 // Speeds are stored in cflags
 // http://osxr.org/glibc/source/sysdeps/unix/sysv/linux/speed.c?v=glibc-2.13

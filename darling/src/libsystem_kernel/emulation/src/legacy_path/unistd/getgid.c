@@ -1,9 +1,12 @@
-#include "getgid.h"
-#include "../base.h"
+#include <darling/emulation/legacy_path/unistd/getgid.h>
+
 #include <stddef.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/unistd/getuid.h>
+
 #include <darlingserver/rpc.h>
-#include "../simple.h"
-#include "getuid.h"
 
 long sys_getgid(void)
 {

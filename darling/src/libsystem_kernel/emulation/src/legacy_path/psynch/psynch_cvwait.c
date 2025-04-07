@@ -1,9 +1,11 @@
-#include "psynch_cvwait.h"
-#include "../base.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/psynch/psynch_cvwait.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/duct_errno.h>
+
 #include <darlingserver/rpc.h>
-#include "../simple.h"
-#include "../duct_errno.h"
 
 long sys_psynch_cvwait(void* cv, uint64_t cvlsgen, uint32_t cvugen, void * mutex, uint64_t mugen, 
 		uint32_t flags, int64_t sec, uint32_t nsec)

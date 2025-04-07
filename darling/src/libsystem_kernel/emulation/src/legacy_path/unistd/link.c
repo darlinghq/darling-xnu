@@ -1,9 +1,10 @@
-#include "link.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "linkat.h"
-#include "../bsdthread/per_thread_wd.h"
+#include <darling/emulation/legacy_path/unistd/link.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/unistd/linkat.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
 
 long sys_link(const char* path, const char* link)
 {

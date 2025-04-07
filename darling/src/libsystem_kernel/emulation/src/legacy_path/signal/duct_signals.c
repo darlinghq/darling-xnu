@@ -1,4 +1,4 @@
-#include "duct_signals.h"
+#include <darling/emulation/legacy_path/signal/duct_signals.h>
 
 int signum_linux_to_bsd(int signum)
 {

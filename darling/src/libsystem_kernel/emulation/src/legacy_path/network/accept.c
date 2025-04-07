@@ -1,12 +1,15 @@
-#include "accept.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "socket.h"
-#include "duct.h"
-#include "../bsdthread/cancelable.h"
-#include "../fcntl/fcntl.h"
-#include "../fcntl/open.h"
+#include <darling/emulation/legacy_path/network/accept.h>
+
+#include <sys/fcntl.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/network/socket.h>
+#include <darling/emulation/legacy_path/network/duct.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
+#include <darling/emulation/legacy_path/fcntl/fcntl.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
 
 long sys_accept(int fd, void* from, int* socklen)
 {

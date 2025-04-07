@@ -1,12 +1,14 @@
-#include "gethostuuid.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/misc/gethostuuid.h>
+
 #include <sys/fcntl.h>
 #include <sys/errno.h>
-#include "../fcntl/open.h"
-#include "../unistd/close.h"
-#include "../unistd/read.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/unistd/read.h>
 
 static int hex2bin(const char* str, unsigned char* uuid_buf);
 

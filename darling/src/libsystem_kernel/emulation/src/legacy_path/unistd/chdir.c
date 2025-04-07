@@ -1,10 +1,11 @@
-#include "chdir.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include <mach/lkm.h>
-#include "../vchroot_expand.h"
-#include "../bsdthread/per_thread_wd.h"
+#include <darling/emulation/legacy_path/unistd/chdir.h>
+
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/vchroot_expand.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
 
 long sys_chdir(const char* path)
 {

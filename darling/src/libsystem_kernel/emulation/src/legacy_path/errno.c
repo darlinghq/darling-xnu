@@ -1,7 +1,9 @@
-#include "errno.h"
-#include "base.h"
-#include "duct_errno.h"
+#include <darling/emulation/legacy_path/errno.h>
+
 #include <stddef.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/duct_errno.h>
 
 static const int linux_to_darwin[512] = {
 

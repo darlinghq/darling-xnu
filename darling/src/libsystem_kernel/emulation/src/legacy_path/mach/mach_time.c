@@ -1,8 +1,9 @@
 #include <mach/mach_time.h>
 #include <mach/kern_return.h>
 #include <errno.h>
-#include <sys/linux_time.h>
-#include "../time/gettimeofday.h"
+
+#include <darling/emulation/legacy_path/ext/sys/linux_time.h>
+#include <darling/emulation/legacy_path/time/gettimeofday.h>
 
 #ifndef NSEC_PER_SEC
 #	define NSEC_PER_SEC 1000000000ull

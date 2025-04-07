@@ -1,9 +1,9 @@
 #ifndef _DARLING_EMULATION_FOR_XTRACE_H_
 #define _DARLING_EMULATION_FOR_XTRACE_H_
 
-#include <darling/emulation/base.h>
-#include <darling/emulation/mman/duct_mman.h>
-#include <darling/emulation/signal/sigaltstack.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/mman/duct_mman.h>
+#include <darling/emulation/legacy_path/signal/sigaltstack.h>
 
 #ifdef __cplusplus
 extern "C" {

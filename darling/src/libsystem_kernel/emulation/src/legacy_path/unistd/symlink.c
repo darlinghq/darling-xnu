@@ -1,9 +1,10 @@
-#include "symlink.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "symlinkat.h"
-#include "../bsdthread/per_thread_wd.h"
+#include <darling/emulation/legacy_path/unistd/symlink.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/unistd/symlinkat.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
 
 long sys_symlink(const char* path, const char* link)
 {

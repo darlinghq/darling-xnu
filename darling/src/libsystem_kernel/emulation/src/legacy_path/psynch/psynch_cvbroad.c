@@ -1,8 +1,10 @@
-#include "psynch_cvbroad.h"
-#include "../base.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/psynch/psynch_cvbroad.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/simple.h>
+
 #include <darlingserver/rpc.h>
-#include "../simple.h"
 
 long sys_psynch_cvbroad(void* cv, uint64_t cvlsgen, uint64_t cvudgen, uint32_t flags, void* mutex, uint64_t mugen,
 		uint64_t tid)

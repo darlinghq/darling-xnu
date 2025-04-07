@@ -1,4 +1,4 @@
-#include "getpriority.h"
+#include <darling/emulation/legacy_path/process/getpriority.h>
 
 int sys_getpriority(int which, id_t who) {
 	return LINUX_SYSCALL(__NR_getpriority, which, who);

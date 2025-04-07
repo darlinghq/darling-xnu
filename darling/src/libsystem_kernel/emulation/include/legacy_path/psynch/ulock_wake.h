@@ -1,6 +1,8 @@
 #ifndef LINUX_ULOCK_WAKE_H
 #define LINUX_ULOCK_WAKE_H
 
+#include <stdint.h>
+
 long sys_ulock_wake(uint32_t operation, void* addr, uint64_t wake_value);
 
 #define ULF_WAKE_THREAD	0x200

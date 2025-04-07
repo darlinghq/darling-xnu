@@ -1,10 +1,10 @@
-#include "readlink.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "../common_at.h"
-#include "../vchroot_expand.h"
-#include <mach/lkm.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/unistd/readlink.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/common_at.h>
+#include <darling/emulation/legacy_path/vchroot_expand.h>
 
 extern __SIZE_TYPE__ strlen(const char* str);
 extern char* strcpy(char* dst, const char* src);

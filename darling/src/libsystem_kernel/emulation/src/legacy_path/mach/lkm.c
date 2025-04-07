@@ -1,16 +1,19 @@
-#include "lkm.h"
-#include "../signal/sigexc.h"
-#include "../base.h"
-#include "../linux-syscalls/linux.h"
+#include <darling/emulation/legacy_path/mach/lkm.h>
+
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/resource.h>
-#include "../../../libsyscall/wrappers/_libkernel_init.h"
-#include "../simple.h"
-#include "../misc/ioctl.h"
+#include <_libkernel_init.h>
+
+#include <darling/emulation/legacy_path/signal/sigexc.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/misc/ioctl.h>
+#include <darling/emulation/legacy_path/guarded/table.h>
+#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
+
 #include <elfcalls.h>
-#include "../guarded/table.h"
-#include "../elfcalls_wrapper.h"
 
 extern int sys_open(const char*, int, int);
 extern int close_internal(int);

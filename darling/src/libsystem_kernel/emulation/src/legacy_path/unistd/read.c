@@ -1,10 +1,11 @@
-#include "read.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "../bsdthread/cancelable.h"
-#include "../misc/ioctl.h"
-#include "../duct_errno.h"
+#include <darling/emulation/legacy_path/unistd/read.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
+#include <darling/emulation/legacy_path/misc/ioctl.h>
+#include <darling/emulation/legacy_path/duct_errno.h>
 
 #define LINUX_TCGETA 0x5405
 

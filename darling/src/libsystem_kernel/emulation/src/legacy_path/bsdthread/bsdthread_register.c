@@ -1,13 +1,16 @@
-#include "bsdthread_register.h"
-#include "../base.h"
-#include "../errno.h"
+#include <darling/emulation/legacy_path/bsdthread/bsdthread_register.h>
+
 #include <sys/errno.h>
-#include "../signal/sigexc.h"
-#include <darlingserver/rpc.h>
 #include <stdint.h>
 #include <pthread/tsd_private.h>
-#include <linux-syscalls/linux.h>
-#include "../simple.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/signal/sigexc.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/simple.h>
+
+#include <darlingserver/rpc.h>
 
 int pthread_obj_size;
 bsdthread_entry_t pthread_entry_point;

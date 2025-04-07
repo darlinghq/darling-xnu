@@ -1,11 +1,13 @@
-#include "kill.h"
-#include "../base.h"
-#include "../errno.h"
+#include <darling/emulation/legacy_path/signal/kill.h>
+
 #include <sys/errno.h>
-#include "duct_signals.h"
-#include <linux-syscalls/linux.h>
-#include "../mach/lkm.h"
-#include "sigexc.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/signal/duct_signals.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/signal/sigexc.h>
 
 extern int getpid(void);
 

@@ -1,7 +1,9 @@
-#include "elfcalls_wrapper.h"
+#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
+
 #include <elfcalls.h>
 #include <dlfcn.h>
-#include "simple.h"
+
+#include <darling/emulation/legacy_path/simple.h>
 
 extern struct elf_calls* _elfcalls;
 

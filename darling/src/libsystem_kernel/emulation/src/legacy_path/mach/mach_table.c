@@ -1,6 +1,7 @@
-#include "mach_time.h"
-#include "mach_traps.h"
 #include <mach/kern_return.h>
+
+#include <darling/emulation/legacy_path/mach/mach_time.h>
+#include <darling/emulation/legacy_path/mach/mach_traps.h>
 
 __attribute__((visibility("hidden")))
 void* __mach_syscall_table[128] = {

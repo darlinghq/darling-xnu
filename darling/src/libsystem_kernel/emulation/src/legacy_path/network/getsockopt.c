@@ -1,13 +1,15 @@
-#include "getsockopt.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/network/getsockopt.h>
+
 #include <stddef.h>
 #include <sys/errno.h>
-#include "duct.h"
 #include <sys/ucred.h>
 #include <sys/un.h>
-#include "../time/gettimeofday.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/network/duct.h>
+#include <darling/emulation/legacy_path/time/gettimeofday.h>
 
 #define LINGER_TICKS_PER_SEC	100 // Is this the right number of ticks per sec?
 

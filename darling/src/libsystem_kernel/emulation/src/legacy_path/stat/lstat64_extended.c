@@ -1,9 +1,10 @@
-#include "lstat64_extended.h"
-#include "lstat.h"
-#include "common.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/stat/lstat64_extended.h>
+
+#include <darling/emulation/legacy_path/stat/lstat.h>
+#include <darling/emulation/legacy_path/stat/common.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 long sys_lstat64_extended(const char* path, struct stat64* stat, void* xsec, unsigned long* xsec_size)
 {

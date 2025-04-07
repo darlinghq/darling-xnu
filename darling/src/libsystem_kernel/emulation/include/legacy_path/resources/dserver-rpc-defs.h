@@ -1,17 +1,18 @@
-#include "../network/recvmsg.h"
-#include "../network/sendmsg.h"
-#include "../network/getsockopt.h"
-#include "../network/sendto.h"
 #include <stddef.h>
 #include <sys/_types/_iovec_t.h>
-#include <linux-syscalls/linux.h>
-#include "../base.h"
-#include "../duct_errno.h"
-#include "../mach/lkm.h"
-#include "../elfcalls_wrapper.h"
-#include "../simple.h"
-#include "../signal/sigprocmask.h"
-#include "../unistd/close.h"
+
+#include <darling/emulation/legacy_path/network/recvmsg.h>
+#include <darling/emulation/legacy_path/network/sendmsg.h>
+#include <darling/emulation/legacy_path/network/getsockopt.h>
+#include <darling/emulation/legacy_path/network/sendto.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/duct_errno.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/signal/sigprocmask.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 #include <darlingserver/rpc-supplement.h>
 

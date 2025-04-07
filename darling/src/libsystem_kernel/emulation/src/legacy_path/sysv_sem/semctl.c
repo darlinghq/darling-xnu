@@ -1,9 +1,11 @@
-#include "semctl.h"
-#include "../base.h"
-#include "../errno.h"
-#include "../duct_errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/sysv_sem/semctl.h>
+
 #include <stdint.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/duct_errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 #if defined(__i386__) || defined(__arm__)
 #define LINUX_IPC_64 0x100

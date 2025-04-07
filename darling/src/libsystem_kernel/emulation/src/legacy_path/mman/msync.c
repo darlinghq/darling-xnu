@@ -1,9 +1,10 @@
-#include "msync.h"
-#include "duct_mman.h"
-#include "../errno.h"
-#include "../base.h"
-#include <linux-syscalls/linux.h>
-#include "../bsdthread/cancelable.h"
+#include <darling/emulation/legacy_path/mman/msync.h>
+
+#include <darling/emulation/legacy_path/mman/duct_mman.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
 
 int msync_flags_bsd_to_linux(int flags)
 {

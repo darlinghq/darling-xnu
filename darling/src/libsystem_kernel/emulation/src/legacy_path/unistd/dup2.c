@@ -1,11 +1,12 @@
-#include "dup2.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "../duct_errno.h"
-#include "../mach/lkm.h"
-#include "../simple.h"
-#include "../guarded/table.h"
+#include <darling/emulation/legacy_path/unistd/dup2.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/duct_errno.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/guarded/table.h>
 
 extern void kqueue_dup(int oldfd, int newfd);
 

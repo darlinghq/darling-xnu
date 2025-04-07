@@ -1,13 +1,15 @@
-#include "sysctl_hw.h"
+#include <darling/emulation/legacy_path/misc/sysctl_hw.h>
+
 #include <mach/host_info.h>
 #include <mach/machine.h>
 #include <mach/mach_init.h>
 #include <sys/errno.h>
-#include "sysctl_kern.h"
-#include "sysctl_proc.h"
-#include "../ext/sys/utsname.h"
-#include "../simple.h"
-#include "../string.h"
+
+#include <darling/emulation/legacy_path/misc/sysctl_kern.h>
+#include <darling/emulation/legacy_path/misc/sysctl_proc.h>
+#include <darling/emulation/legacy_path/ext/sys/utsname.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/string.h>
 
 extern kern_return_t mach_port_deallocate(ipc_space_t task, mach_port_name_t name);
 extern kern_return_t host_info(mach_port_name_t host, int itype, void* hinfo, mach_msg_type_number_t* count);

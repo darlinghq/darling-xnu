@@ -1,9 +1,9 @@
 #define BUILDING_BASE_C
-#include "base.h"
-#include <linux-syscalls/linux.h>
-#include "simple.h"
-#include "duct_errno.h"
-#include "syscalls.h"
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/duct_errno.h>
+#include <darling/emulation/legacy_path/syscalls.h>
 
 long __unknown_syscall(int nr, ...)
 {

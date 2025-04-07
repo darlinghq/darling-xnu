@@ -1,11 +1,13 @@
-#include "recvfrom.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/network/recvfrom.h>
+
 #include <stddef.h>
-#include "socket.h"
-#include "duct.h"
-#include "../bsdthread/cancelable.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/network/socket.h>
+#include <darling/emulation/legacy_path/network/duct.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
 
 extern void *memcpy(void *dest, const void *src, __SIZE_TYPE__ n);
 

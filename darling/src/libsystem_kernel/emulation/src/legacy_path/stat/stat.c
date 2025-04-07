@@ -1,10 +1,11 @@
-#include "stat.h"
-#include "common.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "fstatat.h"
-#include "../bsdthread/per_thread_wd.h"
+#include <darling/emulation/legacy_path/stat/stat.h>
+
+#include <darling/emulation/legacy_path/stat/common.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/stat/fstatat.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
 
 long sys_stat(const char* path, struct stat* stat)
 {

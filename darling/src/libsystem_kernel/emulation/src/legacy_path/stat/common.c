@@ -3,9 +3,10 @@
 
 // NOTE: in this case, platform-include/sys/stat.h is used
 #include <sys/stat.h>
-#include "common.h"
-#include "../unistd/getuid.h"
-#include "../unistd/getgid.h"
+
+#include <darling/emulation/legacy_path/stat/common.h>
+#include <darling/emulation/legacy_path/unistd/getuid.h>
+#include <darling/emulation/legacy_path/unistd/getgid.h>
 
 void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat)
 {

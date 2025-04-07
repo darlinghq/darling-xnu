@@ -1,19 +1,22 @@
-#include "connect.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/network/connect.h>
+
 #include <sys/socket.h>
 #include <sys/errno.h>
-#include "duct.h"
-#include "../bsdthread/cancelable.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/network/duct.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
 
 extern void *memcpy(void *dest, const void *src, __SIZE_TYPE__ n);
 extern __SIZE_TYPE__ strlen(const char* src);
 extern char* strcpy(char* dest, const char* src);
 extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
 
-#include "../vchroot_expand.h"
-#include "../bsdthread/per_thread_wd.h"
+// Must be included after strncpy
+#include <darling/emulation/legacy_path/vchroot_expand.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
 
 long sys_connect(int fd, const void* name, int socklen)
 {

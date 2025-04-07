@@ -1,13 +1,15 @@
-#include "openat.h"
-#include "open.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/fcntl/openat.h>
+
 #include <sys/fcntl.h>
-#include "../common_at.h"
-#include "../simple.h"
-#include "../vchroot_expand.h"
-#include "../bsdthread/cancelable.h"
+
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/common_at.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/vchroot_expand.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
 
 #include <darlingserver/rpc.h>
 

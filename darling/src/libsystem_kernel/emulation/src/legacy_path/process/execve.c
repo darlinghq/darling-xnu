@@ -1,29 +1,33 @@
-#include "execve.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "../fcntl/open.h"
-#include "../unistd/read.h"
-#include "../unistd/close.h"
-#include "../unistd/readlink.h"
-#include "../signal/sigexc.h"
+#include <darling/emulation/legacy_path/process/execve.h>
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <errno.h>
-#include <mach/lkm.h>
-#include "../vchroot_expand.h"
-#include "../bsdthread/per_thread_wd.h"
-#include "../simple.h"
 
-#include <darlingserver/rpc.h>
-#include "../elfcalls_wrapper.h"
-#include "../unistd/write.h"
 #include <mach-o/loader.h>
 #include <mach-o/fat.h>
 
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/unistd/read.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/unistd/readlink.h>
+#include <darling/emulation/legacy_path/signal/sigexc.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/vchroot_expand.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
+#include <darling/emulation/legacy_path/unistd/write.h>
+
+#include <darlingserver/rpc.h>
+
+
 #undef memcpy
-#include "../resources/dserver-rpc-defs.h"
+#include <darling/emulation/legacy_path/resources/dserver-rpc-defs.h>
 extern bool isspace(char c);
 
 extern void _xtrace_execve_inject(const char*** envp_ptr);

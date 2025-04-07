@@ -1,11 +1,12 @@
-#include "close.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "../bsdthread/cancelable.h"
-#include "../mach/lkm.h"
-#include "../simple.h"
-#include "../guarded/table.h"
+#include <darling/emulation/legacy_path/unistd/close.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/guarded/table.h>
 
 __attribute__((weak))
 __attribute__((visibility("default")))

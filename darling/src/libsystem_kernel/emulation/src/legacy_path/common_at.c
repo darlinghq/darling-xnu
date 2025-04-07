@@ -1,5 +1,5 @@
-#include "common_at.h"
-#include "bsdthread/per_thread_wd.h"
+#include <darling/emulation/legacy_path/common_at.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
 
 int atflags_bsd_to_linux(int flags)
 {

@@ -1,12 +1,15 @@
-#include "base.h"
-#include "simple.h"
+#include <darling/emulation/legacy_path/simple.h>
+
 #include <stdarg.h>
 #include <stddef.h>
-#include <linux-syscalls/linux.h>
-#include "mach/lkm.h"
-#include "signal/kill.h"
-#include "unistd/getpid.h"
 #include <sys/signal.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/signal/kill.h>
+#include <darling/emulation/legacy_path/unistd/getpid.h>
+
 #include <darlingserver/rpc.h>
 
 extern char* memchr(char* buf, int c, __SIZE_TYPE__ n);

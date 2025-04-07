@@ -1,4 +1,5 @@
-#include "sysctl_unspec.h"
+#include <darling/emulation/legacy_path/misc/sysctl_unspec.h>
+
 #include <sys/errno.h>
 
 enum {

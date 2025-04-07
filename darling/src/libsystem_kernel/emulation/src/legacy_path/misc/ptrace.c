@@ -1,16 +1,18 @@
-#include "ptrace.h"
-#include "../base.h"
-#include "../simple.h"
-#include "../errno.h"
+#include <darling/emulation/legacy_path/misc/ptrace.h>
+
 #include <sys/errno.h>
 #include <stddef.h>
-#include <linux-syscalls/linux.h>
 #include <sys/signal.h>
-#include "../signal/kill.h"
-#include "../signal/duct_signals.h"
-#include "../signal/sigexc.h"
-#include "../process/wait4.h"
-#include "../unistd/getppid.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/signal/kill.h>
+#include <darling/emulation/legacy_path/signal/duct_signals.h>
+#include <darling/emulation/legacy_path/signal/sigexc.h>
+#include <darling/emulation/legacy_path/process/wait4.h>
+#include <darling/emulation/legacy_path/unistd/getppid.h>
 
 #include <darlingserver/rpc.h>
 

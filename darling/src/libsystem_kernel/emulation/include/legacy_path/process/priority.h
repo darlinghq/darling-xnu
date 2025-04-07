@@ -3,9 +3,10 @@
 
 #include <sys/_types.h>
 #include <sys/_types/_id_t.h>
-#include "../errno.h"
-#include "../base.h"
-#include <linux-syscalls/linux.h>
+
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 // Same on BSD and Linux
 #define	PRIO_PROCESS	0

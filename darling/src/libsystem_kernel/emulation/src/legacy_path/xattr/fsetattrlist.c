@@ -1,4 +1,4 @@
-#include "fsetattrlist.h"
+#include <darling/emulation/legacy_path/xattr/fsetattrlist.h>
 
 #define HAS_PATH 0
 #define FUNC_NAME sys_fsetattrlist

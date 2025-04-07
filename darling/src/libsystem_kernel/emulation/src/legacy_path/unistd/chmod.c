@@ -1,9 +1,10 @@
-#include "chmod.h"
-#include "../base.h"
-#include "../errno.h"
-#include "fchmodat.h"
-#include "../bsdthread/per_thread_wd.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/unistd/chmod.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/unistd/fchmodat.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 long sys_chmod(const char* path, int mode)
 {

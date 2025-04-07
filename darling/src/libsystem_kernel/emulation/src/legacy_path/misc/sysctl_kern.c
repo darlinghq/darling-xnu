@@ -1,20 +1,23 @@
-#include "sysctl_kern.h"
-#include "sysctl_proc.h"
-#include "getrlimit.h"
-#include "../ext/sysinfo.h"
-#include "../ext/syslog.h"
-#include "../ext/sys/utsname.h"
-#include <linux-syscalls/linux.h>
-#include "../base.h"
-#include "../time/gettimeofday.h"
-#include "darling-config.h"
-#include "../errno.h"
-#include "../simple.h"
-#include "../fcntl/open.h"
-#include "../unistd/read.h"
-#include "../unistd/close.h"
+#include <darling/emulation/legacy_path/misc/sysctl_kern.h>
+
 #include <sys/errno.h>
-#include "../elfcalls_wrapper.h"
+
+#include <darling/emulation/legacy_path/misc/sysctl_proc.h>
+#include <darling/emulation/legacy_path/misc/getrlimit.h>
+#include <darling/emulation/legacy_path/ext/sysinfo.h>
+#include <darling/emulation/legacy_path/ext/syslog.h>
+#include <darling/emulation/legacy_path/ext/sys/utsname.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/time/gettimeofday.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/unistd/read.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
+
+#include <darling-config.h>
 
 enum {
 	_KERN_MSGBUF = 1000,

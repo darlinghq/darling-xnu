@@ -1,15 +1,17 @@
-#include "kevent_qos.h"
-#include "../base.h"
-#include "../errno.h"
-#include "../simple.h"
-#include "../fcntl/fcntl.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/kqueue/kevent_qos.h>
+
 #include <stddef.h>
 #include <sys/errno.h>
 #include <sys/fcntl.h>
-#include "kqueue.h"
-#include "../bsdthread/workq_kernreturn.h"
-#include "kevent64.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/fcntl/fcntl.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/kqueue/kqueue.h>
+#include <darling/emulation/legacy_path/bsdthread/workq_kernreturn.h>
+#include <darling/emulation/legacy_path/kqueue/kevent64.h>
 
 static int default_kq = -1;
 

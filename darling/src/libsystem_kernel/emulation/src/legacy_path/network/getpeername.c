@@ -1,11 +1,12 @@
-#include "getpeername.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include <sys/socket.h>
-#include "duct.h"
+#include <darling/emulation/legacy_path/network/getpeername.h>
 
-#include "../vchroot_expand.h"
+#include <sys/socket.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/network/duct.h>
+#include <darling/emulation/legacy_path/vchroot_expand.h>
 
 extern __SIZE_TYPE__ strlen(const char* src);
 extern char* strcpy(char* dest, const char* src);

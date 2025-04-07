@@ -1,18 +1,21 @@
-#include "bind.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/network/bind.h>
+
 #include <sys/errno.h>
 #include <sys/socket.h>
-#include "duct.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/network/duct.h>
 
 extern void *memcpy(void *dest, const void *src, __SIZE_TYPE__ n);
 extern __SIZE_TYPE__ strlen(const char* src);
 extern char* strcpy(char* dest, const char* src);
 extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
 
-#include "../vchroot_expand.h"
-#include "../bsdthread/per_thread_wd.h"
+// Must be included after strncpy
+#include <darling/emulation/legacy_path/vchroot_expand.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
 
 long sys_bind(int fd, const void* name, int socklen)
 {

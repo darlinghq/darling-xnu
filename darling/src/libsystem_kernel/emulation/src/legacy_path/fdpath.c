@@ -1,6 +1,7 @@
-#include "fdpath.h"
-#include "mach/lkm.h"
-#include "vchroot_expand.h"
+#include <darling/emulation/legacy_path/fdpath.h>
+
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/vchroot_expand.h>
 
 int fdpath(int fd, char* buf, size_t bufsiz)
 {

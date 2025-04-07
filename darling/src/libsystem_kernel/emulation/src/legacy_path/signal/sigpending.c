@@ -1,9 +1,11 @@
-#include "sigpending.h"
-#include "../base.h"
-#include "../errno.h"
-#include "duct_signals.h"
+#include <darling/emulation/legacy_path/signal/sigpending.h>
+
 #include <stddef.h>
-#include <linux-syscalls/linux.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/signal/duct_signals.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 long sys_sigpending(sigset_t set)
 {

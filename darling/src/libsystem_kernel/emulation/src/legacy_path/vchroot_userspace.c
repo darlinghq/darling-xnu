@@ -1,5 +1,5 @@
 
-#include "vchroot_expand.h"
+#include <darling/emulation/legacy_path/vchroot_expand.h>
 #ifdef TEST
 #	include <unistd.h>
 #	include <sys/stat.h>
@@ -26,18 +26,19 @@
 #	define linux_dirent64 dirent
 typedef struct stat stat_t;
 #else
-#	include "base.h"
-#	include <mach/lkm.h>
-#	include <linux-syscalls/linux.h>
-#	include <fcntl/open.h>
-#	include "simple.h"
 #	include <stdbool.h>
-#	include "errno.h"
-#	include "duct_errno.h"
-#	include "stat/common.h"
-#	include "dirent/getdirentries.h"
-#	include "common_at.h"
-#include <stddef.h>
+#   include <stddef.h>
+
+#	include <darling/emulation/legacy_path/fcntl/open.h>
+#	include <darling/emulation/legacy_path/base.h>
+#	include <darling/emulation/legacy_path/mach/lkm.h>
+#	include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#	include <darling/emulation/legacy_path/simple.h>
+#	include <darling/emulation/legacy_path/errno.h>
+#	include <darling/emulation/legacy_path/duct_errno.h>
+#	include <darling/emulation/legacy_path/stat/common.h>
+#	include <darling/emulation/legacy_path/dirent/getdirentries.h>
+#	include <darling/emulation/legacy_path/common_at.h>
 
 #include <darlingserver/rpc.h>
 

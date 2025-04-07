@@ -1,8 +1,9 @@
-#include "setgroups.h"
-#include "getgroups.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/unistd/setgroups.h>
+
+#include <darling/emulation/legacy_path/unistd/getgroups.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 long sys_setgroups(unsigned int size, int* gidset)
 {

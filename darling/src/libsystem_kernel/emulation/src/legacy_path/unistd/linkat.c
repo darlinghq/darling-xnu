@@ -1,12 +1,12 @@
-#include "link.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
 #include <sys/errno.h>
-#include "../common_at.h"
-#include "../vchroot_expand.h"
-#include <mach/lkm.h>
-#include <sys/errno.h>
+
+#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/legacy_path/unistd/link.h>
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/common_at.h>
+#include <darling/emulation/legacy_path/vchroot_expand.h>
 
 extern char* strcpy(char* dst, const char* src);
 

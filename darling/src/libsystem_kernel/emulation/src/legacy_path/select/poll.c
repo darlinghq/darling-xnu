@@ -1,9 +1,11 @@
-#include "poll.h"
-#include "../base.h"
-#include "../errno.h"
+#include <darling/emulation/legacy_path/select/poll.h>
+
 #include <stddef.h>
-#include <linux-syscalls/linux.h>
-#include "../bsdthread/cancelable.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
 
 struct ppoll_timespec {
     long    tv_sec;         /* seconds */

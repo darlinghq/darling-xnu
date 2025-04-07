@@ -1,7 +1,9 @@
-#include "audit_addr.h"
-#include "../unistd/geteuid.h"
-#include "../misc/getentropy.h"
+#include <darling/emulation/legacy_path/audit/audit_addr.h>
+
 #include <os/lock.h>
+
+#include <darling/emulation/legacy_path/unistd/geteuid.h>
+#include <darling/emulation/legacy_path/misc/getentropy.h>
 
 #define min(a, b) ((a < b) ? a : b)
 

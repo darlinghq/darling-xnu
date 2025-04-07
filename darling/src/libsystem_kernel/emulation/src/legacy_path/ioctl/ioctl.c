@@ -1,12 +1,14 @@
-#include "ioctl.h"
-#include "../base.h"
+#include <darling/emulation/legacy_path/ioctl/ioctl.h>
+
 #include <sys/errno.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include "termios.h"
-#include "filio.h"
-#include "termios.h"
-#include "socket.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/ioctl/termios.h>
+#include <darling/emulation/legacy_path/ioctl/filio.h>
+#include <darling/emulation/legacy_path/ioctl/termios.h>
+#include <darling/emulation/legacy_path/ioctl/socket.h>
 
 #define IOCTL_STEP(x) { int state, retval; state = (x); \
 	if (state == IOCTL_HANDLED) return retval; }

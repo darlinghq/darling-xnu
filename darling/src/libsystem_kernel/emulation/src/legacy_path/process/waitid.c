@@ -1,10 +1,12 @@
-#include "waitid.h"
-#include "../base.h"
-#include "../errno.h"
-#include "../signal/duct_signals.h"
-#include "wait4.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/process/waitid.h>
+
 #include <stddef.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/signal/duct_signals.h>
+#include <darling/emulation/legacy_path/process/wait4.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 static void siginfo_linux_to_bsd(const linux_siginfo_t* linux_si, siginfo_t* si);
 

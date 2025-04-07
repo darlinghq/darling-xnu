@@ -1,8 +1,10 @@
-#include "duct.h"
-#include "../errno.h"
-#include "../vchroot_expand.h"
-#include "../bsdthread/per_thread_wd.h"
+#include <darling/emulation/legacy_path/network/duct.h>
+
 #include <sys/socket.h>
+
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/vchroot_expand.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
 
 int sfamily_linux_to_bsd(int family)
 {

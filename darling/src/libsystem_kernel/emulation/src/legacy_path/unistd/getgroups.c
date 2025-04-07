@@ -1,15 +1,18 @@
-#include "getgroups.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/unistd/getgroups.h>
+
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <libsimple/lock.h>
-#include <darlingserver/rpc.h>
 #include <sys/syslimits.h>
-#include "../simple.h"
-#include "../duct_errno.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/duct_errno.h>
+
+#include <darlingserver/rpc.h>
 
 // we use the same approach as {g,s}et{u,g}id
 

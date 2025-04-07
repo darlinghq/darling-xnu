@@ -1,9 +1,11 @@
-#include "psynch_rw_wrlock.h"
-#include "../base.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/psynch/psynch_rw_wrlock.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/duct_errno.h>
+
 #include <darlingserver/rpc.h>
-#include "../simple.h"
-#include "../duct_errno.h"
 
 long sys_psynch_rw_wrlock(void* rwlock, uint32_t lgenval, uint32_t ugenval, uint32_t rw_wc, int flags)
 {

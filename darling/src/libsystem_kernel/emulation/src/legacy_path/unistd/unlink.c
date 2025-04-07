@@ -1,9 +1,10 @@
-#include "unlink.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
-#include "unlinkat.h"
-#include "../bsdthread/per_thread_wd.h"
+#include <darling/emulation/legacy_path/unistd/unlink.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/unistd/unlinkat.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
 
 long sys_unlink(const char* path)
 {

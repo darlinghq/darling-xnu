@@ -1,8 +1,10 @@
-#include "table.h"
+#include <darling/emulation/legacy_path/guarded/table.h>
+
 #include <libsimple/lock.h>
 #include <stddef.h>
 #include <errno.h>
-#include "../unistd/close.h"
+
+#include <darling/emulation/legacy_path/unistd/close.h>
 
 #define MAX_GUARD_COUNT 1024
 

@@ -26,29 +26,29 @@ enum {
 	LINUX_F_DUPFD_CLOEXEC = 1030,
 };
 
-enum {
-	F_DUPFD = 0,
-	F_GETFD,
-	F_SETFD,
-	F_GETFL,
-	F_SETFL,
-	F_GETOWN,
-	F_SETOWN,
-	F_GETLK,
-	F_SETLK,
-	F_SETLKW,
-	F_SETLKWTIMEOUT,
-	F_FLUSH_DATA = 40,
-	F_CHKCLEAN,
-	F_PREALLOCATE,
-	F_SETSIZE,
-	F_RDADVISE,
-	F_RDAHEAD,
-	F_GETPATH = 50,
-	F_FULLFSYNC = 51,
-	F_DUPFD_CLOEXEC = 67,
-	F_CHECK_LV = 98,
-};
+// enum {
+// 	F_DUPFD = 0,
+// 	F_GETFD,
+// 	F_SETFD,
+// 	F_GETFL,
+// 	F_SETFL,
+// 	F_GETOWN,
+// 	F_SETOWN,
+// 	F_GETLK,
+// 	F_SETLK,
+// 	F_SETLKW,
+// 	F_SETLKWTIMEOUT,
+// 	F_FLUSH_DATA = 40,
+// 	F_CHKCLEAN,
+// 	F_PREALLOCATE,
+// 	F_SETSIZE,
+// 	F_RDADVISE,
+// 	F_RDAHEAD,
+// 	F_GETPATH = 50,
+// 	F_FULLFSYNC = 51,
+// 	F_DUPFD_CLOEXEC = 67,
+// 	F_CHECK_LV = 98,
+// };
 
 enum {
 	LINUX_F_RDLCK = 0,
@@ -56,11 +56,11 @@ enum {
 	LINUX_F_UNLCK,
 };
 
-enum {
-	F_RDLCK = 1,
-	F_UNLCK,
-	F_WRLCK,
-};
+// enum {
+// 	F_RDLCK = 1,
+// 	F_UNLCK,
+// 	F_WRLCK,
+// };
 
 #ifndef FD_CLOEXEC
 #   define FD_CLOEXEC 1

@@ -1,18 +1,20 @@
-#include "sysctl.h"
-#include "../base.h"
-#include "../errno.h"
-#include "../simple.h"
+#include <darling/emulation/legacy_path/misc/sysctl.h>
+
 #include <sys/errno.h>
-#include "sysctl_inc.h"
 #include <stddef.h>
 #include <limits.h>
-#include "sysctl_hw.h"
-#include "sysctl_unspec.h"
-#include "sysctl_kern.h"
-#include "sysctl_machdep.h"
-#include "sysctl_sysctl.h"
-#include "sysctl_net.h"
-#include "sysctl_vm.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/misc/sysctl_inc.h>
+#include <darling/emulation/legacy_path/misc/sysctl_hw.h>
+#include <darling/emulation/legacy_path/misc/sysctl_unspec.h>
+#include <darling/emulation/legacy_path/misc/sysctl_kern.h>
+#include <darling/emulation/legacy_path/misc/sysctl_machdep.h>
+#include <darling/emulation/legacy_path/misc/sysctl_sysctl.h>
+#include <darling/emulation/legacy_path/misc/sysctl_net.h>
+#include <darling/emulation/legacy_path/misc/sysctl_vm.h>
 
 extern char *strchr(const char *s, int c);
 extern int strncmp(const char *s1, const char *s2, __SIZE_TYPE__ n);

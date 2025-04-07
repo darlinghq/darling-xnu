@@ -1,9 +1,10 @@
-#include "access.h"
-#include "../base.h"
-#include "../errno.h"
-#include "faccessat.h"
-#include "../bsdthread/per_thread_wd.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/unistd/access.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/unistd/faccessat.h>
+#include <darling/emulation/legacy_path/bsdthread/per_thread_wd.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 long sys_access(const char* filename, int amode)
 {

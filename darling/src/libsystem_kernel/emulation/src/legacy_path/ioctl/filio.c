@@ -1,14 +1,16 @@
-#include "ioctl.h"
-#include "filio.h"
-#include "../fcntl/fcntl.h"
-#include "../fcntl/open.h"
+#include <darling/emulation/legacy_path/ioctl/filio.h>
+
 #include <sys/errno.h>
-#include "../errno.h"
-#include "../unistd/readlink.h"
-#include "../fdpath.h"
-#include "../simple.h"
 #include <stddef.h>
 #include <stdbool.h>
+
+#include <darling/emulation/legacy_path/ioctl/ioctl.h>
+#include <darling/emulation/legacy_path/fcntl/fcntl.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/unistd/readlink.h>
+#include <darling/emulation/legacy_path/fdpath.h>
+#include <darling/emulation/legacy_path/simple.h>
 
 #define	D_TAPE	1
 #define	D_DISK	2

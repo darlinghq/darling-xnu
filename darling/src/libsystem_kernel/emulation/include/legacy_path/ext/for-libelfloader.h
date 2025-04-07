@@ -1,7 +1,7 @@
 #ifndef _DARLING_EMULATION_FOR_LIBELFLOADER_H_
 #define _DARLING_EMULATION_FOR_LIBELFLOADER_H_
 
-#include <darling/emulation/base.h>
+#include <darling/emulation/legacy_path/base.h>
 
 // these are non-vchrooted calls for libelfloader
 

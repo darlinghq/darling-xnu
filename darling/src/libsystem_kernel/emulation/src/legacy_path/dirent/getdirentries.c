@@ -1,9 +1,10 @@
-#include "getdirentries.h"
-#include "../base.h"
-#include "../errno.h"
-#include <linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/dirent/getdirentries.h>
+
 #include <sys/dirent.h>
-//#include "../simple.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
 
 #define LINUX_SEEK_SET 0
 #define LINUX_SEEK_CUR 1

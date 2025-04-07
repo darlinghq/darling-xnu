@@ -1,10 +1,12 @@
-#include "sysctl_machdep.h"
-#include "simple.h"
+#include <darling/emulation/legacy_path/misc/sysctl_machdep.h>
+
 #include <sys/errno.h>
 #include <alloca.h>
-#include "../fcntl/open.h"
-#include "../readline.h"
-#include "../unistd/close.h"
+
+#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/legacy_path/fcntl/open.h>
+#include <darling/emulation/legacy_path/readline.h>
+#include <darling/emulation/legacy_path/unistd/close.h>
 
 extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
 extern int strncmp(const char* str1, const char* str2, __SIZE_TYPE__ n);;

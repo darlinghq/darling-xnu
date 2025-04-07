@@ -1,7 +1,8 @@
-#include "semget.h"
-#include "../base.h"
-#include <linux-syscalls/linux.h>
-#include "../errno.h"
+#include <darling/emulation/legacy_path/sysv_sem/semget.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/legacy_path/errno.h>
 
 #define IPCOP_semop	1
 #define IPCOP_semget	2

@@ -1,10 +1,12 @@
-#include "pthread_kill.h"
-#include "../base.h"
-#include "../errno.h"
-#include "../signal/duct_signals.h"
+#include <darling/emulation/legacy_path/bsdthread/pthread_kill.h>
+
 #include <sys/errno.h>
 #include <stddef.h>
-#include "../simple.h"
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/signal/duct_signals.h>
+#include <darling/emulation/legacy_path/simple.h>
 
 #include <darlingserver/rpc.h>
 

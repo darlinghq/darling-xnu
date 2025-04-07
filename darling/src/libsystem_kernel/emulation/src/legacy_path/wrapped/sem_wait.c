@@ -1,10 +1,13 @@
-#include "sem_wait.h"
-#include "../base.h"
-#include "../errno.h"
+#include <darling/emulation/legacy_path/wrapped/sem_wait.h>
+
 #include <sys/errno.h>
-#include <linux-syscalls/linux.h>
+
+#include <darling/emulation/legacy_path/base.h>
+#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/legacy_path/bsdthread/cancelable.h>
+#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+
 #include <elfcalls.h>
-#include "../bsdthread/cancelable.h"
 
 extern struct elf_calls* elfcalls(void);
 
