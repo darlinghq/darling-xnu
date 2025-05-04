@@ -23,5 +23,4 @@ int atflags_bsd_to_linux(int flags);
 
 int atfd(int fd);
 
-#endif
-
+#endif // _COMMON_AT_H

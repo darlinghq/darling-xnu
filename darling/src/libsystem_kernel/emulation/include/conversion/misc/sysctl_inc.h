@@ -125,5 +125,4 @@
 #define KERN_PROC_RUID          6
 #define KERN_PROC_LCID          7
 
-#endif
-
+#endif // SYSCTL_INC_H

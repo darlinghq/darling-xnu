@@ -1,12 +1,11 @@
-#include <darling/emulation/legacy_path/errno.h>
+#include <darling/emulation/conversion/errno.h>
 
 #include <stddef.h>
 
-#include <darling/emulation/legacy_path/base.h>
-#include <darling/emulation/legacy_path/duct_errno.h>
+#include <darling/emulation/common/base.h>
+#include <darling/emulation/conversion/duct_errno.h>
 
 static const int linux_to_darwin[512] = {
-
 	[LINUX_EPERM] = EPERM,
 	[LINUX_ENOENT] = ENOENT,
 	[LINUX_ESRCH] = ESRCH,
@@ -109,4 +108,3 @@ int errno_linux_to_bsd(int err)
 
 	return err;
 }
-

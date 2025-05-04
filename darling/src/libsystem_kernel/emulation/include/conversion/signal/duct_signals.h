@@ -1,5 +1,6 @@
 #ifndef LINUX_DUCT_SIGNALS_H
 #define LINUX_DUCT_SIGNALS_H
+
 #define __sigset_t_defined
 #include <sys/signal.h>
 
@@ -60,5 +61,4 @@ int signum_bsd_to_linux(int signum);
 void sigset_linux_to_bsd(const linux_sigset_t* linux, sigset_t* bsd);
 void sigset_bsd_to_linux(const sigset_t* bsd, linux_sigset_t* linux);
 
-#endif
-
+#endif // LINUX_DUCT_SIGNALS_H

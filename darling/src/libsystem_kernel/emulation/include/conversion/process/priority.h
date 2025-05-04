@@ -4,9 +4,9 @@
 #include <sys/_types.h>
 #include <sys/_types/_id_t.h>
 
-#include <darling/emulation/legacy_path/errno.h>
-#include <darling/emulation/legacy_path/base.h>
-#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/common/base.h>
+#include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
 // Same on BSD and Linux
 #define	PRIO_PROCESS	0
@@ -25,4 +25,4 @@
 #define PRIO_DARWIN_BG 0x1000
 #define PRIO_DARWIN_NONUI 0x1001
 
-#endif
+#endif // LINUX_PRIORITY_H

@@ -1,4 +1,4 @@
-#include <darling/emulation/legacy_path/signal/duct_signals.h>
+#include <darling/emulation/conversion/signal/duct_signals.h>
 
 int signum_linux_to_bsd(int signum)
 {
@@ -174,4 +174,3 @@ void sigset_bsd_to_linux(const sigset_t* bsd, linux_sigset_t* linux)
 		}
 	}
 }
-

@@ -4,9 +4,9 @@
 // NOTE: in this case, platform-include/sys/stat.h is used
 #include <sys/stat.h>
 
-#include <darling/emulation/legacy_path/stat/common.h>
-#include <darling/emulation/legacy_path/unistd/getuid.h>
-#include <darling/emulation/legacy_path/unistd/getgid.h>
+#include <darling/emulation/conversion/stat/common.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/getuid.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/getgid.h>
 
 void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat)
 {
@@ -75,4 +75,3 @@ void statfs_linux_to_bsd64(const struct linux_statfs64* lstat, struct bsd_statfs
 	stat->f_fsid = lstat->f_fsid;
 	stat->f_flags = lstat->f_flags; /* FIXME: convert flags */
 }
-

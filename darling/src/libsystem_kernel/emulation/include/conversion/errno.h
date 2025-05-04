@@ -3,5 +3,4 @@
 
 int errno_linux_to_bsd(int err);
 
-#endif
-
+#endif // LINUX_ERRNO_H

@@ -50,5 +50,4 @@
 
 #include <sys/mman.h>
 
-#endif
-
+#endif // DUCT_MMAN_H

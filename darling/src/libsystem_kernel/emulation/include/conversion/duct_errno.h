@@ -131,4 +131,4 @@
 
 #include <sys/errno.h>
 
-#endif
+#endif // DUCT_ERRNO_H
