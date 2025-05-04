@@ -1,14 +1,14 @@
-#include <darling/emulation/legacy_path/simple.h>
+#include <darling/emulation/common/simple.h>
 
 #include <stdarg.h>
 #include <stddef.h>
 #include <sys/signal.h>
 
-#include <darling/emulation/legacy_path/base.h>
-#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
-#include <darling/emulation/legacy_path/mach/lkm.h>
-#include <darling/emulation/legacy_path/signal/kill.h>
-#include <darling/emulation/legacy_path/unistd/getpid.h>
+#include <darling/emulation/common/base.h>
+#include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#include <darling/emulation/other/mach/lkm.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/signal/kill.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/getpid.h>
 
 #include <darlingserver/rpc.h>
 

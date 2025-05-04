@@ -1,9 +1,9 @@
 #define BUILDING_BASE_C
-#include <darling/emulation/legacy_path/base.h>
-#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
-#include <darling/emulation/legacy_path/simple.h>
-#include <darling/emulation/legacy_path/duct_errno.h>
-#include <darling/emulation/legacy_path/syscalls.h>
+#include <darling/emulation/common/base.h>
+#include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#include <darling/emulation/common/simple.h>
+#include <darling/emulation/conversion/duct_errno.h>
+#include <darling/emulation/xnu_syscall/bsd/bsd_syscall_table.h>
 
 long __unknown_syscall(int nr, ...)
 {
@@ -35,4 +35,3 @@ void _start()
 	LINUX_SYSCALL1(__NR_exit, 0);
 }
 #endif
-

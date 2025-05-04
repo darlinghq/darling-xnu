@@ -1,10 +1,10 @@
-#include <darling/emulation/legacy_path/guarded/table.h>
+#include <darling/emulation/common/guarded/table.h>
 
 #include <libsimple/lock.h>
 #include <stddef.h>
 #include <errno.h>
 
-#include <darling/emulation/legacy_path/unistd/close.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 
 #define MAX_GUARD_COUNT 1024
 
@@ -38,6 +38,7 @@ static guard_entry_t guard_table[MAX_GUARD_COUNT] = {
 		.flags = guard_flag_none,
 	},
 };
+
 // TODO: this should be an RW lock
 static libsimple_lock_t guard_table_lock = LIBSIMPLE_LOCK_INITIALIZER;
 
@@ -73,7 +74,7 @@ static guard_entry_t* guard_table_find_locked(int fd) {
 
 	// the table was full and our FD wasn't there
 	return NULL;
-};
+}
 
 // insertion search
 static guard_entry_t* guard_table_find_available_locked(int fd) {
@@ -99,7 +100,7 @@ static guard_entry_t* guard_table_find_available_locked(int fd) {
 
 	// the table was full and we had no available slot for our FD
 	return NULL;
-};
+}
 
 int guard_table_add(int fd, guard_flags_t flags, guard_entry_options_t* options) {
 #ifdef VARIANT_DYLD
@@ -131,7 +132,7 @@ int guard_table_add(int fd, guard_flags_t flags, guard_entry_options_t* options)
 
 	return result;
 #endif
-};
+}
 
 int guard_table_modify(int fd, guard_flags_t flags, guard_entry_options_t* options) {
 #ifdef VARIANT_DYLD
@@ -157,7 +158,7 @@ int guard_table_modify(int fd, guard_flags_t flags, guard_entry_options_t* optio
 
 	return result;
 #endif
-};
+}
 
 int guard_table_remove(int fd) {
 #ifdef VARIANT_DYLD
@@ -179,7 +180,7 @@ int guard_table_remove(int fd) {
 
 	return result;
 #endif
-};
+}
 
 int guard_table_check(int fd, guard_flags_t flags) {
 #ifdef VARIANT_DYLD
@@ -192,7 +193,7 @@ int guard_table_check(int fd, guard_flags_t flags) {
 	libsimple_lock_unlock(&guard_table_lock);
 	return result;
 #endif
-};
+}
 
 void guard_table_postfork_child(void) {
 #ifndef VARIANT_DYLD
@@ -214,4 +215,4 @@ void guard_table_postfork_child(void) {
 		}
 	}
 #endif
-};
+}

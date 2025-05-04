@@ -1,17 +1,18 @@
-#include <darling/emulation/legacy_path/mach/lkm.h>
+#include <darling/emulation/other/mach/lkm.h>
 
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/resource.h>
 #include <_libkernel_init.h>
 
-#include <darling/emulation/legacy_path/signal/sigexc.h>
-#include <darling/emulation/legacy_path/base.h>
-#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
-#include <darling/emulation/legacy_path/simple.h>
-#include <darling/emulation/legacy_path/misc/ioctl.h>
-#include <darling/emulation/legacy_path/guarded/table.h>
-#include <darling/emulation/legacy_path/elfcalls_wrapper.h>
+#include <darling/emulation/linux_premigration/signal/sigexc.h>
+#include <darling/emulation/common/base.h>
+#include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#include <darling/emulation/common/simple.h>
+#include <darling/emulation/linux_premigration/misc/ioctl.h>
+#include <darling/emulation/common/guarded/table.h>
+#include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
+#include <darling/emulation/linux_premigration/ext/sys/linux_time.h>
 
 #include <elfcalls.h>
 
@@ -122,3 +123,36 @@ void* elfcalls_get_pointer(void) {
 	return _elfcalls;
 };
 
+VISIBLE
+uint64_t mach_absolute_time(void)
+{
+	struct timespec ts;
+	uint64_t out;
+	
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	
+	out = ts.tv_nsec;
+	out += ts.tv_sec * NSEC_PER_SEC;
+	
+	return out;
+}
+
+VISIBLE
+boolean_t voucher_mach_msg_set(mach_msg_header_t *msg)
+{
+	// UNIMPLEMENTED_TRAP();
+	return 0;
+}
+
+VISIBLE
+void voucher_mach_msg_revert(voucher_mach_msg_state_t state)
+{
+	// UNIMPLEMENTED_TRAP();
+}
+
+VISIBLE
+voucher_mach_msg_state_t voucher_mach_msg_adopt(mach_msg_header_t *msg)
+{
+	// UNIMPLEMENTED_TRAP();
+	return NULL;
+}

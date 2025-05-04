@@ -1,7 +1,8 @@
 #ifndef _PER_THREAD_WD_H
 #define _PER_THREAD_WD_H
-#include "../common_at.h"
-#include "../tsd.h"
+
+#include <darling/emulation/conversion/common_at.h>
+#include <darling/emulation/common/tsd.h>
 
 // We use the following static TSD keys (see `../tsd.h` and `pthread/tsd_private.h`):
 // __PTK_DARLING_PERTHREAD_WD_IS_SET = is __PTK_DARLING_PERTHREAD_WD_FD set? (Because 0 could be a valid FD, theoretically.)
@@ -26,5 +27,4 @@ static inline void set_perthread_wd(int fd)
 	_pthread_setspecific_direct(__PTK_DARLING_PERTHREAD_WD_FD, fd);
 }
 
-#endif
-
+#endif // _PER_THREAD_WD_H

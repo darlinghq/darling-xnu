@@ -3,6 +3,14 @@
 
 #define VISIBLE __attribute__ ((visibility ("default")))
 
+#ifdef __cplusplus
+#define CPP_EXTERN_BEGIN extern "C" {
+#define CPP_EXTERN_END }
+#else
+#define CPP_EXTERN_BEGIN
+#define CPP_EXTERN_END
+#endif
+
 #define LINUX_SYSCALL0(nr) linux_syscall(0, 0, 0, 0, 0, 0, nr)
 #define LINUX_SYSCALL1(nr, a1) linux_syscall((long)a1, 0, 0, 0, 0, 0, nr)
 #define LINUX_SYSCALL2(nr, a1, a2) linux_syscall((long)a1, (long)a2, 0, 0, 0, 0, nr)
@@ -36,5 +44,4 @@ int __linux_syscall(int nr, ...);
 long __darling_bsd_syscall(int nr, ...);
 long __unknown_syscall(int nr, ...);
 
-#endif
-
+#endif // LINUX_BASE_H

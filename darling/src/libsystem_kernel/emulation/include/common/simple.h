@@ -4,11 +4,11 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+#include <darling/emulation/common/base.h>
+
 // everything in this header can be used outside of libsystem_kernel
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+CPP_EXTERN_BEGIN
 
 void __simple_printf(const char* format, ...) __attribute__((format(printf, 1, 2)));
 void __simple_kprintf(const char* format, ...) __attribute__((format(printf, 1, 2)));
@@ -37,9 +37,6 @@ char* __simple_readline(int fd, struct simple_readline_buf* buf, char* out, int 
 __attribute__((noreturn))
 void __simple_abort(void);
 
-#ifdef __cplusplus
-};
-#endif
+CPP_EXTERN_END
 
-#endif
-
+#endif // LINUX_DEBUG_H
