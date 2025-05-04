@@ -7,10 +7,11 @@
 #include <unistd.h>
 #include <mach/mach_init.h>
 
-#include <darling/emulation/legacy_path/mach/mach_traps.h>
-#include <darling/emulation/legacy_path/ext/mremap.h>
-#include <darling/emulation/legacy_path/simple.h>
-#include <darling/emulation/legacy_path/duct_errno.h>
+#include <darling/emulation/common/base.h>
+#include <darling/emulation/xnu_syscall/mach/impl/mach_traps.h>
+#include <darling/emulation/linux_premigration/ext/mremap.h>
+#include <darling/emulation/common/simple.h>
+#include <darling/emulation/conversion/duct_errno.h>
 
 #include <darlingserver/rpc.h>
 
@@ -759,34 +760,6 @@ kern_return_t pid_for_task_impl(
 	return code;
 }
 
-kern_return_t bsdthread_terminate_trap_impl(
-				uintptr_t stackaddr,
-				unsigned long freesize,
-				mach_port_name_t thread,
-				mach_port_name_t sem)
-{
-	UNIMPLEMENTED_TRAP();
-	return KERN_FAILURE;
-}
-
-
-boolean_t voucher_mach_msg_set(mach_msg_header_t *msg)
-{
-	// UNIMPLEMENTED_TRAP();
-	return 0;
-}
-
-void voucher_mach_msg_revert(voucher_mach_msg_state_t state)
-{
-	// UNIMPLEMENTED_TRAP();
-}
-
-voucher_mach_msg_state_t voucher_mach_msg_adopt(mach_msg_header_t *msg)
-{
-	// UNIMPLEMENTED_TRAP();
-	return NULL;
-}
-
 kern_return_t mach_generate_activity_id_impl(mach_port_name_t task, int i, uint64_t* id)
 {
 	UNIMPLEMENTED_TRAP();
@@ -837,4 +810,3 @@ kern_return_t mk_timer_cancel_impl(mach_port_name_t name, uint64_t *result_time)
 
 	return code;
 }
-

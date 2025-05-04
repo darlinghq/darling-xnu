@@ -2,8 +2,9 @@
 #include <mach/kern_return.h>
 #include <errno.h>
 
-#include <darling/emulation/legacy_path/ext/sys/linux_time.h>
-#include <darling/emulation/legacy_path/time/gettimeofday.h>
+#include <darling/emulation/common/base.h>
+#include <darling/emulation/linux_premigration/ext/sys/linux_time.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/time/gettimeofday.h>
 
 #ifndef NSEC_PER_SEC
 #	define NSEC_PER_SEC 1000000000ull
@@ -31,18 +32,4 @@ do_sleep:
 	}
 	
 	return KERN_SUCCESS;
-}
-
-
-uint64_t mach_absolute_time(void)
-{
-	struct timespec ts;
-	uint64_t out;
-	
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	
-	out = ts.tv_nsec;
-	out += ts.tv_sec * NSEC_PER_SEC;
-	
-	return out;
 }

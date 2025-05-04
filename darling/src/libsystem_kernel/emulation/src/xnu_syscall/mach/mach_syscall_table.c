@@ -1,7 +1,7 @@
 #include <mach/kern_return.h>
 
-#include <darling/emulation/legacy_path/mach/mach_time.h>
-#include <darling/emulation/legacy_path/mach/mach_traps.h>
+#include <darling/emulation/xnu_syscall/mach/impl/mach_time.h>
+#include <darling/emulation/xnu_syscall/mach/impl/mach_traps.h>
 
 __attribute__((visibility("hidden")))
 void* __mach_syscall_table[128] = {
@@ -65,4 +65,3 @@ long __unknown_mach_syscall(int nr, ...)
 	__simple_printf("Unimplemented mach trap (%d)\n", nr);
 	return KERN_FAILURE;
 }
-

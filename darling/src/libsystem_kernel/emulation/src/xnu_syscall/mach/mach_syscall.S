@@ -109,4 +109,3 @@ __darling_mach_syscall_exit:
 #else
 #	error Missing assembly
 #endif
-
