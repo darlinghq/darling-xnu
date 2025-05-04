@@ -66,4 +66,3 @@ L___machdep_syscall_table$non_lazy_ptr:
 #else
 #	error Missing assembly
 #endif
-

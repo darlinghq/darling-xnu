@@ -1,6 +1,6 @@
-#include <darling/emulation/legacy_path/machdep/tls.h>
+#include <darling/emulation/xnu_syscall/machdep/impl/tls.h>
 
-#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
 #define ARCH_SET_GS	0x1001
 
@@ -41,4 +41,3 @@ void sys_thread_set_tsd_base(void* ptr, int unk)
 	__asm__ ("movl %0, %%fs" :: "r" (desc.entry_number*8 + 3));
 #endif
 }
-

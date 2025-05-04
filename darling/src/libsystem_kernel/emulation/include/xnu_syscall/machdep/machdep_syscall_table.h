@@ -3,5 +3,4 @@
 
 extern void* __machdep_syscall_table[10];
 
-#endif
-
+#endif // _MACHDEPS_H
