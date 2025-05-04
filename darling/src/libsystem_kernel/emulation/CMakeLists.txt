@@ -1,7 +1,5 @@
 project(emulation)
 
-add_subdirectory(src/legacy_path/mach)
-
 cmake_policy(SET CMP0005 NEW)
 enable_language(ASM)
 
@@ -17,307 +15,355 @@ add_definitions(-DBSDTHREAD_WRAP_LINUX_PTHREAD
 )
 
 # include src/startup for rtsig.h
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/legacy_path/
+include_directories(
 	${CMAKE_BINARY_DIR}/src/startup
 	${CMAKE_BINARY_DIR}/src/external/xnu/darling/src/libsystem_kernel/libsyscall
-	${CMAKE_CURRENT_BINARY_DIR}/src/legacy_path
+	${CMAKE_CURRENT_BINARY_DIR}/src/other
 	${CMAKE_BINARY_DIR}/src/external/darlingserver/include
 	${CMAKE_SOURCE_DIR}/src/external/darlingserver/include
 )
 
-mig(src/legacy_path/signal/mach_exc.defs)
-mig(src/legacy_path/signal/exc.defs)
+mig(src/other/signal/mach_exc.defs)
+mig(src/other/signal/exc.defs)
+
+set(other_sources
+	src/other/mach/lkm.c
+
+	${CMAKE_CURRENT_BINARY_DIR}/src/other/signal/mach_excUser.c
+)
+
+set(common_sources
+	src/common/guarded/table.c
+	src/common/base.c
+	src/common/simple.c
+)
+
+set(conversion_sources
+	src/conversion/fcntl/open.c
+	src/conversion/network/duct.c
+	src/conversion/network/getsockopt.c
+	src/conversion/network/recvmsg.c
+	src/conversion/process/wait4.c
+	src/conversion/signal/duct_signals.c
+	src/conversion/signal/sigaction.c
+	src/conversion/stat/common.c
+	src/conversion/errno.c
+)
+
+set(linux_premigration_sources
+	src/linux_premigration/ext/clock_gettime.c
+	src/linux_premigration/ext/clock_nanosleep.c
+	src/linux_premigration/ext/epoll_create.c
+	src/linux_premigration/ext/epoll_create1.c
+	src/linux_premigration/ext/epoll_ctl.c
+	src/linux_premigration/ext/epoll_wait.c
+	src/linux_premigration/ext/eventfd.c
+	src/linux_premigration/ext/eventfd_read.c
+	src/linux_premigration/ext/eventfd_write.c
+	src/linux_premigration/ext/fanotify.c
+	src/linux_premigration/ext/file_handle.c
+	src/linux_premigration/ext/for-libelfloader.c
+	src/linux_premigration/ext/for-libkqueue.c
+	src/linux_premigration/ext/for-xtrace.c
+	src/linux_premigration/ext/futex.c
+	src/linux_premigration/ext/inotify_add_watch.c
+	src/linux_premigration/ext/inotify_init.c
+	src/linux_premigration/ext/inotify_init1.c
+	src/linux_premigration/ext/inotify_rm_watch.c
+	src/linux_premigration/ext/mremap.c
+	src/linux_premigration/ext/nanosleep.c
+	src/linux_premigration/ext/sched_yield.c
+	src/linux_premigration/ext/signalfd.c
+	src/linux_premigration/ext/sysinfo.c
+	src/linux_premigration/ext/syslog.c
+	src/linux_premigration/ext/timerfd_create.c
+	src/linux_premigration/ext/timerfd_gettime.c
+	src/linux_premigration/ext/timerfd_settime.c
+	src/linux_premigration/ext/uname.c
+	src/linux_premigration/misc/ioctl.c
+	src/linux_premigration/resources/dserver-rpc-defs.c
+	src/linux_premigration/signal/sig_restorer.S
+	src/linux_premigration/signal/sigexc.c
+	src/linux_premigration/elfcalls_wrapper.c
+	src/linux_premigration/linux-syscall.S
+	src/linux_premigration/vchroot_userspace.c
+)
+
+set(xnu_syscall_bsd_sources
+	src/xnu_syscall/bsd/bsd_syscall_table.c
+	src/xnu_syscall/bsd/bsd_syscall.S
+
+	src/xnu_syscall/bsd/helper/ioctl/termios.c
+	src/xnu_syscall/bsd/helper/ioctl/filio.c
+	src/xnu_syscall/bsd/helper/ioctl/socket.c
+	src/xnu_syscall/bsd/helper/misc/common_at.c
+	src/xnu_syscall/bsd/helper/misc/readline.c
+	src/xnu_syscall/bsd/helper/misc/fdpath.c
+	src/xnu_syscall/bsd/helper/misc/sysctl_hw.c
+	src/xnu_syscall/bsd/helper/misc/sysctl_kern.c
+	src/xnu_syscall/bsd/helper/misc/sysctl_machdep.c
+	src/xnu_syscall/bsd/helper/misc/sysctl_net.c
+	src/xnu_syscall/bsd/helper/misc/sysctl_proc.c
+	src/xnu_syscall/bsd/helper/misc/sysctl_sysctl.c
+	src/xnu_syscall/bsd/helper/misc/sysctl_unspec.c
+	src/xnu_syscall/bsd/helper/misc/sysctl_vm.c
+	src/xnu_syscall/bsd/helper/network/duct.c
+
+	src/xnu_syscall/bsd/impl/audit/audit_addr.c
+	src/xnu_syscall/bsd/impl/audit/audit_session_join.c
+	src/xnu_syscall/bsd/impl/audit/audit_session_port.c
+	src/xnu_syscall/bsd/impl/audit/audit_session_self.c
+	src/xnu_syscall/bsd/impl/bsdthread/bsdthread_create.c
+	src/xnu_syscall/bsd/impl/bsdthread/bsdthread_ctl.c
+	src/xnu_syscall/bsd/impl/bsdthread/bsdthread_register.c
+	src/xnu_syscall/bsd/impl/bsdthread/bsdthread_terminate.c
+	src/xnu_syscall/bsd/impl/bsdthread/disable_threadsignal.c
+	src/xnu_syscall/bsd/impl/bsdthread/pthread_canceled.c
+	src/xnu_syscall/bsd/impl/bsdthread/pthread_chdir.c
+	src/xnu_syscall/bsd/impl/bsdthread/pthread_fchdir.c
+	src/xnu_syscall/bsd/impl/bsdthread/pthread_kill.c
+	src/xnu_syscall/bsd/impl/bsdthread/pthread_markcancel.c
+	src/xnu_syscall/bsd/impl/bsdthread/workq_kernreturn.c
+	src/xnu_syscall/bsd/impl/bsdthread/workq_open.c
+	src/xnu_syscall/bsd/impl/conf/fpathconf.c
+	src/xnu_syscall/bsd/impl/conf/pathconf.c
+	src/xnu_syscall/bsd/impl/dirent/getdirentries.c
+	src/xnu_syscall/bsd/impl/fcntl/fcntl.c
+	src/xnu_syscall/bsd/impl/fcntl/open.c
+	src/xnu_syscall/bsd/impl/fcntl/openat.c
+	src/xnu_syscall/bsd/impl/guarded/guarded_close_np.c
+	src/xnu_syscall/bsd/impl/guarded/guarded_kqueue_np.c
+	src/xnu_syscall/bsd/impl/guarded/guarded_open_np.c
+	src/xnu_syscall/bsd/impl/hfs/stub.c
+	src/xnu_syscall/bsd/impl/ioctl/ioctl.c
+	src/xnu_syscall/bsd/impl/kqueue/kevent.c
+	src/xnu_syscall/bsd/impl/kqueue/kevent64.c
+	src/xnu_syscall/bsd/impl/kqueue/kevent_qos.c
+	src/xnu_syscall/bsd/impl/kqueue/kqueue.c
+	src/xnu_syscall/bsd/impl/misc/abort_with_payload.c
+	src/xnu_syscall/bsd/impl/misc/clonefile.c
+	src/xnu_syscall/bsd/impl/misc/csops.c
+	src/xnu_syscall/bsd/impl/misc/csrctl.c
+	src/xnu_syscall/bsd/impl/misc/fileport_makefd.c
+	src/xnu_syscall/bsd/impl/misc/fileport_makeport.c
+	src/xnu_syscall/bsd/impl/misc/fsgetpath.c
+	src/xnu_syscall/bsd/impl/misc/getentropy.c
+	src/xnu_syscall/bsd/impl/misc/gethostuuid.c
+	src/xnu_syscall/bsd/impl/misc/getlogin.c
+	src/xnu_syscall/bsd/impl/misc/getrlimit.c
+	src/xnu_syscall/bsd/impl/misc/getrusage.c
+	src/xnu_syscall/bsd/impl/misc/iopolicysys.c
+	src/xnu_syscall/bsd/impl/misc/proc_info.c
+	src/xnu_syscall/bsd/impl/misc/ptrace.c
+	src/xnu_syscall/bsd/impl/misc/reboot.c
+	src/xnu_syscall/bsd/impl/misc/setlogin.c
+	src/xnu_syscall/bsd/impl/misc/setrlimit.c
+	src/xnu_syscall/bsd/impl/misc/shared_region_check_np.c
+	src/xnu_syscall/bsd/impl/misc/syscall.c
+	src/xnu_syscall/bsd/impl/misc/sysctl.c
+	src/xnu_syscall/bsd/impl/misc/thread_selfid.c
+	src/xnu_syscall/bsd/impl/mman/madvise.c
+	src/xnu_syscall/bsd/impl/mman/mman.c
+	src/xnu_syscall/bsd/impl/mman/msync.c
+	src/xnu_syscall/bsd/impl/mount/unmount.c
+	src/xnu_syscall/bsd/impl/network/accept.c
+	src/xnu_syscall/bsd/impl/network/bind.c
+	src/xnu_syscall/bsd/impl/network/connect.c
+	src/xnu_syscall/bsd/impl/network/getpeername.c
+	src/xnu_syscall/bsd/impl/network/getsockname.c
+	src/xnu_syscall/bsd/impl/network/getsockopt.c
+	src/xnu_syscall/bsd/impl/network/listen.c
+	src/xnu_syscall/bsd/impl/network/recvfrom.c
+	src/xnu_syscall/bsd/impl/network/recvmsg.c
+	src/xnu_syscall/bsd/impl/network/sendmsg.c
+	src/xnu_syscall/bsd/impl/network/sendto.c
+	src/xnu_syscall/bsd/impl/network/setsockopt.c
+	src/xnu_syscall/bsd/impl/network/shutdown.c
+	src/xnu_syscall/bsd/impl/network/socket.c
+	src/xnu_syscall/bsd/impl/network/socketpair.c
+	src/xnu_syscall/bsd/impl/process/execve.c
+	src/xnu_syscall/bsd/impl/process/fork.c
+	src/xnu_syscall/bsd/impl/process/getpriority.c
+	src/xnu_syscall/bsd/impl/process/posix_spawn.c
+	src/xnu_syscall/bsd/impl/process/setpriority.c
+	src/xnu_syscall/bsd/impl/process/vfork.c
+	src/xnu_syscall/bsd/impl/process/wait4.c
+	src/xnu_syscall/bsd/impl/process/waitid.c
+	src/xnu_syscall/bsd/impl/psynch/psynch_cvbroad.c
+	src/xnu_syscall/bsd/impl/psynch/psynch_cvclrprepost.c
+	src/xnu_syscall/bsd/impl/psynch/psynch_cvsignal.c
+	src/xnu_syscall/bsd/impl/psynch/psynch_cvwait.c
+	src/xnu_syscall/bsd/impl/psynch/psynch_mutexdrop.c
+	src/xnu_syscall/bsd/impl/psynch/psynch_mutexwait.c
+	src/xnu_syscall/bsd/impl/psynch/psynch_rw_rdlock.c
+	src/xnu_syscall/bsd/impl/psynch/psynch_rw_unlock.c
+	src/xnu_syscall/bsd/impl/psynch/psynch_rw_wrlock.c
+	src/xnu_syscall/bsd/impl/psynch/ulock_wait.c
+	src/xnu_syscall/bsd/impl/psynch/ulock_wake.c
+	src/xnu_syscall/bsd/impl/select/poll.c
+	src/xnu_syscall/bsd/impl/select/pselect.c
+	src/xnu_syscall/bsd/impl/select/select.c
+	src/xnu_syscall/bsd/impl/signal/kill.c
+	src/xnu_syscall/bsd/impl/signal/sigaction.c
+	src/xnu_syscall/bsd/impl/signal/sigaltstack.c
+	src/xnu_syscall/bsd/impl/signal/sigpending.c
+	src/xnu_syscall/bsd/impl/signal/sigprocmask.c
+	src/xnu_syscall/bsd/impl/signal/sigreturn.c
+	src/xnu_syscall/bsd/impl/signal/sigsuspend.c
+	src/xnu_syscall/bsd/impl/signal/sigwait.c
+	src/xnu_syscall/bsd/impl/stat/fstat.c
+	src/xnu_syscall/bsd/impl/stat/fstat64_extended.c
+	src/xnu_syscall/bsd/impl/stat/fstatat.c
+	src/xnu_syscall/bsd/impl/stat/fstatfs.c
+	src/xnu_syscall/bsd/impl/stat/getfsstat.c
+	src/xnu_syscall/bsd/impl/stat/lstat.c
+	src/xnu_syscall/bsd/impl/stat/lstat64_extended.c
+	src/xnu_syscall/bsd/impl/stat/mkdir.c
+	src/xnu_syscall/bsd/impl/stat/mkdirat.c
+	src/xnu_syscall/bsd/impl/stat/mkfifo.c
+	src/xnu_syscall/bsd/impl/stat/rmdir.c
+	src/xnu_syscall/bsd/impl/stat/stat.c
+	src/xnu_syscall/bsd/impl/stat/stat64_extended.c
+	src/xnu_syscall/bsd/impl/stat/statfs.c
+	src/xnu_syscall/bsd/impl/synch/semwait_signal.c
+	src/xnu_syscall/bsd/impl/sysv_sem/semctl.c
+	src/xnu_syscall/bsd/impl/sysv_sem/semget.c
+	src/xnu_syscall/bsd/impl/sysv_sem/semop.c
+	src/xnu_syscall/bsd/impl/time/futimes.c
+	src/xnu_syscall/bsd/impl/time/getitimer.c
+	src/xnu_syscall/bsd/impl/time/gettimeofday.c
+	src/xnu_syscall/bsd/impl/time/setitimer.c
+	src/xnu_syscall/bsd/impl/time/utimes.c
+	src/xnu_syscall/bsd/impl/unistd/access.c
+	src/xnu_syscall/bsd/impl/unistd/chdir.c
+	src/xnu_syscall/bsd/impl/unistd/chflags.c
+	src/xnu_syscall/bsd/impl/unistd/chmod.c
+	src/xnu_syscall/bsd/impl/unistd/chmod_extended.c
+	src/xnu_syscall/bsd/impl/unistd/chown.c
+	src/xnu_syscall/bsd/impl/unistd/chroot.c
+	src/xnu_syscall/bsd/impl/unistd/close.c
+	src/xnu_syscall/bsd/impl/unistd/dup.c
+	src/xnu_syscall/bsd/impl/unistd/dup2.c
+	src/xnu_syscall/bsd/impl/unistd/exit.c
+	src/xnu_syscall/bsd/impl/unistd/faccessat.c
+	src/xnu_syscall/bsd/impl/unistd/fchdir.c
+	src/xnu_syscall/bsd/impl/unistd/fchflags.c
+	src/xnu_syscall/bsd/impl/unistd/fchmod.c
+	src/xnu_syscall/bsd/impl/unistd/fchmodat.c
+	src/xnu_syscall/bsd/impl/unistd/fchmod_extended.c
+	src/xnu_syscall/bsd/impl/unistd/fchown.c
+	src/xnu_syscall/bsd/impl/unistd/fchownat.c
+	src/xnu_syscall/bsd/impl/unistd/fdatasync.c
+	src/xnu_syscall/bsd/impl/unistd/flock.c
+	src/xnu_syscall/bsd/impl/unistd/fsync.c
+	src/xnu_syscall/bsd/impl/unistd/ftruncate.c
+	src/xnu_syscall/bsd/impl/unistd/getdtablesize.c
+	src/xnu_syscall/bsd/impl/unistd/getegid.c
+	src/xnu_syscall/bsd/impl/unistd/geteuid.c
+	src/xnu_syscall/bsd/impl/unistd/getgid.c
+	src/xnu_syscall/bsd/impl/unistd/getgroups.c
+	src/xnu_syscall/bsd/impl/unistd/getpgid.c
+	src/xnu_syscall/bsd/impl/unistd/getpgrp.c
+	src/xnu_syscall/bsd/impl/unistd/getpid.c
+	src/xnu_syscall/bsd/impl/unistd/getppid.c
+	src/xnu_syscall/bsd/impl/unistd/getsid.c
+	src/xnu_syscall/bsd/impl/unistd/gettid.c
+	src/xnu_syscall/bsd/impl/unistd/getuid.c
+	src/xnu_syscall/bsd/impl/unistd/initgroups.c
+	src/xnu_syscall/bsd/impl/unistd/issetugid.c
+	src/xnu_syscall/bsd/impl/unistd/lchown.c
+	src/xnu_syscall/bsd/impl/unistd/link.c
+	src/xnu_syscall/bsd/impl/unistd/linkat.c
+	src/xnu_syscall/bsd/impl/unistd/lseek.c
+	src/xnu_syscall/bsd/impl/unistd/mknod.c
+	src/xnu_syscall/bsd/impl/unistd/pipe.c
+	src/xnu_syscall/bsd/impl/unistd/pread.c
+	src/xnu_syscall/bsd/impl/unistd/pwrite.c
+	src/xnu_syscall/bsd/impl/unistd/read.c
+	src/xnu_syscall/bsd/impl/unistd/readlink.c
+	src/xnu_syscall/bsd/impl/unistd/readlinkat.c
+	src/xnu_syscall/bsd/impl/unistd/readv.c
+	src/xnu_syscall/bsd/impl/unistd/rename.c
+	src/xnu_syscall/bsd/impl/unistd/renameat.c
+	src/xnu_syscall/bsd/impl/unistd/setegid.c
+	src/xnu_syscall/bsd/impl/unistd/seteuid.c
+	src/xnu_syscall/bsd/impl/unistd/setgid.c
+	src/xnu_syscall/bsd/impl/unistd/setgroups.c
+	src/xnu_syscall/bsd/impl/unistd/setpgid.c
+	src/xnu_syscall/bsd/impl/unistd/setsid.c
+	src/xnu_syscall/bsd/impl/unistd/settid.c
+	src/xnu_syscall/bsd/impl/unistd/setuid.c
+	src/xnu_syscall/bsd/impl/unistd/symlink.c
+	src/xnu_syscall/bsd/impl/unistd/symlinkat.c
+	src/xnu_syscall/bsd/impl/unistd/sync.c
+	src/xnu_syscall/bsd/impl/unistd/truncate.c
+	src/xnu_syscall/bsd/impl/unistd/umask.c
+	src/xnu_syscall/bsd/impl/unistd/unlink.c
+	src/xnu_syscall/bsd/impl/unistd/unlinkat.c
+	src/xnu_syscall/bsd/impl/unistd/write.c
+	src/xnu_syscall/bsd/impl/unistd/writev.c
+	src/xnu_syscall/bsd/impl/wrapped/sem_close.c
+	src/xnu_syscall/bsd/impl/wrapped/sem_open.c
+	src/xnu_syscall/bsd/impl/wrapped/sem_post.c
+	src/xnu_syscall/bsd/impl/wrapped/sem_trywait.c
+	src/xnu_syscall/bsd/impl/wrapped/sem_unlink.c
+	src/xnu_syscall/bsd/impl/wrapped/sem_wait.c
+	src/xnu_syscall/bsd/impl/wrapped/shm_open.c
+	src/xnu_syscall/bsd/impl/wrapped/shm_unlink.c
+	src/xnu_syscall/bsd/impl/xattr/fgetattrlist.c
+	src/xnu_syscall/bsd/impl/xattr/fgetxattr.c
+	src/xnu_syscall/bsd/impl/xattr/flistxattr.c
+	src/xnu_syscall/bsd/impl/xattr/fremovexattr.c
+	src/xnu_syscall/bsd/impl/xattr/fsetattrlist.c
+	src/xnu_syscall/bsd/impl/xattr/fsetxattr.c
+	src/xnu_syscall/bsd/impl/xattr/getattrlist.c
+	src/xnu_syscall/bsd/impl/xattr/getattrlistat.c
+	src/xnu_syscall/bsd/impl/xattr/getattrlistbulk.c
+	src/xnu_syscall/bsd/impl/xattr/getxattr.c
+	src/xnu_syscall/bsd/impl/xattr/listxattr.c
+	src/xnu_syscall/bsd/impl/xattr/removexattr.c
+	src/xnu_syscall/bsd/impl/xattr/setattrlist.c
+	src/xnu_syscall/bsd/impl/xattr/setattrlistat.c
+	src/xnu_syscall/bsd/impl/xattr/setxattr.c
+)
+
+set(xnu_syscall_mach_sources
+	src/xnu_syscall/mach/mach_syscall_table.c
+	src/xnu_syscall/mach/mach_syscall.S
+
+	src/xnu_syscall/mach/impl/mach_time.c
+	src/xnu_syscall/mach/impl/mach_traps.c
+)
+
+set(xnu_syscall_machdep_sources
+	src/xnu_syscall/machdep/machdep_syscall_table.c
+	src/xnu_syscall/machdep/machdep_syscall.S
+
+	src/xnu_syscall/machdep/impl/tls.c
+)
+
+set(xnu_syscall_sources
+	src/xnu_syscall/xtrace-hooks.S
+	${xnu_syscall_bsd_sources}
+	${xnu_syscall_mach_sources}
+	${xnu_syscall_machdep_sources}
+)
 
 set(emulation_sources
-	${CMAKE_CURRENT_BINARY_DIR}/src/legacy_path/signal/mach_excUser.c
-	src/legacy_path/elfcalls_wrapper.c
-	src/legacy_path/base.c
-	src/legacy_path/syscalls.c
-	src/legacy_path/simple.c
-	src/legacy_path/errno.c
-	src/legacy_path/readline.c
-	src/legacy_path/common_at.c
-	src/legacy_path/fdpath.c
-	src/legacy_path/wrapped/shm_open.c
-	src/legacy_path/wrapped/shm_unlink.c
-	src/legacy_path/wrapped/sem_open.c
-	src/legacy_path/wrapped/sem_unlink.c
-	src/legacy_path/wrapped/sem_wait.c
-	src/legacy_path/wrapped/sem_trywait.c
-	src/legacy_path/wrapped/sem_close.c
-	src/legacy_path/wrapped/sem_post.c
-	src/legacy_path/guarded/guarded_open_np.c
-	src/legacy_path/guarded/guarded_close_np.c
-	src/legacy_path/guarded/guarded_kqueue_np.c
-	src/legacy_path/guarded/table.c
-	src/legacy_path/machdep/machdeps.c
-	src/legacy_path/machdep/machdep-table.S
-	src/legacy_path/machdep/tls.c
-	src/legacy_path/unistd/write.c
-	src/legacy_path/unistd/read.c
-	src/legacy_path/unistd/pread.c
-	src/legacy_path/unistd/pwrite.c
-	src/legacy_path/unistd/readv.c
-	src/legacy_path/unistd/writev.c
-	src/legacy_path/unistd/flock.c
-	src/legacy_path/unistd/initgroups.c
-	src/legacy_path/mount/unmount.c
-	src/legacy_path/mman/mman.c
-	src/legacy_path/mman/madvise.c
-	src/legacy_path/mman/msync.c
-	src/legacy_path/kqueue/kqueue.c
-	src/legacy_path/kqueue/kevent.c
-	src/legacy_path/kqueue/kevent64.c
-	src/legacy_path/kqueue/kevent_qos.c
-	src/legacy_path/unistd/getsid.c
-	src/legacy_path/unistd/fsync.c
-	src/legacy_path/unistd/sync.c
-	src/legacy_path/unistd/fdatasync.c
-	src/legacy_path/unistd/dup.c
-	src/legacy_path/unistd/dup2.c
-	src/legacy_path/unistd/exit.c
-	src/legacy_path/unistd/close.c
-	src/legacy_path/unistd/fchdir.c
-	src/legacy_path/unistd/fchown.c
-	src/legacy_path/unistd/fchownat.c
-	src/legacy_path/unistd/fchmod.c
-	src/legacy_path/unistd/fchmodat.c
-	src/legacy_path/unistd/getegid.c
-	src/legacy_path/unistd/setgid.c
-	src/legacy_path/unistd/setuid.c
-	src/legacy_path/unistd/settid.c
-	src/legacy_path/unistd/setegid.c
-	src/legacy_path/unistd/seteuid.c
-	src/legacy_path/unistd/setsid.c
-	src/legacy_path/unistd/getuid.c
-	src/legacy_path/unistd/gettid.c
-	src/legacy_path/unistd/geteuid.c
-	src/legacy_path/unistd/getpid.c
-	src/legacy_path/unistd/lseek.c
-	src/legacy_path/unistd/ftruncate.c
-	src/legacy_path/unistd/truncate.c
-	src/legacy_path/unistd/access.c
-	src/legacy_path/unistd/faccessat.c
-	src/legacy_path/unistd/readlink.c
-	src/legacy_path/unistd/readlinkat.c
-	src/legacy_path/unistd/symlink.c
-	src/legacy_path/unistd/symlinkat.c
-	src/legacy_path/unistd/link.c
-	src/legacy_path/unistd/linkat.c
-	src/legacy_path/unistd/unlink.c
-	src/legacy_path/unistd/unlinkat.c
-	src/legacy_path/unistd/chdir.c
-	src/legacy_path/unistd/mknod.c
-	src/legacy_path/unistd/chmod.c
-	src/legacy_path/unistd/chown.c
-	src/legacy_path/unistd/lchown.c
-	src/legacy_path/unistd/umask.c
-	src/legacy_path/unistd/chroot.c
-	src/legacy_path/unistd/getgid.c
-	src/legacy_path/unistd/getppid.c
-	src/legacy_path/unistd/rename.c
-	src/legacy_path/unistd/renameat.c
-	src/legacy_path/unistd/getpgrp.c
-	src/legacy_path/unistd/getdtablesize.c
-	src/legacy_path/unistd/setpgid.c
-	src/legacy_path/unistd/setgroups.c
-	src/legacy_path/unistd/getgroups.c
-	src/legacy_path/unistd/getpgid.c
-	src/legacy_path/unistd/pipe.c
-	src/legacy_path/unistd/chmod_extended.c
-	src/legacy_path/unistd/fchmod_extended.c
-	src/legacy_path/unistd/fchflags.c
-	src/legacy_path/unistd/chflags.c
-	src/legacy_path/unistd/issetugid.c
-	src/legacy_path/select/select.c
-	src/legacy_path/select/pselect.c
-	src/legacy_path/select/poll.c
-	src/legacy_path/process/vfork.c
-	src/legacy_path/process/fork.c
-	src/legacy_path/process/wait4.c
-	src/legacy_path/process/waitid.c
-	src/legacy_path/process/execve.c
-	src/legacy_path/process/posix_spawn.c
-	src/legacy_path/process/getpriority.c
-	src/legacy_path/process/setpriority.c
-	src/legacy_path/signal/duct_signals.c
-	src/legacy_path/signal/kill.c
-	src/legacy_path/signal/sigaltstack.c
-	src/legacy_path/signal/sigaction.c
-	src/legacy_path/signal/sigreturn.c
-	src/legacy_path/signal/sigprocmask.c
-	src/legacy_path/signal/sig_restorer.S
-	src/legacy_path/signal/sigsuspend.c
-	src/legacy_path/signal/sigpending.c
-	src/legacy_path/signal/sigexc.c
-	src/legacy_path/signal/sigwait.c
-	src/legacy_path/misc/ptrace.c
-	src/legacy_path/misc/getentropy.c
-	src/legacy_path/misc/syscall.c
-	src/legacy_path/misc/shared_region_check_np.c
-	src/legacy_path/misc/ioctl.c
-	src/legacy_path/misc/thread_selfid.c
-	src/legacy_path/misc/proc_info.c
-	src/legacy_path/misc/sysctl.c
-	src/legacy_path/misc/sysctl_proc.c
-	src/legacy_path/misc/sysctl_hw.c
-	src/legacy_path/misc/sysctl_kern.c
-	src/legacy_path/misc/sysctl_unspec.c
-	src/legacy_path/misc/sysctl_machdep.c
-	src/legacy_path/misc/sysctl_sysctl.c
-	src/legacy_path/misc/sysctl_net.c
-	src/legacy_path/misc/sysctl_vm.c
-	src/legacy_path/misc/getrlimit.c
-	src/legacy_path/misc/setrlimit.c
-	src/legacy_path/misc/gethostuuid.c
-	src/legacy_path/misc/getrusage.c
-	src/legacy_path/misc/getlogin.c
-	src/legacy_path/misc/setlogin.c
-	src/legacy_path/misc/reboot.c
-	src/legacy_path/misc/iopolicysys.c
-	src/legacy_path/misc/csops.c
-	src/legacy_path/misc/fileport_makeport.c
-	src/legacy_path/misc/fileport_makefd.c
-	src/legacy_path/misc/csrctl.c
-	src/legacy_path/misc/fsgetpath.c
-	src/legacy_path/misc/abort_with_payload.c
-	src/legacy_path/misc/clonefile.c
-	src/legacy_path/fcntl/open.c
-	src/legacy_path/fcntl/openat.c
-	src/legacy_path/fcntl/fcntl.c
-	src/legacy_path/network/socket.c
-	src/legacy_path/network/socketpair.c
-	src/legacy_path/network/connect.c
-	src/legacy_path/network/recvmsg.c
-	src/legacy_path/network/sendmsg.c
-	src/legacy_path/network/duct.c
-	src/legacy_path/network/recvfrom.c
-	src/legacy_path/network/accept.c
-	src/legacy_path/network/getpeername.c
-	src/legacy_path/network/getsockname.c
-	src/legacy_path/network/shutdown.c
-	src/legacy_path/network/getsockopt.c
-	src/legacy_path/network/setsockopt.c
-	src/legacy_path/network/sendto.c
-	src/legacy_path/network/bind.c
-	src/legacy_path/network/listen.c
-	src/legacy_path/stat/fstat.c
-	src/legacy_path/stat/fstatat.c
-	src/legacy_path/stat/lstat.c
-	src/legacy_path/stat/stat.c
-	src/legacy_path/stat/stat64_extended.c
-	src/legacy_path/stat/lstat64_extended.c
-	src/legacy_path/stat/fstat64_extended.c
-	src/legacy_path/stat/getfsstat.c
-	src/legacy_path/stat/statfs.c
-	src/legacy_path/stat/fstatfs.c
-	src/legacy_path/stat/mkdir.c
-	src/legacy_path/stat/mkdirat.c
-	src/legacy_path/stat/mkfifo.c
-	src/legacy_path/stat/rmdir.c
-	src/legacy_path/stat/common.c
-	src/legacy_path/xattr/getattrlistbulk.c
-	src/legacy_path/xattr/getattrlistat.c
-	src/legacy_path/xattr/getattrlist.c
-	src/legacy_path/xattr/fgetattrlist.c
-	src/legacy_path/xattr/setattrlistat.c
-	src/legacy_path/xattr/setattrlist.c
-	src/legacy_path/xattr/fsetattrlist.c
-	src/legacy_path/xattr/listxattr.c
-	src/legacy_path/xattr/flistxattr.c
-	src/legacy_path/xattr/removexattr.c
-	src/legacy_path/xattr/fremovexattr.c
-	src/legacy_path/xattr/getxattr.c
-	src/legacy_path/xattr/fgetxattr.c
-	src/legacy_path/xattr/setxattr.c
-	src/legacy_path/xattr/fsetxattr.c
-	src/legacy_path/synch/semwait_signal.c
-	src/legacy_path/hfs/stub.c
-	src/legacy_path/dirent/getdirentries.c
-	src/legacy_path/time/gettimeofday.c
-	src/legacy_path/time/utimes.c
-	src/legacy_path/time/futimes.c
-	src/legacy_path/time/setitimer.c
-	src/legacy_path/time/getitimer.c
-	src/legacy_path/ioctl/ioctl.c
-	src/legacy_path/ioctl/termios.c
-	src/legacy_path/ioctl/filio.c
-	src/legacy_path/ioctl/socket.c
-	src/legacy_path/ext/sysinfo.c
-	src/legacy_path/ext/uname.c
-	src/legacy_path/ext/nanosleep.c
-	src/legacy_path/ext/epoll_create.c
-	src/legacy_path/ext/epoll_create1.c
-	src/legacy_path/ext/epoll_ctl.c
-	src/legacy_path/ext/epoll_wait.c
-	src/legacy_path/ext/inotify_init.c
-	src/legacy_path/ext/inotify_init1.c
-	src/legacy_path/ext/inotify_add_watch.c
-	src/legacy_path/ext/inotify_rm_watch.c
-	src/legacy_path/ext/eventfd.c
-	src/legacy_path/ext/eventfd_read.c
-	src/legacy_path/ext/eventfd_write.c
-	src/legacy_path/ext/signalfd.c
-	src/legacy_path/ext/timerfd_create.c
-	src/legacy_path/ext/timerfd_settime.c
-	src/legacy_path/ext/timerfd_gettime.c
-	src/legacy_path/ext/clock_nanosleep.c
-	src/legacy_path/ext/clock_gettime.c
-	src/legacy_path/ext/sched_yield.c
-	src/legacy_path/ext/syslog.c
-	src/legacy_path/ext/futex.c
-	src/legacy_path/ext/mremap.c
-	src/legacy_path/ext/file_handle.c
-	src/legacy_path/ext/fanotify.c
-	src/legacy_path/ext/for-xtrace.c
-	src/legacy_path/ext/for-libelfloader.c
-	src/legacy_path/ext/for-libkqueue.c
-	src/legacy_path/bsdthread/bsdthread_register.c
-	src/legacy_path/bsdthread/bsdthread_create.c
-	src/legacy_path/bsdthread/bsdthread_ctl.c
-	src/legacy_path/bsdthread/bsdthread_terminate.c
-	src/legacy_path/bsdthread/disable_threadsignal.c
-	src/legacy_path/bsdthread/workq_kernreturn.c
-	src/legacy_path/bsdthread/workq_open.c
-	src/legacy_path/bsdthread/pthread_kill.c
-	src/legacy_path/bsdthread/pthread_chdir.c
-	src/legacy_path/bsdthread/pthread_fchdir.c
-	src/legacy_path/bsdthread/pthread_markcancel.c
-	src/legacy_path/bsdthread/pthread_canceled.c
-	src/legacy_path/psynch/psynch_rw_rdlock.c
-	src/legacy_path/psynch/psynch_rw_wrlock.c
-	src/legacy_path/psynch/psynch_rw_unlock.c
-	src/legacy_path/psynch/psynch_cvclrprepost.c
-	src/legacy_path/psynch/psynch_mutexwait.c
-	src/legacy_path/psynch/psynch_mutexdrop.c
-	src/legacy_path/psynch/psynch_cvwait.c
-	src/legacy_path/psynch/psynch_cvbroad.c
-	src/legacy_path/psynch/psynch_cvsignal.c
-	src/legacy_path/psynch/ulock_wait.c
-	src/legacy_path/psynch/ulock_wake.c
-	src/legacy_path/sysv_sem/semget.c
-	src/legacy_path/sysv_sem/semctl.c
-	src/legacy_path/sysv_sem/semop.c
-	src/legacy_path/conf/pathconf.c
-	src/legacy_path/conf/fpathconf.c
-	src/legacy_path/audit/audit_session_self.c
-	src/legacy_path/audit/audit_addr.c
-	src/legacy_path/audit/audit_session_join.c
-	src/legacy_path/audit/audit_session_port.c
-	src/legacy_path/vchroot_userspace.c
-	src/legacy_path/syscalls-table.S
-	src/legacy_path/linux-syscall.S
-	src/legacy_path/xtrace-hooks.S
+	${common_sources}
+	${conversion_sources}
+	${linux_premigration_sources}
+	${other_sources}
+	${xnu_syscall_sources}
 
 	${CMAKE_BINARY_DIR}/src/external/darlingserver/src/rpc.c
-	src/legacy_path/resources/dserver-rpc-defs.c
 )
-	
+
 set_source_files_properties(src/legacy_path/signal/duct_signals.c PROPERTIES COMPILE_FLAGS "-nostdinc")
 set_source_files_properties(src/legacy_path/signal/sigexc.c PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/src/legacy_path/signal/exc.h)
 set_source_files_properties(${CMAKE_BINARY_DIR}/src/external/darlingserver/src/rpc.c PROPERTIES
 	GENERATED TRUE
-	COMPILE_FLAGS "-include ${CMAKE_CURRENT_SOURCE_DIR}/include/legacy_path/resources/dserver-rpc-defs.h"
+	COMPILE_FLAGS "-include ${CMAKE_CURRENT_SOURCE_DIR}/include/linux_premigration/resources/dserver-rpc-defs.h"
 )
 
 include_directories(

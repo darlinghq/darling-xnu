@@ -63,7 +63,7 @@
 #include "externs.h"
 
 #ifdef DARLING
-#include <darling/emulation/legacy_path/duct_errno.h>
+#include <darling/emulation/conversion/duct_errno.h>
 #include <darlingserver/rpc.h>
 #endif
 
