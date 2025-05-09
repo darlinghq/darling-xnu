@@ -41,7 +41,7 @@ FUNC_NAME(int fd,
 const char* path,
 #endif
 
-struct attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, unsigned long options)
+struct xnu_attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, unsigned long options)
 {
 	int rv;
 	char* next;

@@ -8,7 +8,9 @@
 
 #include <darling/emulation/xnu_syscall/bsd/impl/process/execve.h>
 #include <darling/emulation/common/base.h>
+#include <darling/emulation/conversion/dirent/getdirentries.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/read.h>
@@ -141,17 +143,17 @@ no_fork:
 						if (desc && desc->factp) {
 							// if this FD is one that we're creating, don't set O_CLOEXEC on it
 							for (size_t j = 0; j < desc->factp->psfa_act_count; j++) {
-								const struct _psfa_action* act = &desc->factp->psfa_act_acts[j];
+								const struct xnu__psfa_action* act = &desc->factp->psfa_act_acts[j];
 								int maybe_fd = act->psfaa_filedes;
 
 								switch (act->psfaa_type) {
-									case PSFA_DUP2:
-									case PSFA_FILEPORT_DUP2:
+									case XNU_PSFA_DUP2:
+									case XNU_PSFA_FILEPORT_DUP2:
 										maybe_fd = act->psfaa_dup2args.psfad_newfiledes;
 										// fall through
 
-									case PSFA_OPEN:
-									case PSFA_INHERIT:
+									case XNU_PSFA_OPEN:
+									case XNU_PSFA_INHERIT:
 										if (fd == maybe_fd) {
 											maybe_fd = -1;
 										}
@@ -210,13 +212,13 @@ no_fork:
 
 			for (i = 0; i < desc->factp->psfa_act_count; i++)
 			{
-				const struct _psfa_action* act;
+				const struct xnu__psfa_action* act;
 
 				act = &desc->factp->psfa_act_acts[i];
 
 				//__simple_kprintf("act count (on iter %d): %d\n", i, desc->factp->psfa_act_count);
 
-				if (act->psfaa_filedes == pipe[1] || (act->psfaa_type == PSFA_DUP2 && act->psfaa_dup2args.psfad_newfiledes == pipe[1]))
+				if (act->psfaa_filedes == pipe[1] || (act->psfaa_type == XNU_PSFA_DUP2 && act->psfaa_dup2args.psfad_newfiledes == pipe[1]))
 				{
 					ret = sys_dup(pipe[1]);
 					if (ret < 0)
@@ -228,21 +230,21 @@ no_fork:
 
 				switch (act->psfaa_type)
 				{
-					case PSFA_CLOSE:
+					case XNU_PSFA_CLOSE:
 						//__simple_kprintf("closing %d\n", act->psfaa_filedes);
 						ret = close_internal(act->psfaa_filedes);
 						if (ret != 0)
 							goto fail;
 						break;
 
-					case PSFA_DUP2:
+					case XNU_PSFA_DUP2:
 						//__simple_kprintf("duping %d to %d\n", act->psfaa_filedes, act->psfaa_dup2args.psfad_newfiledes);
 						ret = sys_dup2(act->psfaa_filedes, act->psfaa_dup2args.psfad_newfiledes);
 						if (ret < 0)
 							goto fail;
 						break;
 
-					case PSFA_OPEN:
+					case XNU_PSFA_OPEN:
 					{
 						//__simple_kprintf("opening %s to %d\n", act->psfaa_openargs.psfao_path, act->psfaa_filedes);
 						ret = sys_open(act->psfaa_openargs.psfao_path,
@@ -264,7 +266,7 @@ no_fork:
 						break;
 					}
 
-					case PSFA_CHDIR: {
+					case XNU_PSFA_CHDIR: {
 						//__simple_kprintf("chdiring to %s\n", act->psfaa_chdirargs.psfac_path);
 						ret = sys_chdir(act->psfaa_chdirargs.psfac_path);
 						if (ret < 0) {
@@ -272,7 +274,7 @@ no_fork:
 						}
 					} break;
 
-					case PSFA_FCHDIR: {
+					case XNU_PSFA_FCHDIR: {
 						//__simple_kprintf("fchdiring to %d\n", act->psfaa_filedes);
 						ret = sys_fchdir(act->psfaa_filedes);
 						if (ret < 0) {
@@ -281,7 +283,7 @@ no_fork:
 					} break;
 
 					// unset CLOEXEC on this fd
-					case PSFA_INHERIT: {
+					case XNU_PSFA_INHERIT: {
 						//__simple_kprintf("inheriting %d\n", act->psfaa_filedes);
 						ret = sys_fcntl(act->psfaa_filedes, F_GETFD, 0);
 						if (ret < 0) {

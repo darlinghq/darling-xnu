@@ -5,6 +5,7 @@
 
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/process/wait4.h>
 #include <darling/emulation/conversion/signal/duct_signals.h>
 #include <darling/emulation/linux_premigration/signal/sigexc.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/ptrace.h>
@@ -54,24 +55,4 @@ restart:
 	}
 
 	return ret;
-}
-
-int waitopts_bsd_to_linux(int options)
-{
-	int out = 0;
-
-	if (options & BSD_WNOHANG)
-		out |= LINUX_WNOHANG;
-	if (options & BSD_WUNTRACED)
-		out |= LINUX_WUNTRACED;
-	if (options & BSD_WEXITED)
-		out |= LINUX_WEXITED;
-	if (options & BSD_WSTOPPED)
-		out |= LINUX_WSTOPPED;
-	if (options & BSD_WCONTINUED)
-		out |= LINUX_WCONTINUED;
-	if (options & BSD_WNOWAIT)
-		out |= LINUX_WNOWAIT;
-
-	return out;
 }

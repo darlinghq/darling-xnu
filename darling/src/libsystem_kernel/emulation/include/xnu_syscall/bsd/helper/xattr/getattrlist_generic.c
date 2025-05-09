@@ -2,7 +2,9 @@
 #include <sys/errno.h>
 
 #include <darling/emulation/common/base.h>
+#include <darling/emulation/conversion/dirent/getdirentries.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/conversion/common_at.h>
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/dirent/getdirentries.h>
@@ -45,7 +47,7 @@ FUNC_NAME(int fd,
 const char* path,
 #endif
 
-struct attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, unsigned long options)
+struct xnu_attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, unsigned long options)
 {
 	int rv;
 	char *ourBuffer, *next;

@@ -4,6 +4,7 @@
 #include <alloca.h>
 
 #include <darling/emulation/common/simple.h>
+#include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>

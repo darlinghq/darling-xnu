@@ -26,7 +26,7 @@ static const int cmd_map[] = { // bsd cmds to linux cmds
 
 extern void *memcpy(void *dest, const void *src, __SIZE_TYPE__ n);
 
-long sys_semctl(int semid, int semnum, int cmd, union semun arg)
+long sys_semctl(int semid, int semnum, int cmd, union xnu_semun arg)
 {
 	if (cmd < 0 || cmd >= sizeof(cmd_map) / sizeof(cmd_map[0]))
 		return -EINVAL;

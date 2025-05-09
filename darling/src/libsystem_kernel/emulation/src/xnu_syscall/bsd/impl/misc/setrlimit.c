@@ -6,10 +6,10 @@
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
-long sys_setrlimit(unsigned int which, const struct rlimit* rlp)
+long sys_setrlimit(unsigned int which, const struct xnu_rlimit* rlp)
 {
 	int ret;
-	struct rlimit lim = { rlp->rlim_cur, rlp->rlim_max };
+	struct xnu_rlimit lim = { rlp->rlim_cur, rlp->rlim_max };
 
 	which = rlimit_bsd_to_linux(which);
 	if (which == -1)

@@ -2,6 +2,7 @@
 
 #include <libsimple/lock.h>
 
+#include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/pipe.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/read.h>

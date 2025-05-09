@@ -6,7 +6,7 @@
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
-long sys_getrlimit(unsigned int which, struct rlimit* rlp)
+long sys_getrlimit(unsigned int which, struct xnu_rlimit* rlp)
 {
 	int ret;
 

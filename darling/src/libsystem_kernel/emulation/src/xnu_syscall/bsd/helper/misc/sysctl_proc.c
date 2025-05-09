@@ -11,6 +11,8 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/getgid.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/common/simple.h>
+#include <darling/emulation/conversion/dirent/getdirentries.h>
+#include <darling/emulation/conversion/fcntl/open.h>
 
 #include <darlingserver/rpc.h>
 

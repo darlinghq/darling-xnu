@@ -10,7 +10,9 @@
 #include <stddef.h>
 
 #include <darling/emulation/common/base.h>
+#include <darling/emulation/conversion/dirent/getdirentries.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/dirent/getdirentries.h>
 #include <darling/emulation/linux_premigration/ext/syslog.h>

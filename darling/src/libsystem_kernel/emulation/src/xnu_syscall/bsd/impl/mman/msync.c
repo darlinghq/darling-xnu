@@ -1,6 +1,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/mman/msync.h>
 
 #include <darling/emulation/conversion/mman/duct_mman.h>
+#include <darling/emulation/conversion/mman/msync.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>

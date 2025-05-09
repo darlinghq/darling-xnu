@@ -12,20 +12,20 @@
 long sys_ulock_wake(uint32_t operation, void* addr, uint64_t wake_value)
 {
 	int ret, op;
-	bool no_errno = operation & ULF_NO_ERRNO;
+	bool no_errno = operation & XNU_ULF_NO_ERRNO;
 
 	// char buf[100];
 	// __simple_sprintf(buf, "ulock_wake on %p", addr);
 	// lkm_call(0x1024, buf);
 
-	op = operation & UL_OPCODE_MASK;
-	if (op == UL_COMPARE_AND_WAIT || op == UL_UNFAIR_LOCK)
+	op = operation & XNU_UL_OPCODE_MASK;
+	if (op == XNU_UL_COMPARE_AND_WAIT || op == XNU_UL_UNFAIR_LOCK)
 	{
 		int value;
 
-		if (operation & ULF_WAKE_ALL)
+		if (operation & XNU_ULF_WAKE_ALL)
 			value = INT_MAX;
-		else if (operation & ULF_WAKE_THREAD)
+		else if (operation & XNU_ULF_WAKE_THREAD)
 			value = INT_MAX; // incorrect
 		else
 			value = 1;

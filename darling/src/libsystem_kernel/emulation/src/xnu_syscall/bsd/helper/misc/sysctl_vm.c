@@ -8,6 +8,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/common/string.h>
 #include <darling/emulation/common/simple.h>
+#include <darling/emulation/conversion/fcntl/open.h>
 
 #define LINUX_SC_PAGESIZE 30
 

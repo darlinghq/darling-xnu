@@ -10,6 +10,7 @@
 #include <sys/ioctl_compat.h>
 
 #include <darling/emulation/common/simple.h>
+#include <darling/emulation/conversion/ioctl/termios.h>
 
 // Speeds are stored in cflags
 // http://osxr.org/glibc/source/sysdeps/unix/sysv/linux/speed.c?v=glibc-2.13

@@ -2,6 +2,7 @@
 
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 #include <darling/emulation/common/bsdthread/per_thread_wd.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>

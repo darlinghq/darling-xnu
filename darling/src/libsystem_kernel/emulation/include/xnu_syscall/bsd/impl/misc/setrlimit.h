@@ -3,6 +3,6 @@
 
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/getrlimit.h>
 
-long sys_setrlimit(unsigned int which, const struct rlimit* rlp);
+long sys_setrlimit(unsigned int which, const struct xnu_rlimit* rlp);
 
 #endif // LINUX_SETRLIMIT_H

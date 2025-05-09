@@ -26,7 +26,7 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 
 	switch (request)
 	{
-		case PT_PTRACE_ME:
+		case XNU_PT_PTRACE_ME:
 		{
 			// ret = LINUX_SYSCALL(__NR_ptrace, LINUX_PTRACE_TRACEME, pid, addr, data);
 			
@@ -44,7 +44,7 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 			//return ret;
 			cmd = "PT_PTRACE_ME"; break;
 		}
-		case PT_KILL:
+		case XNU_PT_KILL:
 		{
 			ret = sys_kill(pid, SIGKILL, 1);
 			// ret = LINUX_SYSCALL(__NR_ptrace, LINUX_PTRACE_KILL, pid, addr, data);
@@ -54,7 +54,7 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 			// return ret;
 			cmd = "PT_KILL"; break;
 		}
-		case PT_ATTACHEXC:
+		case XNU_PT_ATTACHEXC:
 		{
 			// Use darlingserver mechanisms to set a tracing task (->disallow anyone else to attach)
 			ret = dserver_rpc_set_tracer(pid, getpid());
@@ -76,7 +76,7 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 			cmd = "PT_ATTACHEXC";
 			break;
 		}
-		case PT_ATTACH:
+		case XNU_PT_ATTACH:
 		{
 			/*
 			ret = LINUX_SYSCALL(__NR_ptrace, LINUX_PTRACE_ATTACH, pid, addr, data);
@@ -97,7 +97,7 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 			//return ret;
 			cmd = "PT_ATTACH"; break;
 		}
-		case PT_DETACH:
+		case XNU_PT_DETACH:
 		{
 			// Tell the tracee to restore original application signal handlers.
 			//linux_sigqueue(pid, SIGNAL_SIGEXC_TOGGLE, SIGRT_MAGIC_DISABLE_SIGEXC);
@@ -117,7 +117,7 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 			//return ret;
 			cmd = "PT_DETACH"; break;
 		}
-		case PT_SIGEXC:
+		case XNU_PT_SIGEXC:
 		{
 			__simple_kprintf("sigexc: self via ptrace\n");
 
@@ -131,7 +131,7 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 			// return ret;
 			cmd = "PT_SIGEXC"; break;
 		}
-		case PT_CONTINUE:
+		case XNU_PT_CONTINUE:
 		{
 			ret = sys_kill(pid, SIGCONT, 1);
 
@@ -148,7 +148,7 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 			// return ret;
 			cmd = "PT_CONTINUE"; break;
 		}
-		case PT_THUPDATE:
+		case XNU_PT_THUPDATE:
 		{
 			// Convert thread_t to process ID
 			int tid = -1;

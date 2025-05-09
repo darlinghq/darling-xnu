@@ -11,6 +11,7 @@
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/gettimeofday.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/read.h>
@@ -119,7 +120,7 @@ sysctl_handler(handle_procargs32)
 
 sysctl_handler(handle_argmax)
 {
-	struct rlimit lim;
+	struct xnu_rlimit lim;
 	int r;
 	int* ovalue = (int*) old;
 

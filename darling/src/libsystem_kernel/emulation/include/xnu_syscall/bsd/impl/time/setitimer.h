@@ -1,19 +1,7 @@
 #ifndef LINUX_SETITIMER_H
 #define LINUX_SETITIMER_H
 
-#include <darling/emulation/xnu_syscall/bsd/impl/time/gettimeofday.h>
-
-struct bsd_itimerval
-{
-	struct bsd_timeval it_interval;
-	struct bsd_timeval it_value;
-};
-
-struct linux_itimerval
-{
-	struct linux_timeval it_interval;
-	struct linux_timeval it_value;
-};
+#include <darling/emulation/conversion/time/setitimer.h>
 
 long sys_setitimer(int which, struct bsd_itimerval* itv,
 		struct bsd_itimerval* oitv);

@@ -7,6 +7,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/network/sendto.h>
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/duct_errno.h>
+#include <darling/emulation/conversion/network/getsockopt.h>
 #include <darling/emulation/other/mach/lkm.h>
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
 #include <darling/emulation/common/simple.h>

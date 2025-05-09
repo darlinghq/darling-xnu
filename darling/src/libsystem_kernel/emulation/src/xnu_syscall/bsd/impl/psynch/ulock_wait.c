@@ -20,7 +20,7 @@ long sys_ulock_wait(uint32_t operation, void* addr, uint64_t value, uint32_t tim
 {
 	int ret, op;
 	struct timespec ts;
-	bool no_errno = operation & ULF_NO_ERRNO;
+	bool no_errno = operation & XNU_ULF_NO_ERRNO;
 
 
 	// char dbg[100];
@@ -33,8 +33,8 @@ long sys_ulock_wait(uint32_t operation, void* addr, uint64_t value, uint32_t tim
 		ts.tv_nsec = (timeout % (1000*1000)) * 1000;
 	}
 
-	op = operation & UL_OPCODE_MASK;
-	if (op == UL_COMPARE_AND_WAIT || op == UL_UNFAIR_LOCK)
+	op = operation & XNU_UL_OPCODE_MASK;
+	if (op == XNU_UL_COMPARE_AND_WAIT || op == XNU_UL_UNFAIR_LOCK)
 	{
 		ret = LINUX_SYSCALL(__NR_futex, addr, FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
 			value, (timeout != 0) ? & ts : NULL);

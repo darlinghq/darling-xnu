@@ -1,19 +1,7 @@
 #ifndef LINUX_GETTIMEOFDAY_H
 #define LINUX_GETTIMEOFDAY_H
 
-#include <stdint.h>
-
-struct bsd_timeval
-{
-	unsigned long tv_sec;
-	int32_t tv_usec;
-};
-
-struct linux_timeval
-{
-	unsigned long tv_sec;
-	long tv_usec;
-};
+#include <darling/emulation/conversion/time/gettimeofday.h>
 
 struct timezone;
 

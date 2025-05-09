@@ -12,7 +12,7 @@
 long sys_getdtablesize(void)
 {
 	int ret;
-	struct rlimit lim;
+	struct xnu_rlimit lim;
 
 	ret = sys_getrlimit(BSD_RLIMIT_NOFILE, &lim);
 	if (ret < 0)

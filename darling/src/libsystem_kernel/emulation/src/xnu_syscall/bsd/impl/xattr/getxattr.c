@@ -6,6 +6,7 @@ extern char* strcpy(char* dst, const char* src);
 
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/xattr/getxattr.h>
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/common/bsdthread/per_thread_wd.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
