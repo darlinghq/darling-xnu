@@ -53,7 +53,7 @@
 #endif
 
 #ifdef DARLING
-#include <darling/emulation/legacy_path/linux-syscalls/linux.h>
+#include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #endif
 
 extern void _thread_set_tsd_base(void *tsd_base);

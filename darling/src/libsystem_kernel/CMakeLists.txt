@@ -42,7 +42,6 @@ add_circular(system_kernel FAT
 		$<TARGET_OBJECTS:libsyscall_dynamic>
 		#$<TARGET_OBJECTS:kqueue>
 		$<TARGET_OBJECTS:emulation>
-		$<TARGET_OBJECTS:mach_server_client>
 	SIBLINGS
 		system_c
 		compiler_rt
@@ -57,14 +56,12 @@ add_library(system_kernel_static32 STATIC
 	$<TARGET_OBJECTS:libsyscall_32>
 	$<TARGET_OBJECTS:libsyscall>
 	$<TARGET_OBJECTS:emulation_dyld>
-	$<TARGET_OBJECTS:mach_server_client_dyld>
 )
 
 add_library(system_kernel_static64 STATIC
 	$<TARGET_OBJECTS:libsyscall_64>
 	$<TARGET_OBJECTS:libsyscall>
 	$<TARGET_OBJECTS:emulation_dyld>
-	$<TARGET_OBJECTS:mach_server_client_dyld>
 )
 
 target_link_libraries(system_kernel_static32 PRIVATE
