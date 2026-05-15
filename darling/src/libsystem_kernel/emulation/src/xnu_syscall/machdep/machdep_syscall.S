@@ -63,6 +63,21 @@ L___machdep_syscall_table$non_lazy_ptr:
 
 .subsections_via_symbols
 
+#elif defined(__aarch64__)
+
+__darling_machdep_syscall:
+	and  x16, x16, #0xff
+	adrp x9, ___machdep_syscall_table@GOTPAGE
+	ldr  x9, [x9, ___machdep_syscall_table@GOTPAGEOFF]
+	ldr  x9, [x9, x16, lsl #3]    // table[syscall_nr * 8]
+	cbz  x9, .no_sys
+	blr  x9                        // call handler, args already in x0-x7
+	ret
+.no_sys:
+	mov  x0, x16
+	bl   ___unknown_syscall_machdep
+	ret
+
 #else
 #	error Missing assembly
 #endif

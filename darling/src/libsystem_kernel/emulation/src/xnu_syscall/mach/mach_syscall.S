@@ -106,6 +106,44 @@ __darling_mach_syscall_exit:
 
 .subsections_via_symbols
 
+#elif defined(__aarch64__)
+
+__darling_mach_syscall:
+	cmp  x16, #0
+	b.ge Lpositive
+	neg  x16, x16
+Lpositive:
+Lentry_hook:
+	// NOP sled for xtrace hook
+	nop
+	nop
+	nop
+	nop
+	adrp x9, ___mach_syscall_table@GOTPAGE
+	ldr  x9, [x9, ___mach_syscall_table@GOTPAGEOFF]
+	ldr  x9, [x9, x16, lsl #3]    // table[trap_nr * 8]
+	cbz  x9, .no_sys
+	blr  x9                        // call handler, args already in x0-x7
+.std_ret:
+Lexit_hook:
+	nop
+	nop
+	nop
+	nop
+	ret
+.no_sys:
+	mov  x0, x16
+	bl   ___unknown_mach_syscall
+	b    .std_ret
+
+.section        __DATA,__data
+.globl __darling_mach_syscall_entry
+.globl __darling_mach_syscall_exit
+__darling_mach_syscall_entry:
+	.quad Lentry_hook
+__darling_mach_syscall_exit:
+	.quad Lexit_hook
+
 #else
 #	error Missing assembly
 #endif

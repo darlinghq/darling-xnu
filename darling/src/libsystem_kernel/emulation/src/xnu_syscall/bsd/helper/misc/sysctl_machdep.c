@@ -9,6 +9,66 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 
+#if defined(__aarch64__) || defined(__arm64__)
+// ARM64: provide stub sysctl tables (no CPUID on ARM)
+
+extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
+
+static sysctl_handler(handle_arm_stub)
+{
+	copyout_string("ARM64", (char*) old, oldlen);
+	return 0;
+}
+
+enum {
+	_MACHDEP_CPU = 1000,
+};
+
+enum {
+	_CPU_VENDOR = 1000,
+	_CPU_BRAND_STRING,
+	_CPU_CORE_COUNT,
+};
+
+static sysctl_handler(handle_core_count);
+
+const struct known_sysctl sysctls_machdep_cpu[] = {
+	{ .oid = _CPU_VENDOR, .type = CTLTYPE_STRING, .exttype = "S", .name = "vendor", .handler = handle_arm_stub },
+	{ .oid = _CPU_BRAND_STRING, .type = CTLTYPE_STRING, .exttype = "S", .name = "brand_string", .handler = handle_arm_stub },
+	{ .oid = _CPU_CORE_COUNT, .type = CTLTYPE_INT, .exttype = "I", .name = "core_count", .handler = handle_core_count },
+	{ .oid = -1 }
+};
+
+const struct known_sysctl sysctls_machdep[] = {
+	{ .oid = _MACHDEP_CPU, .type = CTLTYPE_NODE, .exttype = "", .name = "cpu", .subctls = sysctls_machdep_cpu },
+	{ .oid = -1 }
+};
+
+sysctl_handler(handle_core_count)
+{
+	int fd = sys_open("/proc/cpuinfo", LINUX_O_RDONLY, 0);
+	if (fd < 0) {
+		copyout_string("1", (char*)old, oldlen);
+		return 0;
+	}
+	int count = 0;
+	char line[256];
+	struct simple_readline_buf rbuf;
+	__simple_readline_init(&rbuf);
+	while (__simple_readline(fd, &rbuf, line, sizeof(line))) {
+		if (strncmp(line, "processor", 9) == 0)
+			count++;
+	}
+	sys_close(fd);
+	if (count == 0) count = 1;
+	char tmp[64];
+	__simple_sprintf(tmp, "%d", count);
+	copyout_string(tmp, (char*)old, oldlen);
+	return 0;
+}
+
+#else /* x86 */
+
 extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
 extern int strncmp(const char* str1, const char* str2, __SIZE_TYPE__ n);;
 
@@ -319,3 +379,5 @@ out:
 		*oldlen = sizeof(uint32_t);
 	return 0;
 }
+
+#endif /* __aarch64__ || __arm64__ */

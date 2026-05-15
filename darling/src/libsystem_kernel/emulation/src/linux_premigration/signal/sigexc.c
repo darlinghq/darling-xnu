@@ -56,6 +56,13 @@ static void mcontext_to_thread_state(const struct linux_gregset* regs, x86_threa
 static void mcontext_to_float_state(const linux_fpregset_t fx, x86_float_state32_t* s);
 static void thread_state_to_mcontext(const x86_thread_state32_t* s, struct linux_gregset* regs);
 static void float_state_to_mcontext(const x86_float_state32_t* s, linux_fpregset_t fx);
+#elif defined(__aarch64__) || defined(__arm64__)
+#include <mach/arm/thread_status.h>
+typedef struct { unsigned int fpsr; unsigned int fpcr; __uint128_t vregs[32]; } arm_neon_state64_t_linux;
+static void mcontext_to_thread_state(const struct linux_gregset* regs, arm_thread_state64_t* s);
+static void mcontext_to_float_state(const unsigned char* reserved, arm_neon_state64_t_linux* s);
+static void thread_state_to_mcontext(const arm_thread_state64_t* s, struct linux_gregset* regs);
+static void float_state_to_mcontext(const arm_neon_state64_t_linux* s, unsigned char* reserved);
 #endif
 
 static void state_from_kernel(struct linux_ucontext* ctxt, const void* tstate, const void* fstate);
@@ -162,6 +169,9 @@ void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext
 #elif defined(__i386__)
 	x86_thread_state32_t tstate;
 	x86_float_state32_t fstate;
+#elif defined(__aarch64__) || defined(__arm64__)
+	arm_thread_state64_t tstate;
+	arm_neon_state64_t_linux fstate;
 #endif
 
 	kern_printf("sigexc: sigrt_handler SUSPEND\n");
@@ -248,6 +258,9 @@ static void state_to_kernel(struct linux_ucontext* ctxt, void* tstate, void* fst
 #elif defined(__i386__)
 	mcontext_to_thread_state(&ctxt->uc_mcontext.gregs, (x86_thread_state32_t*) tstate);
 	mcontext_to_float_state(ctxt->uc_mcontext.fpregs, (x86_float_state32_t*) fstate);
+#elif defined(__aarch64__) || defined(__arm64__)
+	mcontext_to_thread_state(&ctxt->uc_mcontext.gregs, (arm_thread_state64_t*) tstate);
+	mcontext_to_float_state(ctxt->uc_mcontext.__reserved, (arm_neon_state64_t_linux*) fstate);
 #endif
 
 }
@@ -264,6 +277,9 @@ static void state_from_kernel(struct linux_ucontext* ctxt, const void* tstate, c
 #elif defined(__i386__)
 	thread_state_to_mcontext((const x86_thread_state32_t*) tstate, &ctxt->uc_mcontext.gregs);
 	float_state_to_mcontext((const x86_float_state32_t*) fstate, ctxt->uc_mcontext.fpregs);
+#elif defined(__aarch64__) || defined(__arm64__)
+	thread_state_to_mcontext((const arm_thread_state64_t*) tstate, &ctxt->uc_mcontext.gregs);
+	float_state_to_mcontext((const arm_neon_state64_t_linux*) fstate, ctxt->uc_mcontext.__reserved);
 #endif
 }
 
@@ -301,6 +317,9 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 #elif defined(__i386__)
 	x86_thread_state32_t tstate;
 	x86_float_state32_t fstate;
+#elif defined(__aarch64__) || defined(__arm64__)
+	arm_thread_state64_t tstate;
+	arm_neon_state64_t_linux fstate;
 #endif
 
 	state_to_kernel(ctxt, &tstate, &fstate);
@@ -574,6 +593,68 @@ void float_state_to_mcontext(const x86_float_state32_t* s, linux_fpregset_t fx)
 	memcpy(fx->_xmm, &s->__fpu_xmm0, 128);
 }
 #endif
+
+#if defined(__aarch64__) || defined(__arm64__)
+
+#define FPSIMD_MAGIC 0x46508001
+
+void mcontext_to_thread_state(const struct linux_gregset* regs, arm_thread_state64_t* s)
+{
+	for (int i = 0; i < 29; i++)
+		s->__x[i] = regs->regs[i];
+	s->__fp = regs->regs[29];
+	s->__lr = regs->regs[30];
+	s->__sp = regs->sp;
+	s->__pc = regs->pc;
+	s->__cpsr = (uint32_t)regs->pstate;
+}
+
+void thread_state_to_mcontext(const arm_thread_state64_t* s, struct linux_gregset* regs)
+{
+	for (int i = 0; i < 29; i++)
+		regs->regs[i] = s->__x[i];
+	regs->regs[29] = s->__fp;
+	regs->regs[30] = s->__lr;
+	regs->sp = s->__sp;
+	regs->pc = s->__pc;
+	regs->pstate = s->__cpsr;
+}
+
+void mcontext_to_float_state(const unsigned char* reserved, arm_neon_state64_t_linux* s)
+{
+	// Find FPSIMD context in the __reserved area
+	const struct linux_aarch64_ctx* ctx = (const struct linux_aarch64_ctx*)reserved;
+	while (ctx->magic != 0) {
+		if (ctx->magic == FPSIMD_MAGIC) {
+			const struct linux_fpsimd_context* fpsimd = (const struct linux_fpsimd_context*)ctx;
+			s->fpsr = fpsimd->fpsr;
+			s->fpcr = fpsimd->fpcr;
+			memcpy(s->vregs, fpsimd->vregs, sizeof(s->vregs));
+			return;
+		}
+		ctx = (const struct linux_aarch64_ctx*)((const unsigned char*)ctx + ctx->size);
+	}
+	// No FPSIMD context found - zero it out
+	memset(s, 0, sizeof(*s));
+}
+
+void float_state_to_mcontext(const arm_neon_state64_t_linux* s, unsigned char* reserved)
+{
+	// Find FPSIMD context in the __reserved area
+	struct linux_aarch64_ctx* ctx = (struct linux_aarch64_ctx*)reserved;
+	while (ctx->magic != 0) {
+		if (ctx->magic == FPSIMD_MAGIC) {
+			struct linux_fpsimd_context* fpsimd = (struct linux_fpsimd_context*)ctx;
+			fpsimd->fpsr = s->fpsr;
+			fpsimd->fpcr = s->fpcr;
+			memcpy(fpsimd->vregs, s->vregs, sizeof(s->vregs));
+			return;
+		}
+		ctx = (struct linux_aarch64_ctx*)((unsigned char*)ctx + ctx->size);
+	}
+}
+
+#endif /* __aarch64__ || __arm64__ */
 
 void sigexc_thread_setup(void)
 {
