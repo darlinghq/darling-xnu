@@ -4,6 +4,18 @@
 
 #define ARCH_SET_GS	0x1001
 
+#if defined(__aarch64__)
+// On ARM64 Linux, there's only one user TLS register (TPIDR_EL0), already
+// used by Linux pthreads. We use a compiler __thread variable to store the
+// Darwin TSD base instead of a dedicated register.
+static __thread void* darwin_tsd_base;
+
+void* sys_thread_get_tsd_base(void)
+{
+	return darwin_tsd_base;
+}
+#endif
+
 void sys_thread_set_tsd_base(void* ptr, int unk)
 {
 #ifdef __x86_64__
@@ -39,5 +51,7 @@ void sys_thread_set_tsd_base(void* ptr, int unk)
 
 	entry_number = desc.entry_number;
 	__asm__ ("movl %0, %%fs" :: "r" (desc.entry_number*8 + 3));
+#elif defined(__aarch64__)
+	darwin_tsd_base = ptr;
 #endif
 }

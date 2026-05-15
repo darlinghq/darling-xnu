@@ -73,17 +73,6 @@ struct _OSUnalignedU64 {
 	volatile uint64_t __val;
 } __attribute__((__packed__));
 
-#if defined(_POSIX_C_SOURCE) || defined(_XOPEN_SOURCE)
-__DARWIN_OS_INLINE
-uint16_t
-_OSReadSwapInt16(
-	const volatile void   * _base,
-	uintptr_t       _offset
-	)
-{
-	return _OSSwapInt16(((struct _OSUnalignedU16 *)((uintptr_t)_base + _offset))->__val);
-}
-#else
 __DARWIN_OS_INLINE
 uint16_t
 OSReadSwapInt16(
@@ -93,19 +82,7 @@ OSReadSwapInt16(
 {
 	return _OSSwapInt16(((struct _OSUnalignedU16 *)((uintptr_t)_base + _offset))->__val);
 }
-#endif
 
-#if defined(_POSIX_C_SOURCE) || defined(_XOPEN_SOURCE)
-__DARWIN_OS_INLINE
-uint32_t
-_OSReadSwapInt32(
-	const volatile void   * _base,
-	uintptr_t       _offset
-	)
-{
-	return _OSSwapInt32(((struct _OSUnalignedU32 *)((uintptr_t)_base + _offset))->__val);
-}
-#else
 __DARWIN_OS_INLINE
 uint32_t
 OSReadSwapInt32(
@@ -115,19 +92,7 @@ OSReadSwapInt32(
 {
 	return _OSSwapInt32(((struct _OSUnalignedU32 *)((uintptr_t)_base + _offset))->__val);
 }
-#endif
 
-#if defined(_POSIX_C_SOURCE) || defined(_XOPEN_SOURCE)
-__DARWIN_OS_INLINE
-uint64_t
-_OSReadSwapInt64(
-	const volatile void   * _base,
-	uintptr_t       _offset
-	)
-{
-	return _OSSwapInt64(((struct _OSUnalignedU64 *)((uintptr_t)_base + _offset))->__val);
-}
-#else
 __DARWIN_OS_INLINE
 uint64_t
 OSReadSwapInt64(
@@ -137,22 +102,9 @@ OSReadSwapInt64(
 {
 	return _OSSwapInt64(((struct _OSUnalignedU64 *)((uintptr_t)_base + _offset))->__val);
 }
-#endif
 
 /* Functions for byte reversed stores. */
 
-#if defined(_POSIX_C_SOURCE) || defined(_XOPEN_SOURCE)
-__DARWIN_OS_INLINE
-void
-_OSWriteSwapInt16(
-	volatile void   * _base,
-	uintptr_t       _offset,
-	uint16_t        _data
-	)
-{
-	((struct _OSUnalignedU16 *)((uintptr_t)_base + _offset))->__val = _OSSwapInt16(_data);
-}
-#else
 __DARWIN_OS_INLINE
 void
 OSWriteSwapInt16(
@@ -163,20 +115,7 @@ OSWriteSwapInt16(
 {
 	((struct _OSUnalignedU16 *)((uintptr_t)_base + _offset))->__val = _OSSwapInt16(_data);
 }
-#endif
 
-#if defined(_POSIX_C_SOURCE) || defined(_XOPEN_SOURCE)
-__DARWIN_OS_INLINE
-void
-_OSWriteSwapInt32(
-	volatile void   * _base,
-	uintptr_t       _offset,
-	uint32_t        _data
-	)
-{
-	((struct _OSUnalignedU32 *)((uintptr_t)_base + _offset))->__val = _OSSwapInt32(_data);
-}
-#else
 __DARWIN_OS_INLINE
 void
 OSWriteSwapInt32(
@@ -187,20 +126,7 @@ OSWriteSwapInt32(
 {
 	((struct _OSUnalignedU32 *)((uintptr_t)_base + _offset))->__val = _OSSwapInt32(_data);
 }
-#endif
 
-#if defined(_POSIX_C_SOURCE) || defined(_XOPEN_SOURCE)
-__DARWIN_OS_INLINE
-void
-_OSWriteSwapInt64(
-	volatile void    * _base,
-	uintptr_t        _offset,
-	uint64_t         _data
-	)
-{
-	((struct _OSUnalignedU64 *)((uintptr_t)_base + _offset))->__val = _OSSwapInt64(_data);
-}
-#else
 __DARWIN_OS_INLINE
 void
 OSWriteSwapInt64(
@@ -211,6 +137,5 @@ OSWriteSwapInt64(
 {
 	((struct _OSUnalignedU64 *)((uintptr_t)_base + _offset))->__val = _OSSwapInt64(_data);
 }
-#endif
 
 #endif /* ! _OS_OSBYTEORDERARM_H */

@@ -90,6 +90,20 @@ static void ucontext_linux_to_bsd(const struct linux_ucontext* lc, struct bsd_uc
 	bc->uc_stack.ss_size = lc->uc_stack.ss_size;
 	bc->uc_stack.ss_sp = lc->uc_stack.ss_sp;
 	
+#if defined(__aarch64__) || defined(__arm64__)
+	bm->es.trapno = 0;
+	bm->es.cpu = 0;
+	bm->es.err = 0;
+	bm->es.faultvaddr = lc->uc_mcontext.gregs.fault_address;
+
+	for (int i = 0; i < 29; i++)
+		bm->ss.x[i] = lc->uc_mcontext.gregs.regs[i];
+	bm->ss.fp = lc->uc_mcontext.gregs.regs[29];
+	bm->ss.lr = lc->uc_mcontext.gregs.regs[30];
+	bm->ss.sp = lc->uc_mcontext.gregs.sp;
+	bm->ss.pc = lc->uc_mcontext.gregs.pc;
+	bm->ss.cpsr = (unsigned int)lc->uc_mcontext.gregs.pstate;
+#else
 	bm->es.trapno = lc->uc_mcontext.gregs.trapno;
 	bm->es.cpu = 0;
 	bm->es.err = lc->uc_mcontext.gregs.err;
@@ -98,9 +112,9 @@ static void ucontext_linux_to_bsd(const struct linux_ucontext* lc, struct bsd_uc
 #else
 	bm->es.faultvaddr = lc->uc_mcontext.gregs.eip;
 #endif
-	
+
 #define copyreg(__name) bm->ss.__name = lc->uc_mcontext.gregs.__name
-	
+
 #ifdef __x86_64__
 	copyreg(rax); copyreg(rbx); copyreg(rcx); copyreg(rdx); copyreg(rdi); copyreg(rsi);
 	copyreg(rbp); copyreg(rsp); copyreg(r8); copyreg(r9); copyreg(r10);
@@ -114,15 +128,23 @@ static void ucontext_linux_to_bsd(const struct linux_ucontext* lc, struct bsd_uc
 	copyreg(eip); copyreg(cs); copyreg(ds); copyreg(es); copyreg(fs); copyreg(gs);
 	bm->ss.eflags = lc->uc_mcontext.gregs.efl;
 	bm->ss.ss = 0;
-#else
-#	warning Missing code for current arch
 #endif
-	
+#endif /* __aarch64__ || __arm64__ */
+
 #undef copyreg
 }
 
 static void mcontext_bsd_to_linux(const struct bsd_mcontext* bm, struct linux_mcontext* lm)
 {
+#if defined(__aarch64__) || defined(__arm64__)
+	for (int i = 0; i < 29; i++)
+		lm->gregs.regs[i] = bm->ss.x[i];
+	lm->gregs.regs[29] = bm->ss.fp;
+	lm->gregs.regs[30] = bm->ss.lr;
+	lm->gregs.sp = bm->ss.sp;
+	lm->gregs.pc = bm->ss.pc;
+	lm->gregs.pstate = bm->ss.cpsr;
+#else
 #define copyreg(__name) lm->gregs.__name = bm->ss.__name
 
 #ifdef __x86_64__
@@ -136,8 +158,7 @@ static void mcontext_bsd_to_linux(const struct bsd_mcontext* bm, struct linux_mc
 	copyreg(ebp); copyreg(esp);
 	copyreg(eip); copyreg(cs); copyreg(ds); copyreg(es); copyreg(fs); copyreg(gs);
 	lm->gregs.efl = bm->ss.eflags;
-#else
-#	warning Missing code for current arch
 #endif
+#endif /* __aarch64__ || __arm64__ */
 
 }

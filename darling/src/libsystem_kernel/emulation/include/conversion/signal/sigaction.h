@@ -101,7 +101,7 @@ struct linux_sigaction
 	linux_sigset_t sa_mask;
 };
 
-#ifdef __x86_64__
+#if defined(__x86_64__)
 typedef struct _fpstate {
         unsigned short cwd, swd, ftw, fop;
         unsigned long long rip, rdp;
@@ -123,7 +123,7 @@ struct linux_gregset
 	long long err, trapno, oldmask, cr2;
 };
 
-#else // now the i386 version
+#elif defined(__i386__)
 
 typedef struct _fpstate {
         unsigned long cw, sw, tag, ipoff, cssel, dataoff, datasel;
@@ -150,16 +150,51 @@ struct linux_gregset
 	int trapno, err, eip, cs, efl, uesp;
 	int ss;
 };
+
+#elif defined(__aarch64__) || defined(__arm64__)
+
+// ARM64 Linux FPSIMD context header
+struct linux_aarch64_ctx {
+	unsigned int magic;
+	unsigned int size;
+};
+
+// ARM64 Linux FPSIMD state (embedded in sigcontext.__reserved)
+struct linux_fpsimd_context {
+	struct linux_aarch64_ctx head;
+	unsigned int fpsr;
+	unsigned int fpcr;
+	__uint128_t vregs[32];
+};
+
+typedef struct linux_fpsimd_context *linux_fpregset_t;
+
+// ARM64 Linux general-purpose registers (matches sigcontext layout)
+struct linux_gregset
+{
+	unsigned long long regs[31]; // x0-x30
+	unsigned long long sp;
+	unsigned long long pc;
+	unsigned long long pstate;
+	unsigned long long fault_address;
+};
+
 #endif
 
 struct linux_mcontext
 {
+#if defined(__aarch64__) || defined(__arm64__)
+	struct linux_gregset gregs;
+	// On ARM64 Linux, fpsimd is in __reserved area of sigcontext
+	unsigned char __reserved[4096] __attribute__((__aligned__(16)));
+#else
 	struct linux_gregset gregs;
 	linux_fpregset_t fpregs;
 #ifdef __x86_64__
 	unsigned long long __reserved[8];
 #else
 	unsigned long oldmask, cr2;
+#endif
 #endif
 	// +reserved
 };
@@ -184,12 +219,16 @@ struct bsd_exception_state
 
 struct bsd_thread_state
 {
-#ifdef __x86_64__
+#if defined(__x86_64__)
 	long long rax, rbx, rcx, rdx, rdi, rsi, rbp, rsp, r8, r9, r10;
 	long long r11, r12, r13, r14, r15, rip, rflags, cs, fs, gs;
-#else
+#elif defined(__i386__)
 	int eax, ebx, ecx, edx, edi, esi, ebp, esp, ss, eflags;
 	int eip, cs, ds, es, fs, gs;
+#elif defined(__aarch64__) || defined(__arm64__)
+	unsigned long long x[29];
+	unsigned long long fp, lr, sp, pc;
+	unsigned int cpsr;
 #endif
 };
 
