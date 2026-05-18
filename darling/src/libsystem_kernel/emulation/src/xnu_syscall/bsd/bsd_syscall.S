@@ -99,6 +99,9 @@ __darling_bsd_syscall_exit:
 #elif defined(__aarch64__)
 
 __darling_bsd_syscall:
+	// Save fp/lr around the blr; otherwise ret returns to itself.
+	stp  x29, x30, [sp, #-16]!
+	mov  x29, sp
 Lentry_hook:
 	// NOP sled for xtrace hook (ARM64 NOP = 0xd503201f)
 	nop
@@ -116,6 +119,7 @@ Lexit_hook:
 	nop
 	nop
 	nop
+	ldp  x29, x30, [sp], #16
 	ret
 .no_sys:
 	mov  x0, x16

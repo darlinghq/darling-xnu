@@ -59,11 +59,25 @@ MI_ENTRY_POINT(___pipe)
 #elif defined(__arm64__)
 
 MI_ENTRY_POINT(___pipe)
+#ifdef DARLING
+	// Darling's DO_SYSCALL expands to `bl __darling_bsd_syscall`, which clobbers
+	// caller-saved regs (x9..x18). Native macOS uses `svc` (preserves all GPRs),
+	// so the upstream code stashes the FD array in x9 across the syscall. On
+	// darling we must use a callee-saved register (x19) and save it on the stack.
+	stp		x19, x20, [sp, #-16]!
+	mov		x19, x0				// Stash FD array (callee-saved)
+	SYSCALL_NONAME(pipe, 0, cerror_nocancel)
+	stp		w0, w1, [x19]		// Save results
+	mov		x0, #0				// Success
+	ldp		x19, x20, [sp], #16
+	ret
+#else
 	mov		x9, x0				// Stash FD array
 	SYSCALL_NONAME(pipe, 0, cerror_nocancel)
 	stp		w0, w1, [x9]		// Save results
 	mov		x0, #0				// Success
 	ret							// Done
+#endif
 
 #else
 #error Unsupported architecture

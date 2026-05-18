@@ -476,9 +476,13 @@ pseudo:									;\
  */
 
 #ifdef DARLING
+/* See identical comment in darling/.../bsdsyscalls/SYS.h: bl clobbers LR. */
 #define DO_SYSCALL(num, cerror)                 \
 	mov   x16, #(num)                     %%\
-	bl    ___darling_bsd_syscall           %%\
+	stp   x29, x30, [sp, #-16]!           %%\
+	mov   x29, sp                         %%\
+	bl    __darling_bsd_syscall           %%\
+	ldp   x29, x30, [sp], #16             %%\
 	cmp   x0, #-4095                      %%\
 	b.lo  2f                              %%\
 	neg   x0, x0                          %%\

@@ -620,36 +620,48 @@ void thread_state_to_mcontext(const arm_thread_state64_t* s, struct linux_gregse
 	regs->pstate = s->__cpsr;
 }
 
+/* Bound for scanning the __reserved area; arbitrarily malformed `size`
+ * fields must not cause us to walk off the end. Linux fixed __reserved at
+ * 4096 bytes for ARM64. */
+#define LINUX_MCONTEXT_RESERVED_SIZE 4096
+
 void mcontext_to_float_state(const unsigned char* reserved, arm_neon_state64_t_linux* s)
 {
-	// Find FPSIMD context in the __reserved area
+	const unsigned char* end = reserved + LINUX_MCONTEXT_RESERVED_SIZE;
 	const struct linux_aarch64_ctx* ctx = (const struct linux_aarch64_ctx*)reserved;
-	while (ctx->magic != 0) {
+	while ((const unsigned char*)ctx + sizeof(*ctx) <= end && ctx->magic != 0) {
 		if (ctx->magic == FPSIMD_MAGIC) {
 			const struct linux_fpsimd_context* fpsimd = (const struct linux_fpsimd_context*)ctx;
+			if ((const unsigned char*)fpsimd + sizeof(*fpsimd) > end)
+				break;
 			s->fpsr = fpsimd->fpsr;
 			s->fpcr = fpsimd->fpcr;
 			memcpy(s->vregs, fpsimd->vregs, sizeof(s->vregs));
 			return;
 		}
+		if (ctx->size == 0)
+			break;
 		ctx = (const struct linux_aarch64_ctx*)((const unsigned char*)ctx + ctx->size);
 	}
-	// No FPSIMD context found - zero it out
 	memset(s, 0, sizeof(*s));
 }
 
 void float_state_to_mcontext(const arm_neon_state64_t_linux* s, unsigned char* reserved)
 {
-	// Find FPSIMD context in the __reserved area
+	unsigned char* end = reserved + LINUX_MCONTEXT_RESERVED_SIZE;
 	struct linux_aarch64_ctx* ctx = (struct linux_aarch64_ctx*)reserved;
-	while (ctx->magic != 0) {
+	while ((unsigned char*)ctx + sizeof(*ctx) <= end && ctx->magic != 0) {
 		if (ctx->magic == FPSIMD_MAGIC) {
 			struct linux_fpsimd_context* fpsimd = (struct linux_fpsimd_context*)ctx;
+			if ((unsigned char*)fpsimd + sizeof(*fpsimd) > end)
+				return;
 			fpsimd->fpsr = s->fpsr;
 			fpsimd->fpcr = s->fpcr;
 			memcpy(fpsimd->vregs, s->vregs, sizeof(s->vregs));
 			return;
 		}
+		if (ctx->size == 0)
+			return;
 		ctx = (struct linux_aarch64_ctx*)((unsigned char*)ctx + ctx->size);
 	}
 }

@@ -141,6 +141,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/kqueue/kevent_qos.c
 	src/xnu_syscall/bsd/impl/kqueue/kqueue.c
 	src/xnu_syscall/bsd/impl/misc/abort_with_payload.c
+	src/xnu_syscall/bsd/impl/misc/mremap_encrypted.c
 	src/xnu_syscall/bsd/impl/misc/clonefile.c
 	src/xnu_syscall/bsd/impl/misc/csops.c
 	src/xnu_syscall/bsd/impl/misc/csrctl.c

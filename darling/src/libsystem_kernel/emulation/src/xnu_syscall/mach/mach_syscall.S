@@ -109,6 +109,9 @@ __darling_mach_syscall_exit:
 #elif defined(__aarch64__)
 
 __darling_mach_syscall:
+	// Save fp/lr around the blr; otherwise ret returns to itself.
+	stp  x29, x30, [sp, #-16]!
+	mov  x29, sp
 	cmp  x16, #0
 	b.ge Lpositive
 	neg  x16, x16
@@ -130,6 +133,7 @@ Lexit_hook:
 	nop
 	nop
 	nop
+	ldp  x29, x30, [sp], #16
 	ret
 .no_sys:
 	mov  x0, x16
