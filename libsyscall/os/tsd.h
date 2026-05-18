@@ -135,6 +135,26 @@ _os_tsd_set_direct(unsigned long slot, void *val)
 
 #elif defined(__arm__) || defined(__arm64__)
 
+#if defined(DARLING) && defined(__arm64__)
+/* On Linux/aarch64, TPIDRRO_EL0 is owned by Linux pthread, not Darwin TSD.
+ * Phase 3 stores the Darwin TSD base in a tid-keyed hash table accessed via
+ * sys_thread_get_tsd_base(). Use that instead of the hardware register. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern void* sys_thread_get_tsd_base(void);
+#ifdef __cplusplus
+}
+#endif
+
+__attribute__((always_inline))
+static __inline__ void**
+_os_tsd_get_base(void)
+{
+	return (void**)sys_thread_get_tsd_base();
+}
+#define _os_tsd_get_base()  _os_tsd_get_base()
+#else
 __attribute__((always_inline, pure))
 static __inline__ void**
 _os_tsd_get_base(void)
@@ -154,6 +174,7 @@ _os_tsd_get_base(void)
 	return (void**)(uintptr_t)tsd;
 }
 #define _os_tsd_get_base()  _os_tsd_get_base()
+#endif /* DARLING && __arm64__ */
 
 #else
 #error _os_tsd_get_base not implemented on this architecture
@@ -221,10 +242,22 @@ _os_ptr_munge(uintptr_t ptr)
 
 #elif defined(__arm64__)
 
+#if defined(DARLING)
+/* On Linux/aarch64, TPIDRRO_EL0 is owned by the kernel (returns 0 to user
+ * mode), and TPIDR_EL0 belongs to glibc's pthread, not Darwin TSD. The C-side
+ * Darwin TSD lookup uses a tid-keyed hash table (see tls.c) which we cannot
+ * cheaply call from asm. Disable PTR_MUNGE here by using a zero token —
+ * XOR-with-zero is the identity transform, so setjmp/longjmp still match,
+ * we just lose the obfuscation hardening. The same change is required for
+ * any other asm site using _OS_PTR_MUNGE on darling arm64. */
+#define _OS_PTR_MUNGE_TOKEN(_reg, _token) \
+	mov	_token, #0
+#else
 #define _OS_PTR_MUNGE_TOKEN(_reg, _token) \
 	mrs _reg, TPIDRRO_EL0 %% \
 	and	_reg, _reg, #~0x7 %% \
 	ldr	_token, [ _reg,  #_OS_TSD_OFFSET(__TSD_PTR_MUNGE) ]
+#endif // DARLING
 
 #endif // defined(__arm64__)
 

@@ -27,7 +27,6 @@ long sys_connect(int fd, const void* name, int socklen)
 long sys_connect_nocancel(int fd, const void* name, int socklen)
 {
 	int ret;
-	int linux_domain;
 	struct sockaddr_fixup* fixed;
 
 	if (socklen > 512)
@@ -38,11 +37,29 @@ long sys_connect_nocancel(int fd, const void* name, int socklen)
 	if (ret < 0)
 		return ret;
 
+	// DARLING workaround: Darwin clients on Darling-arm64 often set
+	// O_NONBLOCK on the socket and then wait for connect completion via
+	// Mach kqueue paths that Darling's kqueue plumbing doesn't yet wire
+	// through to Linux socket-fd readiness events. Temporarily clear
+	// O_NONBLOCK so the underlying Linux connect() blocks until the TCP
+	// handshake completes, then restore the original flags. The caller
+	// sees ret=0 instead of EINPROGRESS — close enough for the typical
+	// "connect then send" sequence to work without polling.
+	long flags = LINUX_SYSCALL(__NR_fcntl, fd, 3 /*F_GETFL*/, 0);
+	int was_nonblock = (flags >= 0) && (flags & 0x800 /*O_NONBLOCK*/);
+	if (was_nonblock) {
+		LINUX_SYSCALL(__NR_fcntl, fd, 4 /*F_SETFL*/, flags & ~0x800L);
+	}
+
 #ifdef __NR_socketcall
 	ret = LINUX_SYSCALL(__NR_socketcall, LINUX_SYS_CONNECT, ((long[6]) { fd, fixed, socklen }));
 #else
 	ret = LINUX_SYSCALL(__NR_connect, fd, fixed, socklen);
 #endif
+
+	if (was_nonblock) {
+		LINUX_SYSCALL(__NR_fcntl, fd, 4 /*F_SETFL*/, flags);  // restore O_NONBLOCK
+	}
 
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);

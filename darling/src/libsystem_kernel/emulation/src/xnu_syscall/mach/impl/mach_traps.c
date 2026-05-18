@@ -335,9 +335,33 @@ kern_return_t _kernelrpc_mach_vm_map_trap_impl(
 		posix_flags |= MAP_FIXED;
 	if ((flags >> 24) == VM_MEMORY_REALLOC)
 		addr = (void*)__linux_mremap(((char*)*address) - 0x1000, 0x1000, 0x1000 + size, 0, NULL);
-	else
+	else {
+#if defined(__aarch64__) || defined(__arm64__)
+		// libobjc's class_data_bits_t stores class_rw_t* using FAST_DATA_MASK
+		// (0x00007ffffffffff8 — 47 bits). Linux ARM64 user space is up to 48-bit,
+		// so glibc mmap can return addresses with bit 47 set (e.g.
+		// 0xf8b170b00000) for any ANYWHERE allocation, regardless of hint.
+		// Those values get truncated by FAST_DATA_MASK into unmapped pointers.
+		// Solution: when the kernel hands us a >= 2^47 address for an ANYWHERE
+		// request, drop it and re-mmap with MAP_FIXED into a managed low-VA
+		// arena. (FIXED requests with explicit addresses are honored as-is.)
+		static uintptr_t next_low_vm_addr = 0x500000000ULL;
+		const uintptr_t LOW_VA_LIMIT = 0x800000000000ULL; /* 2^47 */
 		addr = mmap((void*)*address, size, prot, posix_flags, -1, 0);
-	
+		if ((flags & VM_FLAGS_ANYWHERE) && addr != MAP_FAILED
+				&& (uintptr_t)addr >= LOW_VA_LIMIT) {
+			munmap(addr, size);
+			addr = mmap((void*)next_low_vm_addr, size, prot,
+					posix_flags | MAP_FIXED, -1, 0);
+			if (addr != MAP_FAILED)
+				next_low_vm_addr = ((uintptr_t)addr + size + 0xffffff)
+						& ~0xffffffULL;
+		}
+#else
+		addr = mmap((void*)*address, size, prot, posix_flags, -1, 0);
+#endif
+	}
+
 	if (addr == MAP_FAILED)
 	{
 		return KERN_FAILURE;

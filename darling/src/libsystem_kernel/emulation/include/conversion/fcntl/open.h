@@ -13,9 +13,19 @@
 #define LINUX_O_SYNC 04010000
 #define LINUX_O_ASYNC 020000
 #define LINUX_O_CLOEXEC 02000000
-#define LINUX_O_LARGEFILE 0100000
-#define LINUX_O_NOFOLLOW 0400000
-#define LINUX_O_DIRECTORY 0200000
+// O_DIRECTORY/O_NOFOLLOW/O_LARGEFILE differ between x86_64 and aarch64 in the
+// Linux kernel uapi headers. aarch64 overrides them in <asm/fcntl.h> while
+// x86_64 inherits asm-generic values. Get this wrong and open(path, O_DIRECTORY)
+// becomes open(path, O_DIRECT) on aarch64 → EINVAL on regular directories.
+#if defined(__aarch64__) || defined(__arm64__)
+#  define LINUX_O_DIRECTORY 040000  /* aarch64: 0x4000 */
+#  define LINUX_O_NOFOLLOW 0100000  /* aarch64: 0x8000 */
+#  define LINUX_O_LARGEFILE 0400000 /* aarch64: 0x20000 */
+#else
+#  define LINUX_O_LARGEFILE 0100000
+#  define LINUX_O_NOFOLLOW 0400000
+#  define LINUX_O_DIRECTORY 0200000
+#endif
 
 #define BSD_O_RDONLY 0
 #define BSD_O_WRONLY 1

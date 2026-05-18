@@ -148,10 +148,38 @@ Lparent:
 #elif defined(__arm64__)
 
 #include <mach/arm64/asm.h>
-	
+
 MI_ENTRY_POINT(___fork)
 	ARM64_STACK_PROLOG
 	PUSH_FRAME
+#ifdef DARLING
+	// Darling: route through __darling_bsd_syscall instead of svc trap
+	// (svc would enter the Linux kernel, which does not know XNU syscalls).
+	// __darling_bsd_syscall returns: x0 > 0 parent (child PID), x0 == 0 child,
+	// x0 in [-4095, -1] is -errno.
+	mov		x16, #SYS_fork
+	bl		__darling_bsd_syscall
+	tbnz	x0, #63, Lbotch_neg			// negative => error
+	cbnz	x0, Lparent					// positive => parent (child PID in x0)
+
+	// Child (x0 == 0)
+	MI_GET_ADDRESS(x9, __current_pid)
+	mov		w0, #0
+	str		w0, [x9]
+	POP_FRAME
+	ARM64_STACK_EPILOG
+
+Lbotch_neg:
+	neg		x0, x0						// convert -errno -> errno
+	MI_CALL_EXTERNAL(_cerror)
+	mov		w0, #-1
+	POP_FRAME
+	ARM64_STACK_EPILOG
+
+Lparent:
+	POP_FRAME
+	ARM64_STACK_EPILOG
+#else
 	// ARM moves a 1 in to r1 here, but I can't see why.
 	mov		x16, #SYS_fork				// Syscall code
 	svc		#SWI_SYSCALL				// Trap to kernel
@@ -160,8 +188,8 @@ MI_ENTRY_POINT(___fork)
 
 	// Child
 	MI_GET_ADDRESS(x9, __current_pid)	// Get address of cached "current pid"
-	mov		w0, #0	
-	str		w0, [x9]					// Clear cached current pid				
+	mov		w0, #0
+	str		w0, [x9]					// Clear cached current pid
 	POP_FRAME							// And done
 	ARM64_STACK_EPILOG
 
@@ -171,6 +199,7 @@ Lbotch:
 Lparent:
 	POP_FRAME							// Return
 	ARM64_STACK_EPILOG
+#endif
 
 #else
 #error Unsupported architecture
