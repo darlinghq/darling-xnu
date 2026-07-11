@@ -23,7 +23,9 @@ long sys_fork(void)
 	int ret;
 	int wdfd = get_perthread_wd();
 
-#ifdef SYS_fork
+#if defined(__arm64__) || defined(__aarch64__)
+	ret = native_fork();
+#elif defined(SYS_fork)
 	ret = LINUX_SYSCALL(__NR_fork);
 #else
 	ret = LINUX_SYSCALL(__NR_clone, LINUX_SIGCHLD, 0);
