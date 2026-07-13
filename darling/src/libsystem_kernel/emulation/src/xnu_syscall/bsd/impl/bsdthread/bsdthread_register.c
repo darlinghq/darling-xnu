@@ -238,10 +238,15 @@ void wqueue_entry_point_asm_jump(void* self, int thread_port, void* stackaddr,
 	);
 #elif defined(__aarch64__) || defined(__arm64__)
 	__asm__ __volatile__ (
+		"mov x29, xzr\n"
+		"mov x30, xzr\n"
+		"mov sp, %[stack_top]\n"
 		"br %[wqueue_entry_point]\n"
 		::
 		"r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
+		[stack_top] "r"(arg1),
 		[wqueue_entry_point] "r"(wqueue_entry_point)
+		: "memory"
 	);
 #else
 	#error "Missing assembly for architecture"
