@@ -18,6 +18,8 @@ long sys_pipe(int fd[2])
 
 #if defined(__i386__) || defined(__x86_64__)
 	__asm__ __volatile__("movl %0, %%edx" :: "m"(fd[1]) : "edx");
+#elif defined(__aarch64__) || defined(__arm64__)
+	__asm__ __volatile__("mov x1, %0" :: "r"((uint64_t)(uint32_t)fd[1]) : "x1");
 #else
 #	warning Missing assembly!
 #endif
