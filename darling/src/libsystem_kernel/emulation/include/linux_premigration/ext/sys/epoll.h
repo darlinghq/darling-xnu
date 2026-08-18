@@ -41,6 +41,8 @@ typedef union epoll_data
 	int fd;
 	uint32_t u32;
 	uint64_t u64;
+} epoll_data_t;
+
 #ifdef __x86_64__
 # define __EPOLL_PACKED __attribute__((packed))
 #else
