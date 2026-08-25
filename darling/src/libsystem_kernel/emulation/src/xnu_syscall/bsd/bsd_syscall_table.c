@@ -169,7 +169,9 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/mknod.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/pipe.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/pread.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/preadv.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/pwrite.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/pwritev.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/read.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/readlink.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/readlinkat.h>
@@ -486,4 +488,10 @@ void* __bsd_syscall_table[600] = {
 	[517] = sys_fclonefileat,
 	[521] = sys_abort_with_payload,
 	[524] = sys_setattrlistat,
+	[540] = sys_preadv,
+	[541] = sys_pwritev,
+	[542] = sys_preadv_nocancel,
+	[543] = sys_pwritev_nocancel,
+	[544] = sys_ulock_wait2,
+	[545] = sys_proc_info_extended_id,
 };

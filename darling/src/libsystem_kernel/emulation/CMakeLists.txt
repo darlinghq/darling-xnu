@@ -278,7 +278,9 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/unistd/mknod.c
 	src/xnu_syscall/bsd/impl/unistd/pipe.c
 	src/xnu_syscall/bsd/impl/unistd/pread.c
+	src/xnu_syscall/bsd/impl/unistd/preadv.c
 	src/xnu_syscall/bsd/impl/unistd/pwrite.c
+	src/xnu_syscall/bsd/impl/unistd/pwritev.c
 	src/xnu_syscall/bsd/impl/unistd/read.c
 	src/xnu_syscall/bsd/impl/unistd/readlink.c
 	src/xnu_syscall/bsd/impl/unistd/readlinkat.c
