@@ -284,7 +284,13 @@ static int vchroot_run(const char* input_path, struct context* ctxt)
 
 						// We cannot exit current_root via ..
 						if (ctxt->current_path_len < ctxt->current_root_len)
-							return -LINUX_ENOENT;
+						{
+							// Post-pop safety clamp: if popping a path component
+							// left the path shallower than current_root, clamp back to current_root
+							// rather than failing with -LINUX_ENOENT (which broke cd .. from root).
+							strcpy(ctxt->current_path, ctxt->current_root);
+							ctxt->current_path_len = ctxt->current_root_len;
+						}
 						break;
 					}
 					p--;
