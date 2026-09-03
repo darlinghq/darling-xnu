@@ -58,6 +58,36 @@ void stat_linux_to_bsd64(const struct linux_stat* lstat, struct stat64* stat)
 	stat->st_flags = 0;
 }
 
+static unsigned int statfs_flags_linux_to_bsd(long linux_flags)
+{
+	unsigned int bsd_flags = 0;
+
+	#define LINUX_ST_RDONLY      0x0001
+	#define LINUX_ST_NOSUID      0x0002
+	#define LINUX_ST_NODEV       0x0004
+	#define LINUX_ST_NOEXEC      0x0008
+	#define LINUX_ST_SYNCHRONOUS 0x0010
+
+	#define BSD_MNT_RDONLY       0x00000001
+	#define BSD_MNT_SYNCHRONOUS  0x00000002
+	#define BSD_MNT_NOEXEC       0x00000004
+	#define BSD_MNT_NOSUID       0x00000008
+	#define BSD_MNT_NODEV        0x00000010
+
+	if (linux_flags & LINUX_ST_RDONLY)
+		bsd_flags |= BSD_MNT_RDONLY;
+	if (linux_flags & LINUX_ST_SYNCHRONOUS)
+		bsd_flags |= BSD_MNT_SYNCHRONOUS;
+	if (linux_flags & LINUX_ST_NOEXEC)
+		bsd_flags |= BSD_MNT_NOEXEC;
+	if (linux_flags & LINUX_ST_NOSUID)
+		bsd_flags |= BSD_MNT_NOSUID;
+	if (linux_flags & LINUX_ST_NODEV)
+		bsd_flags |= BSD_MNT_NODEV;
+
+	return bsd_flags;
+}
+
 void statfs_linux_to_bsd(const struct linux_statfs64* lstat, struct bsd_statfs* stat)
 {
 	stat->f_type = lstat->f_type;
@@ -68,7 +98,7 @@ void statfs_linux_to_bsd(const struct linux_statfs64* lstat, struct bsd_statfs* 
 	stat->f_files = lstat->f_files;
 	stat->f_ffree = lstat->f_ffree;
 	stat->f_fsid = lstat->f_fsid;
-	stat->f_flags = lstat->f_flags; /* FIXME: convert flags */
+	stat->f_flags = statfs_flags_linux_to_bsd(lstat->f_flags);
 }
 
 void statfs_linux_to_bsd64(const struct linux_statfs64* lstat, struct bsd_statfs64* stat)
@@ -82,5 +112,5 @@ void statfs_linux_to_bsd64(const struct linux_statfs64* lstat, struct bsd_statfs
 	stat->f_files = lstat->f_files;
 	stat->f_ffree = lstat->f_ffree;
 	stat->f_fsid = lstat->f_fsid;
-	stat->f_flags = lstat->f_flags; /* FIXME: convert flags */
+	stat->f_flags = statfs_flags_linux_to_bsd(lstat->f_flags);
 }
