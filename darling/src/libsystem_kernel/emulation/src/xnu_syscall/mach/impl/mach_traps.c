@@ -5,6 +5,7 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
 #include <mach/mach_init.h>
 
 #include <darling/emulation/common/base.h>
@@ -337,25 +338,54 @@ kern_return_t _kernelrpc_mach_vm_map_trap_impl(
 		addr = (void*)__linux_mremap(((char*)*address) - 0x1000, 0x1000, 0x1000 + size, 0, NULL);
 	else {
 #if defined(__aarch64__) || defined(__arm64__)
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
 		// libobjc's class_data_bits_t stores class_rw_t* using FAST_DATA_MASK
 		// (0x00007ffffffffff8 — 47 bits). Linux ARM64 user space is up to 48-bit,
 		// so glibc mmap can return addresses with bit 47 set (e.g.
 		// 0xf8b170b00000) for any ANYWHERE allocation, regardless of hint.
 		// Those values get truncated by FAST_DATA_MASK into unmapped pointers.
 		// Solution: when the kernel hands us a >= 2^47 address for an ANYWHERE
-		// request, drop it and re-mmap with MAP_FIXED into a managed low-VA
-		// arena. (FIXED requests with explicit addresses are honored as-is.)
+		// request, drop it and re-mmap with MAP_FIXED_NOREPLACE into a managed low-VA
+		// arena, advancing to avoid colliding with dyld, executables, or other allocations.
 		static uintptr_t next_low_vm_addr = 0x500000000ULL;
 		const uintptr_t LOW_VA_LIMIT = 0x800000000000ULL; /* 2^47 */
 		addr = mmap((void*)*address, size, prot, posix_flags, -1, 0);
 		if ((flags & VM_FLAGS_ANYWHERE) && addr != MAP_FAILED
 				&& (uintptr_t)addr >= LOW_VA_LIMIT) {
 			munmap(addr, size);
-			addr = mmap((void*)next_low_vm_addr, size, prot,
-					posix_flags | MAP_FIXED, -1, 0);
-			if (addr != MAP_FAILED)
-				next_low_vm_addr = ((uintptr_t)addr + size + 0xffffff)
-						& ~0xffffffULL;
+			addr = MAP_FAILED;
+			while (1) {
+				uintptr_t cur_low = __atomic_load_n(&next_low_vm_addr, __ATOMIC_RELAXED);
+				if (cur_low >= LOW_VA_LIMIT)
+					break;
+				uintptr_t expected = cur_low;
+				uintptr_t try_addr = cur_low;
+				if (mask) {
+					uintptr_t boundary = mask + 1;
+					try_addr = (try_addr + (boundary - 1)) & ~(boundary - 1);
+				}
+				if (try_addr >= LOW_VA_LIMIT)
+					break;
+				addr = mmap((void*)try_addr, size, prot,
+						posix_flags | MAP_FIXED_NOREPLACE, -1, 0);
+				if (addr != MAP_FAILED) {
+					uintptr_t target_next = ((uintptr_t)addr + size + 0xffffff) & ~0xffffffULL;
+					while (target_next > expected && !__atomic_compare_exchange_n(&next_low_vm_addr, &expected, target_next, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+					}
+					break;
+				}
+				if (errno != EEXIST) {
+					break;
+				}
+				uintptr_t step = mask ? (mask + 1) : 0x1000000ULL;
+				if (step < 0x1000000ULL)
+					step = 0x1000000ULL;
+				uintptr_t next_try = (try_addr + step) & ~0xffffffULL;
+				while (next_try > expected && !__atomic_compare_exchange_n(&next_low_vm_addr, &expected, next_try, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+				}
+			}
 		}
 #else
 		addr = mmap((void*)*address, size, prot, posix_flags, -1, 0);
