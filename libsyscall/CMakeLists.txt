@@ -744,7 +744,7 @@ set_source_files_properties(wrappers/cancelable/select-cancel.c PROPERTIES COMPI
 set_source_files_properties(wrappers/cancelable/select.c PROPERTIES COMPILE_FLAGS "-U_DARWIN_C_SOURCE")
 
 foreach (file IN ITEMS ${syscall_legacy_sources})
-	set_source_files_properties(${file} PROPERTIES COMPILE_FLAGS "${CMAKE_C_FLAGS} -U_DARWIN_C_SOURCE -U_POSIX_C_SOURCE -U__DARWIN_UNIX03 -D__DARWIN_UNIX03=0  -U__DARWIN_C_LEVEL")
+	set_source_files_properties(${file} PROPERTIES COMPILE_FLAGS "-U_DARWIN_C_SOURCE -U_POSIX_C_SOURCE -U__DARWIN_UNIX03 -D__DARWIN_UNIX03=0  -U__DARWIN_C_LEVEL")
 endforeach(file)
 
 add_compile_options(
