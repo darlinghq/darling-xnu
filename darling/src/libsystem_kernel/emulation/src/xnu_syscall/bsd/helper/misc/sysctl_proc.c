@@ -15,6 +15,7 @@
 #include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/host_platform.h>
 
 #include <darlingserver/rpc.h>
 
@@ -59,10 +60,36 @@ int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* bufl
 		return -EFAULT;
 
 	fd = sys_open_nocancel("/proc", BSD_O_RDONLY | BSD_O_DIRECTORY, 0);
+	if (fd >= 0)
+	{
+		ret = sys_getdirentries(fd, (char*) dents, sizeof(dents), &basep);
+		if (ret <= 0 && host_platform_is_android())
+		{
+			// QUIRK: on Android the guest's /proc can be empty or unreadable
+			// while the host's procfs, mounted at /Volumes/SystemRoot/proc,
+			// lists the processes, so the process list is read from there.
+			// Evidence: contributor observation on Android (tier 2, not
+			// reproduced by us). Not active on other hosts, where an empty
+			// /proc is a legitimate answer and the host's processes must not
+			// leak into the guest's list. Test: none off Android.
+			close_internal(fd);
+			fd = -1;
+		}
+	}
+
+	if (fd < 0 && host_platform_is_android())
+	{
+		fd = sys_open_nocancel("/Volumes/SystemRoot/proc", BSD_O_RDONLY | BSD_O_DIRECTORY, 0);
+		if (fd >= 0)
+		{
+			basep = 0;
+			ret = sys_getdirentries(fd, (char*) dents, sizeof(dents), &basep);
+		}
+	}
 	if (fd < 0)
 		return fd;
 
-	while ((ret = sys_getdirentries(fd, (char*) dents, sizeof(dents), &basep)) > 0)
+	while (ret > 0)
 	{
 		int pos = 0;
 		
@@ -108,6 +135,7 @@ int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* bufl
 
 			pos += dent->d_reclen;
 		}
+		ret = sys_getdirentries(fd, (char*) dents, sizeof(dents), &basep);
 	}
 
 	if (out == NULL || *buflen < nproc*sizeof(struct kinfo_proc))
