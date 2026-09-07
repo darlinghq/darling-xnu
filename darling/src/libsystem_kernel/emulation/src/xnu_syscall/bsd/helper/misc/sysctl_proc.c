@@ -79,6 +79,14 @@ int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* bufl
 				continue;
 			}
 
+			int pid = __simple_atoi(dent->d_name, NULL);
+			bool is_64_bit;
+			if (dserver_rpc_task_is_64_bit(pid, &is_64_bit) < 0)
+			{
+				pos += dent->d_reclen;
+				continue;
+			}
+
 			// Avoid loading process info unless really needed
 			if (what != KERN_PROC_ALL || *buflen > 0)
 			{
@@ -241,7 +249,7 @@ static struct kinfo_proc_chain* load_proc(const char* name, int what, int flag)
 
 	bool is_64_bit;
 	if (dserver_rpc_task_is_64_bit(kinfo->kinfo.kp_proc.p_pid, &is_64_bit) < 0) {
-		is_64_bit = false;
+		goto retnull;
 	}
 	if (is_64_bit)
 		kinfo->kinfo.kp_proc.p_flag |= P_LP64;
@@ -388,6 +396,10 @@ static void free_chain(struct kinfo_proc_chain* chain)
 
 int _sysctl_procargs(int pid, char* buf, unsigned long* buflen)
 {
+	bool is_64_bit;
+	if (dserver_rpc_task_is_64_bit(pid, &is_64_bit) < 0)
+		return -ESRCH;
+
 	char path[56];
 	char cmdline[2048];
 	int argc = 0, i, arg0len = 0, argslen = 0;
