@@ -477,7 +477,11 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 	state_to_kernel(ctxt, &tstate, &fstate);
 	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, info->si_pid, info->si_code, info->si_addr, &tstate, &fstate, &bsd_signum);
 	if (ret < 0) {
-		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d", linux_signum, ret);
+#if defined(__x86_64__)
+		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d in PID %d (RIP 0x%llx)\n", linux_signum, ret, getpid(), (unsigned long long)ctxt->uc_mcontext.gregs.rip);
+#else
+		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d in PID %d\n", linux_signum, ret, getpid());
+#endif
 		__simple_abort();
 	}
 	state_from_kernel(ctxt, &tstate, &fstate);
