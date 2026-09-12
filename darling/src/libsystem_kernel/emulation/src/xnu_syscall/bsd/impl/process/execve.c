@@ -24,6 +24,7 @@
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/write.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/host_platform.h>
 
 #include <darlingserver/rpc.h>
 
@@ -39,6 +40,119 @@ static inline bool istext(char c)
 	return c >= 0x20 && c < 0x7F;
 }
 
+static bool env_has_name(const char* entry, const char* name)
+{
+	size_t i = 0;
+	for (; name[i]; i++)
+		if (entry[i] != name[i])
+			return false;
+	return entry[i] == '=';
+}
+
+static const char* env_value(const char** envp, const char* name)
+{
+	if (!envp)
+		return NULL;
+	for (int i = 0; envp[i]; i++)
+	{
+		if (env_has_name(envp[i], name))
+			return envp[i] + strlen(name) + 1;
+	}
+	return NULL;
+}
+
+static bool env_append(char* out, size_t size, size_t* pos, const char* text, size_t length)
+{
+	if (length >= size - *pos)
+		return false;
+	memcpy(out + *pos, text, length);
+	*pos += length;
+	out[*pos] = '\0';
+	return true;
+}
+
+// Android only (host_platform_is_android()); on any other host this does
+// nothing and the environment is passed on unchanged.
+//
+// A Darwin program started on Android has to be able to load the host
+// libraries mldr opens. They sit in the directory of mldr (an application's
+// native library directory) and in the library directory of the Termux-style
+// prefix, which the environment names with TERMUX_PREFIX or PREFIX (or which
+// lies next to HOME). mldr keeps the LD_LIBRARY_PATH of Darwin programs, so
+// it is set in the environment of the program that is being started. The
+// value the program was given is kept after ours.
+//
+// Fills out with "LD_LIBRARY_PATH=..." and returns 1, or returns 0 when there
+// is nothing to add.
+static int android_ld_library_path(char* out, size_t size, const char* mldr_path, const char** envp)
+{
+	static const char variable[] = "LD_LIBRARY_PATH=";
+	size_t pos = 0;
+	size_t mldr_dir_length = 0;
+	bool have_entry = false;
+
+	if (!host_platform_is_android())
+		return 0;
+
+	for (size_t i = 0; mldr_path[i]; i++)
+		if (mldr_path[i] == '/')
+			mldr_dir_length = i;
+
+	out[0] = '\0';
+	if (!env_append(out, size, &pos, variable, sizeof(variable) - 1))
+		return 0;
+
+	if (mldr_dir_length > 0)
+	{
+		if (!env_append(out, size, &pos, mldr_path, mldr_dir_length))
+			return 0;
+		have_entry = true;
+	}
+
+	const char* prefix = env_value(envp, "TERMUX_PREFIX");
+	if (!prefix || !prefix[0])
+		prefix = env_value(envp, "PREFIX");
+
+	char lib[4096];
+	size_t lib_length = 0;
+	lib[0] = '\0';
+	if (prefix && prefix[0])
+	{
+		if (!env_append(lib, sizeof(lib), &lib_length, prefix, strlen(prefix)) ||
+				!env_append(lib, sizeof(lib), &lib_length, "/lib", 4))
+			lib[0] = '\0';
+	}
+	else
+	{
+		const char* home = env_value(envp, "HOME");
+		if (home && home[0])
+		{
+			if (!env_append(lib, sizeof(lib), &lib_length, home, strlen(home)) ||
+					!env_append(lib, sizeof(lib), &lib_length, "/../usr/lib", 11))
+				lib[0] = '\0';
+		}
+	}
+
+	if (lib[0] && LINUX_SYSCALL(__NR_faccessat, LINUX_AT_FDCWD, lib, 0, 0) == 0)
+	{
+		if ((have_entry && !env_append(out, size, &pos, ":", 1)) ||
+				!env_append(out, size, &pos, lib, lib_length))
+			return 0;
+		have_entry = true;
+	}
+
+	if (!have_entry)
+		return 0;
+
+	const char* existing = env_value(envp, "LD_LIBRARY_PATH");
+	if (existing && existing[0])
+	{
+		if (!env_append(out, size, &pos, ":", 1) || !env_append(out, size, &pos, existing, strlen(existing)))
+			return 0;
+	}
+	return 1;
+}
+
 long sys_execve(const char* fname, const char** argvp, const char** envp)
 {
 	int ret;
@@ -50,6 +164,7 @@ long sys_execve(const char* fname, const char** argvp, const char** envp)
 	// must not be scoped to the block that fills them in
 	char mldr_lifetime_pipe_env[32] = { '\0' };
 	char mldr_nofile_env[48] = { '\0' };
+	char android_ld_env[3 * 4096] = { '\0' };
 
 	ret = dserver_rpc_mldr_path(mldr_path, sizeof(mldr_path), &mldr_path_length);
 	if (ret < 0) {
@@ -204,26 +319,41 @@ long sys_execve(const char* fname, const char** argvp, const char** envp)
 		// RLIMIT_NOFILE survives execve; mldr hands it to the new image
 		int have_nofile_env = nofile_limit_exec_env(mldr_nofile_env, sizeof(mldr_nofile_env) - 1);
 
-		// count original env vars
-		while (envp[len++]);
+		int add_android_ld = android_ld_library_path(android_ld_env, sizeof(android_ld_env), mldr_path, envp);
 
-		const int new_env_count = have_nofile_env ? 3 : 2;
+		// count original env vars (handling NULL envp safely)
+		if (envp) {
+			while (envp[len]) len++;
+		}
 
-		// allocate a new envp and env0, env1
-		modenvp = (const char**)__builtin_alloca(sizeof(void*) * (len + new_env_count));
+		const int new_env_count = (have_nofile_env ? 3 : 2) + add_android_ld;
+
+		// allocate a new envp and env0, env1 (+1 for trailing NULL)
+		modenvp = (const char**)__builtin_alloca(sizeof(void*) * (len + new_env_count + 1));
 		buf = __builtin_alloca(strlen(server_socket_path) + sizeof("__mldr_sockpath="));
 
 		// set up the new env0
 		strcpy(buf, "__mldr_sockpath=");
 		strcat(buf, server_socket_path);
-		modenvp[0] = buf;
-		modenvp[1] = mldr_lifetime_pipe_env;
+		int env_idx = 0;
+		modenvp[env_idx++] = buf;
+		modenvp[env_idx++] = mldr_lifetime_pipe_env;
+		if (add_android_ld)
+			modenvp[env_idx++] = android_ld_env;
 		if (have_nofile_env)
-			modenvp[2] = mldr_nofile_env;
+			modenvp[env_idx++] = mldr_nofile_env;
 
 		// append original env vars
-		for (int i = new_env_count; i < len + new_env_count; i++)
-			modenvp[i] = envp[i-new_env_count];
+		if (envp) {
+			for (int i = 0; i < len; i++)
+			{
+				// replaced by the entry that android_ld_library_path built from it
+				if (add_android_ld && env_has_name(envp[i], "LD_LIBRARY_PATH"))
+					continue;
+				modenvp[env_idx++] = envp[i];
+			}
+		}
+		modenvp[env_idx] = NULL;
 
 		envp = modenvp;
 	}
