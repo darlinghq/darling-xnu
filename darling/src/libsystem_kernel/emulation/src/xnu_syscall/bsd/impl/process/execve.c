@@ -150,6 +150,7 @@ long sys_execve(const char* fname, const char** argvp, const char** envp)
 				modargvp[i+j] = argvp[j];
 
 			argvp = modargvp;
+			vc.flags = 0;
 			strcpy(vc.path, interp);
 
 			ret = vchroot_expand(&vc);
