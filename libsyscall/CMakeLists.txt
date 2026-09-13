@@ -505,6 +505,8 @@ set(syscall_sources
 	bsdsyscalls/_mkdir.S
 	bsdsyscalls/___mkfifo_extended.S
 	bsdsyscalls/_mkfifo.S
+	bsdsyscalls/_mkfifoat.S
+	bsdsyscalls/_mknodat.S
 	bsdsyscalls/_mknod.S
 	bsdsyscalls/_mlockall.S
 	bsdsyscalls/_mlock.S

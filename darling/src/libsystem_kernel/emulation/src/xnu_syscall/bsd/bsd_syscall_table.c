@@ -117,6 +117,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mkdir.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mkdirat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mkfifo.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/mkfifoat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/rmdir.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/stat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/stat64_extended.h>
@@ -172,6 +173,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/linkat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/lseek.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/mknod.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/mknodat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/pipe.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/pread.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/preadv.h>
@@ -505,4 +507,6 @@ void* __bsd_syscall_table[600] = {
 	[543] = sys_pwritev_nocancel,
 	[544] = sys_ulock_wait2,
 	[545] = sys_proc_info_extended_id,
+	[546] = sys_mkfifoat,
+	[547] = sys_mknodat,
 };
