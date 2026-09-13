@@ -11,6 +11,17 @@
 
 extern char* strcpy(char* dst, const char* src);
 
+static inline unsigned long long dev_bsd_to_linux(int dev)
+{
+	if (dev == 0)
+		return 0;
+	unsigned int maj = ((unsigned int)dev >> 24) & 0xff;
+	unsigned int min = (unsigned int)dev & 0xffffff;
+	return ((unsigned long long)(maj & 0xfff) << 8) | (min & 0xff) |
+	       (((unsigned long long)(maj & ~0xfff)) << 32) |
+	       (((unsigned long long)(min & ~0xff)) << 12);
+}
+
 long sys_mknodat(int fd, const char* path, int mode, int dev)
 {
 	int ret;
@@ -28,7 +39,7 @@ long sys_mknodat(int fd, const char* path, int mode, int dev)
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
-	ret = LINUX_SYSCALL(__NR_mknodat, vc.dfd, vc.path, mode, dev);
+	ret = LINUX_SYSCALL(__NR_mknodat, vc.dfd, vc.path, mode, dev_bsd_to_linux(dev));
 
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
