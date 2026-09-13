@@ -111,53 +111,58 @@ long sys_execve(const char* fname, const char** argvp, const char** envp)
 			return -ENOEXEC;
 
 		*nl = '\0';
-		for (i = 2; isspace(shebang[i]); i++);
+		for (i = 2; isspace(shebang[i]); i++)
+			continue;
 
-			interp = &shebang[i];
+		interp = &shebang[i];
 
-			for (i = 0; !isspace(interp[i]) && interp[i]; i++);
+		for (i = 0; !isspace(interp[i]) && interp[i]; i++)
+			continue;
 
-			if (interp[i] == '\0')
-				arg = NULL;
-			else
-				arg = &interp[i];
+		if (interp[i] == '\0')
+			arg = NULL;
+		else
+			arg = &interp[i];
 
-			if (arg != NULL)
-			{
-				*arg = '\0'; // terminate interp
+		if (arg != NULL)
+		{
+			*arg = '\0'; // terminate interp
+			arg++;
+			while (isspace(*arg) && *arg)
 				arg++;
-				while (isspace(*arg) && *arg)
-					arg++;
-				if (*arg == '\0')
-					arg = NULL; // no argument, just whitespace
-			}
+			if (*arg == '\0')
+				arg = NULL; // no argument, just whitespace
+		}
 
-			// Count original arguments
-			while (argvp[len++]);
+		// Count original arguments
+		int orig_argc = 0;
+		while (argvp[orig_argc])
+			orig_argc++;
 
-			// Allocate a new argvp
-			modargvp = (const char**) __builtin_alloca(sizeof(void*) * (len+3));
+		// Allocate a new argvp: mldr_path, interp (vc.path), [arg], fname, argvp[1..orig_argc-1], NULL
+		modargvp = (const char**) __builtin_alloca(sizeof(void*) * (orig_argc + 4));
 
-			i = 0;
-			modargvp[i++] = mldr_path;
-			modargvp[i++] = vc.path; // expanded later
-			if (arg != NULL)
-				modargvp[i++] = arg;
-			modargvp[i] = fname;
+		i = 0;
+		modargvp[i++] = mldr_path;
+		modargvp[i++] = vc.path; // expanded later
+		if (arg != NULL)
+			modargvp[i++] = arg;
+		modargvp[i++] = fname;
 
-			// Append original arguments
-			for (j = 1; j < len+1; j++)
-				modargvp[i+j] = argvp[j];
+		// Append original arguments (skipping argvp[0])
+		for (j = 1; j < orig_argc; j++)
+			modargvp[i++] = argvp[j];
+		modargvp[i++] = NULL;
 
-			argvp = modargvp;
-			vc.flags = 0;
-			strcpy(vc.path, interp);
+		argvp = modargvp;
+		vc.flags = 0;
+		strcpy(vc.path, interp);
 
-			ret = vchroot_expand(&vc);
-			if (ret < 0)
-				return ret;
+		ret = vchroot_expand(&vc);
+		if (ret < 0)
+			return errno_linux_to_bsd(ret);
 
-			path_to_exec = mldr_path;
+		path_to_exec = mldr_path;
 	} else if (is_macho) {
 		const char** modargvp;
 		char *buf;
