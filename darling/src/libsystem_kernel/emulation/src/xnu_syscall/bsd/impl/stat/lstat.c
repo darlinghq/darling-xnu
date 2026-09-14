@@ -34,9 +34,9 @@ long sys_lstat(const char* path, struct stat* stat)
 		ret = LINUX_SYSCALL(__NR_lstat, vc.path, &lstat);
 	#else
 		#if defined(__NR_newfstatat)
-			int status = LINUX_SYSCALL(__NR_newfstatat, LINUX_AT_FDCWD, vc.path, &lstat, LINUX_AT_SYMLINK_NOFOLLOW);
+			ret = LINUX_SYSCALL(__NR_newfstatat, LINUX_AT_FDCWD, vc.path, &lstat, LINUX_AT_SYMLINK_NOFOLLOW);
 		#else
-			int status = LINUX_SYSCALL(__NR_fstatat64, LINUX_AT_FDCWD, vc.path, &lstat, LINUX_AT_SYMLINK_NOFOLLOW);
+			ret = LINUX_SYSCALL(__NR_fstatat64, LINUX_AT_FDCWD, vc.path, &lstat, LINUX_AT_SYMLINK_NOFOLLOW);
 		#endif
 	#endif
 
@@ -72,9 +72,9 @@ long sys_lstat64(const char* path, struct stat64* stat)
 		ret = LINUX_SYSCALL(__NR_lstat, vc.path, &lstat);
 	#else
 		#if defined(__NR_newfstatat)
-			int status = LINUX_SYSCALL(__NR_newfstatat, LINUX_AT_FDCWD, vc.path, &lstat, LINUX_AT_SYMLINK_NOFOLLOW);
+			ret = LINUX_SYSCALL(__NR_newfstatat, LINUX_AT_FDCWD, vc.path, &lstat, LINUX_AT_SYMLINK_NOFOLLOW);
 		#else
-			int status = LINUX_SYSCALL(__NR_fstatat64, LINUX_AT_FDCWD, vc.path, &lstat, LINUX_AT_SYMLINK_NOFOLLOW);
+			ret = LINUX_SYSCALL(__NR_fstatat64, LINUX_AT_FDCWD, vc.path, &lstat, LINUX_AT_SYMLINK_NOFOLLOW);
 		#endif
 	#endif
 
