@@ -13,7 +13,8 @@
 // Instead, we use a small open-addressed hash table keyed by Linux tid (from gettid).
 // This is slower than a register but works correctly without TLV.
 
-#define TSD_TABLE_SIZE 1024  /* power of two; > expected max thread count */
+#define TSD_TABLE_BITS 10
+#define TSD_TABLE_SIZE (1u << TSD_TABLE_BITS)  /* 1024; > expected max thread count */
 
 struct tsd_entry {
 	long tid;       /* Linux tid; 0 means empty slot */
@@ -32,8 +33,12 @@ static void* __attribute__((aligned(4096))) tsd_zero_page[4096 / sizeof(void*)];
 
 static inline unsigned int tsd_hash(long tid)
 {
-	/* Simple multiplicative hash; collisions resolved by linear probing. */
-	return (unsigned int)((tid * 2654435761u) & (TSD_TABLE_SIZE - 1));
+	/* Multiplicative (Fibonacci) hash using the top bits of the product; collisions
+	 * are resolved by linear probing. The low bits of the product would only depend on
+	 * the low bits of the thread pointer, and those are the same for every thread with
+	 * the same stack size (glibc puts it at a fixed offset in a page-aligned mapping),
+	 * which piled all such threads into one bucket. */
+	return (unsigned int)(((unsigned long)tid * 0x9E3779B97F4A7C15ul) >> (64 - TSD_TABLE_BITS));
 }
 
 /* Use the Linux thread pointer (TPIDR_EL0) as the thread identity. It's a
@@ -62,8 +67,12 @@ void* sys_thread_get_tsd_base(void)
 	{
 		struct tsd_entry* e = &tsd_table[(i + step) & (TSD_TABLE_SIZE - 1)];
 		long entry_tid = e->tid;
-		if (entry_tid == tid)
-			return e->base;
+		if (entry_tid == tid) {
+			/* base is still NULL if this thread is inside tsd_set() between claiming
+			 * the slot and storing it (e.g. a signal handler running in between). */
+			void* base = e->base;
+			return base ? base : tsd_zero_page;
+		}
 		if (entry_tid == 0)
 			break;
 	}
