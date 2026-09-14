@@ -45,34 +45,26 @@ static inline long current_tid(void)
 	return (long)__builtin_thread_pointer();
 }
 
-/* Single-entry cache. gettid() is a Linux syscall and we are called *very*
- * frequently (every errno read, every pthread_self()), so an uncached path
- * burns the process at ~100% CPU on a syscall trampoline. The cache is
- * deliberately not __thread (we cannot rely on TLV in dyld) — it's a regular
- * global. Concurrent readers/writers race harmlessly: a stale tid means we
- * fall through to the slow path and refresh. */
-static volatile long  tsd_cache_tid;
-static void* volatile tsd_cache_base = (void*)0; /* unused before first set */
-
+/* There is deliberately no global "last lookup" cache: a tid/base pair kept in
+ * two shared variables can be torn by another thread between the two reads,
+ * handing this thread another thread's TSD (errno, pthread_self, pthread keys,
+ * thread-local variables). current_tid() costs no syscall, so the table lookup
+ * (usually one probe) is cheap enough on its own.
+ *
+ * Each entry is only ever read and written by its own thread; the only shared
+ * step is claiming an empty slot, which uses compare-and-swap. */
 __attribute__((visibility("default")))
 void* sys_thread_get_tsd_base(void)
 {
 	long tid = current_tid();
-	/* Fast path: hits when the same thread keeps calling us (common
-	 * during single-threaded dyld init and launchd setup). */
-	if (tid == tsd_cache_tid && tsd_cache_base != (void*)0)
-		return tsd_cache_base;
-
 	unsigned int i = tsd_hash(tid);
 	for (unsigned int step = 0; step < TSD_TABLE_SIZE; step++)
 	{
 		struct tsd_entry* e = &tsd_table[(i + step) & (TSD_TABLE_SIZE - 1)];
-		if (e->tid == tid) {
-			tsd_cache_tid = tid;
-			tsd_cache_base = e->base;
+		long entry_tid = e->tid;
+		if (entry_tid == tid)
 			return e->base;
-		}
-		if (e->tid == 0)
+		if (entry_tid == 0)
 			break;
 	}
 	return tsd_zero_page;
@@ -84,13 +76,9 @@ static void tsd_set(long tid, void* base)
 	for (unsigned int step = 0; step < TSD_TABLE_SIZE; step++)
 	{
 		struct tsd_entry* e = &tsd_table[(i + step) & (TSD_TABLE_SIZE - 1)];
-		if (e->tid == 0 || e->tid == tid)
+		if (e->tid == tid || __sync_bool_compare_and_swap(&e->tid, 0, tid))
 		{
 			e->base = base;
-			e->tid = tid;
-			/* Warm the fast path so the next get on this tid is O(1). */
-			tsd_cache_base = base;
-			tsd_cache_tid = tid;
 			return;
 		}
 	}
