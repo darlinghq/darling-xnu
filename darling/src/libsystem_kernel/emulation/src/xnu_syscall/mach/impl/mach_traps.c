@@ -373,13 +373,18 @@ kern_return_t _kernelrpc_mach_vm_map_trap_impl(
 					break;
 				addr = mmap((void*)try_addr, size, prot,
 						posix_flags | MAP_FIXED_NOREPLACE, -1, 0);
-				if (addr != MAP_FAILED) {
+				if (addr == (void*)try_addr) {
 					uintptr_t target_next = ((uintptr_t)addr + size + 0xffffff) & ~0xffffffULL;
 					while (target_next > expected && !__atomic_compare_exchange_n(&next_low_vm_addr, &expected, target_next, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
 					}
 					break;
 				}
-				if (errno != EEXIST) {
+				// sys_mmap doesn't pass MAP_FIXED_NOREPLACE on, so a taken slot comes back as a
+				// mapping elsewhere (often >= 2^47). Advancing the cursor from it ends the arena.
+				if (addr != MAP_FAILED) {
+					munmap(addr, size);
+					addr = MAP_FAILED;
+				} else if (errno != EEXIST) {
 					break;
 				}
 				uintptr_t step = mask ? (mask + 1) : 0x1000000ULL;
