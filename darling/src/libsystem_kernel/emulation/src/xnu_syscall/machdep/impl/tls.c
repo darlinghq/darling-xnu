@@ -94,6 +94,24 @@ static void tsd_set(long tid, void* base)
 	/* Table full; this would only happen with > 1024 concurrent threads.
 	 * Real Darwin TSD never spills, so behavior is undefined here. */
 }
+
+/* Whether the calling thread has a TSD base registered in this copy of the table
+ * (dyld links a separate static copy). */
+__attribute__((visibility("default")))
+bool sys_thread_has_tsd_base(void)
+{
+	long tid = current_tid();
+	unsigned int i = tsd_hash(tid);
+	for (unsigned int step = 0; step < TSD_TABLE_SIZE; step++)
+	{
+		long entry_tid = tsd_table[(i + step) & (TSD_TABLE_SIZE - 1)].tid;
+		if (entry_tid == tid)
+			return true;
+		if (entry_tid == 0)
+			break;
+	}
+	return false;
+}
 #endif
 
 void sys_thread_set_tsd_base(void* ptr, int unk)
