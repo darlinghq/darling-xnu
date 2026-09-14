@@ -78,6 +78,8 @@ typedef void (linux_sig_handler)(int, struct linux_siginfo*, void*);
 #define XNU_SIG_ERR ((bsd_sig_handler*)-1l)
 #endif
 
+typedef void (*bsd_sig_tramp)(void*, int, int, struct bsd_siginfo*, void*);
+
 struct bsd_sigaction
 {
 	bsd_sig_handler* sa_sigaction;
@@ -88,7 +90,7 @@ struct bsd_sigaction
 struct bsd___sigaction
 {
 	bsd_sig_handler* sa_sigaction;
-	void (*sa_tramp)(void*, int, int, struct bsd_siginfo*, void*);
+	bsd_sig_tramp sa_tramp;
 	unsigned int sa_mask;
 	int sa_flags;
 };
@@ -209,6 +211,30 @@ struct linux_ucontext
 	// linux_libc_fpstate fpregs_mem;
 };
 
+#if defined(__aarch64__) || defined(__arm64__)
+struct bsd_exception_state
+{
+	unsigned long long faultvaddr; // __far (virtual fault address at offset 0)
+	unsigned int err;              // __esr (exception syndrome)
+	unsigned int trapno;           // __exception
+};
+
+struct bsd_thread_state
+{
+	unsigned long long x[29];
+	unsigned long long fp, lr, sp, pc;
+	unsigned int cpsr;
+	unsigned int _pad;
+};
+
+struct bsd_float_state
+{
+	__uint128_t v[32];
+	unsigned int fpsr;
+	unsigned int fpcr;
+	unsigned int _pad;
+};
+#elif defined(__x86_64__)
 struct bsd_exception_state
 {
 	unsigned short trapno;
@@ -219,23 +245,51 @@ struct bsd_exception_state
 
 struct bsd_thread_state
 {
-#if defined(__x86_64__)
 	long long rax, rbx, rcx, rdx, rdi, rsi, rbp, rsp, r8, r9, r10;
 	long long r11, r12, r13, r14, r15, rip, rflags, cs, fs, gs;
-#elif defined(__i386__)
-	int eax, ebx, ecx, edx, edi, esi, ebp, esp, ss, eflags;
-	int eip, cs, ds, es, fs, gs;
-#elif defined(__aarch64__) || defined(__arm64__)
-	unsigned long long x[29];
-	unsigned long long fp, lr, sp, pc;
-	unsigned int cpsr;
-#endif
 };
 
 struct bsd_float_state
 {
-	// TODO
+	int fpu_reserved[2];
+	short fpu_fcw;
+	short fpu_fsw;
+	unsigned char fpu_ftw;
+	unsigned char fpu_rsrv1;
+	unsigned short fpu_fop;
+	unsigned int fpu_ip;
+	unsigned short fpu_cs;
+	unsigned short fpu_rsrv2;
+	unsigned int fpu_dp;
+	unsigned short fpu_ds;
+	unsigned short fpu_rsrv3;
+	unsigned int fpu_mxcsr;
+	unsigned int fpu_mxcsrmask;
+	unsigned char fpu_stmm[128];
+	unsigned char fpu_xmm[256];
+	unsigned char fpu_rsrv4[96];
+	int fpu_reserved1;
 };
+#elif defined(__i386__)
+struct bsd_exception_state
+{
+	unsigned short trapno;
+	unsigned short cpu;
+	unsigned int err;
+	unsigned long faultvaddr;
+};
+
+struct bsd_thread_state
+{
+	int eax, ebx, ecx, edx, edi, esi, ebp, esp, ss, eflags;
+	int eip, cs, ds, es, fs, gs;
+};
+
+struct bsd_float_state
+{
+	unsigned char fpu_bytes[512];
+};
+#endif
 
 struct bsd_mcontext
 {
