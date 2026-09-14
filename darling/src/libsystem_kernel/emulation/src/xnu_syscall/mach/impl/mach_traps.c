@@ -332,15 +332,18 @@ kern_return_t _kernelrpc_mach_vm_map_trap_impl(
 	if (cur_protection & VM_PROT_EXECUTE)
 		prot |= PROT_EXEC;
 
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+	// XNU fails a fixed request over existing mappings (KERN_NO_SPACE) unless
+	// VM_FLAGS_OVERWRITE is given; callers such as libmalloc's nano region probe rely on that.
+	const int fixed_no_overwrite =!(flags & VM_FLAGS_ANYWHERE) && !(flags & VM_FLAGS_OVERWRITE);
 	if (!(flags & VM_FLAGS_ANYWHERE))
-		posix_flags |= MAP_FIXED;
+		posix_flags |= fixed_no_overwrite ? MAP_FIXED_NOREPLACE : MAP_FIXED;
 	if ((flags >> 24) == VM_MEMORY_REALLOC)
 		addr = (void*)__linux_mremap(((char*)*address) - 0x1000, 0x1000, 0x1000 + size, 0, NULL);
 	else {
 #if defined(__aarch64__) || defined(__arm64__)
-#ifndef MAP_FIXED_NOREPLACE
-#define MAP_FIXED_NOREPLACE 0x100000
-#endif
 		// libobjc's class_data_bits_t stores class_rw_t* using FAST_DATA_MASK
 		// (0x00007ffffffffff8 — 47 bits). Linux ARM64 user space is up to 48-bit,
 		// so glibc mmap can return addresses with bit 47 set (e.g.
@@ -394,7 +397,13 @@ kern_return_t _kernelrpc_mach_vm_map_trap_impl(
 
 	if (addr == MAP_FAILED)
 	{
-		return KERN_FAILURE;
+		return (fixed_no_overwrite && errno == EEXIST) ? KERN_NO_SPACE : KERN_FAILURE;
+	}
+	if (fixed_no_overwrite && (uintptr_t)addr != (uintptr_t)*address)
+	{
+		// Kernels without MAP_FIXED_NOREPLACE treat it as a hint.
+		munmap(addr, size);
+		return KERN_NO_SPACE;
 	}
 	
 	if (mask && ( ((uintptr_t)addr) & mask) != 0)
