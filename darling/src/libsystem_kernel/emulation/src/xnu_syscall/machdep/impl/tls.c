@@ -96,8 +96,8 @@ static void tsd_set(long tid, void* base)
 }
 
 /* Whether the calling thread has a TSD base registered in this copy of the table
- * (dyld links a separate static copy). */
-__attribute__((visibility("default")))
+ * (dyld links a separate static copy). Only lkm.c uses it, so it stays out of
+ * libsystem_kernel's exports. */
 bool sys_thread_has_tsd_base(void)
 {
 	long tid = current_tid();
