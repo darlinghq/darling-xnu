@@ -43,7 +43,9 @@ typedef void *xpc_object_t;
 __BEGIN_DECLS
 
 #ifndef DARLING
-extern void *__dso_handle;
+/* DARLING: match <os/trace_base.h> so both headers can be used in one Clang module context. */
+struct mach_header;
+extern struct mach_header __dso_handle;
 #endif
 
 OS_ALWAYS_INLINE
