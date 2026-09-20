@@ -48,6 +48,17 @@
 
 #include <sys/syscall.h>
 
+/*
+ * ULF_NO_ERRNO (bit 24 of the ulock operation word, see sys/ulock.h) asks for
+ * -errno to come back as an ordinary return value. Real XNU reports syscall
+ * errors out of band in the carry flag, so its stubs need no help telling the
+ * two apart; Darling reports them by return value, and so cannot tell the
+ * -EINTR the flag asked for from an -EINTR meaning failure. The ulock stubs
+ * therefore test the flag themselves and, when it is set, return the raw value
+ * instead of calling cerror.
+ */
+#define ULF_NO_ERRNO_BIT 0x01000000
+
 #if defined(__i386__)
 
 #include <architecture/i386/asm_help.h>
@@ -126,6 +137,27 @@ LEAF(pseudo, 0)					;\
 	PSEUDO_INT(pseudo, name, nargs)			;\
 	ret
 
+#if defined(__SYSCALL_32BIT_ARG_BYTES) && ((__SYSCALL_32BIT_ARG_BYTES >= 4) && (__SYSCALL_32BIT_ARG_BYTES <= 20))
+#define ULOCK_RAW_SYSCALL(name)				\
+	movl	$(SYS_##name | (__SYSCALL_32BIT_ARG_BYTES << I386_SYSCALL_ARG_BYTES_SHIFT)), %eax	;\
+	UNIX_SYSCALL_SYSENTER
+#else
+#define ULOCK_RAW_SYSCALL(name)				\
+	movl	$ SYS_##name, %eax			;\
+	UNIX_SYSCALL_SYSENTER
+#endif
+
+/* ulock stubs: the operation word is the first argument, on the stack. */
+#define ULOCK_SYSCALL(pseudo, name, nargs, cerror)	\
+LEAF(pseudo, 0)						;\
+	testl	$ ULF_NO_ERRNO_BIT, 4(%esp)		;\
+	je	3f					;\
+	ULOCK_RAW_SYSCALL(name)				;\
+	ret						;\
+3:							;\
+	UNIX_SYSCALL_NONAME(name, nargs, cerror)	;\
+	ret
+
 #elif defined(__x86_64__)
 
 #include <architecture/i386/asm_help.h>
@@ -189,6 +221,27 @@ LEAF(pseudo, 0)					;\
 
 #define __SYSCALL(pseudo, name, nargs)			\
 	PSEUDO(pseudo, name, nargs, cerror)			;\
+	ret
+
+#ifdef DARLING
+	#define ULOCK_RAW_SYSCALL(name)				\
+		movl	$ SYS_##name, %eax			;\
+		call	__darling_bsd_syscall
+#else
+	#define ULOCK_RAW_SYSCALL(name)					\
+		movl	$ SYSCALL_CONSTRUCT_UNIX(SYS_##name), %eax	;\
+		UNIX_SYSCALL_SYSCALL
+#endif
+
+/* ulock stubs: the operation word arrives in %edi. */
+#define ULOCK_SYSCALL(pseudo, name, nargs, cerror)	\
+LEAF(pseudo, 0)						;\
+	testl	$ ULF_NO_ERRNO_BIT, %edi		;\
+	je	3f					;\
+	ULOCK_RAW_SYSCALL(name)				;\
+	ret						;\
+3:							;\
+	UNIX_SYSCALL_NONAME(name, nargs, cerror)	;\
 	ret
 
 #elif defined(__arm__)
@@ -540,6 +593,30 @@ name:
 #define __SYSCALL2(pseudo, name, nargs, cerror)		\
   PSEUDO(pseudo, name, nargs, cerror)		%% \
   ret
+
+#ifdef DARLING
+#define ULOCK_RAW_SYSCALL(num)                  \
+	mov   x16, #(num)                     %%\
+	stp   x29, x30, [sp, #-16]!           %%\
+	mov   x29, sp                         %%\
+	bl    __darling_bsd_syscall           %%\
+	ldp   x29, x30, [sp], #16
+#else
+#define ULOCK_RAW_SYSCALL(num)                  \
+	mov   x16, #(num)                     %%\
+	svc   #SWI_SYSCALL
+#endif
+
+/* ulock stubs: the operation word arrives in w0. */
+#define ULOCK_SYSCALL(pseudo, name, nargs, cerror)	\
+  MI_ENTRY_POINT(pseudo)				%% \
+	tst	w0, #ULF_NO_ERRNO_BIT			%% \
+	b.eq	3f					%% \
+	ULOCK_RAW_SYSCALL(SYS_##name)			%% \
+	ret						%% \
+3:							%% \
+	SYSCALL_NONAME(name, nargs, cerror)		%% \
+	ret
 
 #else
 #error Unsupported architecture

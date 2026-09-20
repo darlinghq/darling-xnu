@@ -12,7 +12,6 @@
 long sys_ulock_wake(uint32_t operation, void* addr, uint64_t wake_value)
 {
 	int ret, op;
-	bool no_errno = operation & XNU_ULF_NO_ERRNO;
 
 	// char buf[100];
 	// __simple_sprintf(buf, "ulock_wake on %p", addr);
@@ -34,13 +33,12 @@ long sys_ulock_wake(uint32_t operation, void* addr, uint64_t wake_value)
 			value);
 	}
 	else
-		return no_errno ? -(EINVAL | 0x800) : -EINVAL;
+		return -EINVAL;
 
+	// Returned verbatim to ULF_NO_ERRNO callers, which switch on the exact -errno.
 	if (ret < 0)
 	{
 		ret = errno_linux_to_bsd(ret);
-		if (no_errno)
-			ret &= ~0x800;
 	} else {
 		// callers of ulock_wake expect it to return 0 on success
 		ret = 0;
