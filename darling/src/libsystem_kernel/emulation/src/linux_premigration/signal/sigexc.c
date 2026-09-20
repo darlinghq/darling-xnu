@@ -377,8 +377,17 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 						&sa, NULL,
 						sizeof(sa.sa_mask));
 
-				// Resend signal to self
-				LINUX_SYSCALL(__NR_kill, LINUX_SYSCALL0(__NR_getpid), linux_signum);
+				// Target the faulting thread. kill(0, sig) is process-directed, and
+				// sa_mask above blocks this signal here, so the kernel had to deliver it
+				// to some other thread - which then appears in the core as the crasher.
+				// Unblocking first is required or a thread-directed signal stays pending.
+				linux_sigset_t unblock = (1ull << (linux_signum - 1));
+				LINUX_SYSCALL(__NR_rt_sigprocmask, 1 /* LINUX_SIG_UNBLOCK */,
+						&unblock, NULL, sizeof(linux_sigset_t));
+
+				int pid = LINUX_SYSCALL(__NR_getpid);
+				int tid = LINUX_SYSCALL(__NR_gettid);
+				LINUX_SYSCALL(__NR_tgkill, pid, tid, linux_signum);
 			}
 		}
 	}
