@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <mach/mach_init.h>
+#include <mach/vm_page_size.h>
 
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/xnu_syscall/mach/impl/mach_traps.h>
@@ -341,8 +342,16 @@ kern_return_t _kernelrpc_mach_vm_map_trap_impl(
 	const int fixed_no_overwrite =!(flags & VM_FLAGS_ANYWHERE) && !(flags & VM_FLAGS_OVERWRITE);
 	if (!(flags & VM_FLAGS_ANYWHERE))
 		posix_flags |= fixed_no_overwrite ? MAP_FIXED_NOREPLACE : MAP_FIXED;
-	if ((flags >> 24) == VM_MEMORY_REALLOC)
-		addr = (void*)__linux_mremap(((char*)*address) - 0x1000, 0x1000, 0x1000 + size, 0, NULL);
+	if ((flags >> 24) == VM_MEMORY_REALLOC) {
+		// Grow the mapping ending at *address in place. Linux only expands in place
+		// when the old range ends at the vma end, and old_addr must be page-aligned.
+		addr = (void*)__linux_mremap(((char*)*address) - vm_page_size, vm_page_size, vm_page_size + size, 0, NULL);
+		if (addr == MAP_FAILED)
+			return KERN_FAILURE;
+		// Return here: mremap's result sits one page below *address, so the fixed
+		// mapping check below would munmap the grown region and report KERN_NO_SPACE.
+		return KERN_SUCCESS;
+	}
 	else {
 		addr = mmap((void*)*address, size, prot, posix_flags, -1, 0);
 	}
