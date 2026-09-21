@@ -17,5 +17,10 @@ long sys_psynch_cvsignal(void* cv, uint64_t cvlsgen, uint32_t cvugen, int thread
 		__simple_abort();
 	}
 
-	return (ret) ? ret : retval;
+	// A nonzero code is XNU's positive BSD errno; syscall handlers report
+	// -errno. Kept out of a ?: so uint32_t retval cannot unsign -ret.
+	if (ret > 0)
+		return -ret;
+
+	return retval;
 }
