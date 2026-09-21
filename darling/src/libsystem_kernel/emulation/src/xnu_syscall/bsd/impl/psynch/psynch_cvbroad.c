@@ -10,7 +10,7 @@ long sys_psynch_cvbroad(void* cv, uint64_t cvlsgen, uint64_t cvudgen, uint32_t f
 		uint64_t tid)
 {
 	uint32_t retval;
-	int ret = dserver_rpc_psynch_cvbroad(cv, cvlsgen, cvudgen, flags, mugen, mugen, tid, &retval);
+	int ret = dserver_rpc_psynch_cvbroad(cv, cvlsgen, cvudgen, flags, mutex, mugen, tid, &retval);
 
 	if (ret < 0) {
 		__simple_printf("psynch_cvbroad failed internally: %d", ret);

@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-long sys_psynch_cvsignal(void* cv, uint32_t cvlsgen, uint32_t cvugen, int thread_port, void* mutex, uint32_t mugen,
+long sys_psynch_cvsignal(void* cv, uint64_t cvlsgen, uint32_t cvugen, int thread_port, void* mutex, uint64_t mugen,
 		uint64_t tid, uint32_t flags);
 
 #endif // LINUX_PSYNCH_CVSIGNAL_H
