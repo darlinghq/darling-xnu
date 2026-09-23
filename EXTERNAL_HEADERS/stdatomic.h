@@ -25,8 +25,8 @@
 #error unsupported compiler
 #endif
 
-#ifndef __CLANG_STDATOMIC_H
-#define __CLANG_STDATOMIC_H
+#ifndef DARLING_STDATOMIC_H
+#define DARLING_STDATOMIC_H
 
 /* If we're hosted, fall back to the system's stdatomic.h. FreeBSD, for
  * example, already has a Clang-compatible stdatomic.h header.
@@ -194,5 +194,5 @@ void atomic_flag_clear_explicit(volatile atomic_flag *, memory_order);
 #endif
 
 #endif /* __STDC_HOSTED__ */
-#endif /* __CLANG_STDATOMIC_H */
+#endif /* DARLING_STDATOMIC_H */
 
