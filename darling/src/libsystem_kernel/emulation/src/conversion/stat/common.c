@@ -44,12 +44,7 @@ void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat)
 	stat->st_flags = 0;
 }
 
-// On ARM64, stat64 is the same as stat (only 64-bit inodes exist)
-#if defined(__aarch64__) || defined(__arm64__)
-void stat_linux_to_bsd64(const struct linux_stat* lstat, struct stat* stat)
-#else
-void stat_linux_to_bsd64(const struct linux_stat* lstat, struct stat64* stat)
-#endif
+void stat_linux_to_bsd64(const struct linux_stat* lstat, darling_stat64_t* stat)
 {
 	stat->st_dev = lstat->st_dev;
 	stat->st_mode = lstat->st_mode;
