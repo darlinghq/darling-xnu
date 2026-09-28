@@ -242,8 +242,12 @@ static long _proc_pidonfo_uniqinfo(int32_t pid, void* buffer, int32_t bufsize)
 	info->p_puniqueid = starttime << 16;
 	info->p_puniqueid |= (ppid & 0xffff);
 
+	// proc_pidinfo reports bytes copied, not a boolean success value.
+	return sizeof(*info);
+#else
+	// This variant does not populate the output structure.
+	return -ENOTSUP;
 #endif
-	return 1;
 }
 
 static long _proc_pidinfo_tbsdinfo(int32_t pid, void* buffer, int32_t bufsize)
@@ -913,4 +917,3 @@ long sys_proc_info_extended_id(uint32_t callnum, int32_t pid, uint32_t flavor,
 	(void)ext_id;
 	return sys_proc_info(callnum, pid, flavor, arg, buffer, bufsize);
 }
-
