@@ -29,9 +29,9 @@ long sys_recvfrom_nocancel(int fd, void* buf, unsigned long len,
 
 #ifdef __NR_socketcall
 	ret = LINUX_SYSCALL(__NR_socketcall, LINUX_SYS_RECVFROM, ((long[6]) { fd, buf, len,
-			flags, from, socklen }));
+			linux_flags, from, socklen }));
 #else
-	ret = LINUX_SYSCALL(__NR_recvfrom, fd, buf, len, flags, from, socklen);
+	ret = LINUX_SYSCALL(__NR_recvfrom, fd, buf, len, linux_flags, from, socklen);
 #endif
 
 	if (ret < 0)
