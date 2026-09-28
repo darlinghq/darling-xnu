@@ -61,7 +61,8 @@ static void thread_state_to_mcontext(const x86_thread_state32_t* s, struct linux
 static void float_state_to_mcontext(const x86_float_state32_t* s, linux_fpregset_t fx);
 #elif defined(__aarch64__) || defined(__arm64__)
 #include <mach/arm/thread_status.h>
-typedef struct { unsigned int fpsr; unsigned int fpcr; __uint128_t vregs[32]; } arm_neon_state64_t_linux;
+/* RPC exchanges Darwin arm_neon_state64_t, not Linux's FPSIMD record layout. */
+typedef struct { __uint128_t vregs[32]; unsigned int fpsr; unsigned int fpcr; } arm_neon_state64_t_linux;
 static void mcontext_to_thread_state(const struct linux_gregset* regs, arm_thread_state64_t* s);
 static void mcontext_to_float_state(const unsigned char* reserved, arm_neon_state64_t_linux* s);
 static void thread_state_to_mcontext(const arm_thread_state64_t* s, struct linux_gregset* regs);
