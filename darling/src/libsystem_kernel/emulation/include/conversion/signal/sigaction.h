@@ -174,11 +174,11 @@ typedef struct linux_fpsimd_context *linux_fpregset_t;
 // ARM64 Linux general-purpose registers (matches sigcontext layout)
 struct linux_gregset
 {
+	unsigned long long fault_address;
 	unsigned long long regs[31]; // x0-x30
 	unsigned long long sp;
 	unsigned long long pc;
 	unsigned long long pstate;
-	unsigned long long fault_address;
 };
 
 #endif
@@ -206,8 +206,15 @@ struct linux_ucontext
 	unsigned long uc_flags;
 	struct linux_ucontext* uc_link;
 	struct linux_stack uc_stack;
+#if defined(__aarch64__) || defined(__arm64__)
+	// Linux reserves 1024 bits for the mask before its extensible mcontext.
+	linux_sigset_t uc_sigmask;
+	unsigned char __sigmask_padding[128 - sizeof(linux_sigset_t)];
+	struct linux_mcontext uc_mcontext;
+#else
 	struct linux_mcontext uc_mcontext;
 	linux_sigset_t uc_sigmask;
+#endif
 	// linux_libc_fpstate fpregs_mem;
 };
 
