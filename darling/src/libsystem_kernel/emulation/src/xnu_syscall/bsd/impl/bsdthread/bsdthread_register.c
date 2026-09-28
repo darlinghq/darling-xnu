@@ -238,15 +238,21 @@ void wqueue_entry_point_asm_jump(void* self, int thread_port, void* stackaddr,
 	);
 #elif defined(__aarch64__) || defined(__arm64__)
 	__asm__ __volatile__ (
+		// Workqueue threads are allocated with `self` immediately above
+		// the stack. Re-entry must discard the previous workqueue frames;
+		// stackaddr (x2) is the bottom, not the top, of that stack.
+		// Save the target before clearing FP/LR in case the compiler used
+		// either register for the input operand.
+		"mov x16, %[wqueue_entry_point]\n"
 		"mov x29, xzr\n"
 		"mov x30, xzr\n"
 		"mov sp, %[stack_top]\n"
-		"br %[wqueue_entry_point]\n"
+		"br x16\n"
 		::
 		"r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
 		[stack_top] "r"(arg1),
 		[wqueue_entry_point] "r"(wqueue_entry_point)
-		: "memory"
+		: "memory", "x16"
 	);
 #else
 	#error "Missing assembly for architecture"
