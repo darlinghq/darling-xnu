@@ -760,6 +760,7 @@ void mcontext_to_thread_state(const struct linux_gregset* regs, arm_thread_state
 	s->__sp = regs->sp;
 	s->__pc = regs->pc;
 	s->__cpsr = (uint32_t)regs->pstate;
+	s->__pad = 0;
 }
 
 void thread_state_to_mcontext(const arm_thread_state64_t* s, struct linux_gregset* regs)
