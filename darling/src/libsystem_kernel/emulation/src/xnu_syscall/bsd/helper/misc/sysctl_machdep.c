@@ -45,11 +45,15 @@ const struct known_sysctl sysctls_machdep[] = {
 
 sysctl_handler(handle_core_count)
 {
+	if (!oldlen)
+		return -EINVAL;
+	sysctl_handle_size(sizeof(int));
+
+	int count = 1;
 	int fd = sys_open("/proc/cpuinfo", LINUX_O_RDONLY, 0);
-	if (fd < 0) {
-		return copyout_string("1", (char*)old, oldlen);
-	}
-	int count = 0;
+	if (fd < 0)
+		goto out;
+	count = 0;
 	char line[256];
 	struct simple_readline_buf rbuf;
 	__simple_readline_init(&rbuf);
@@ -59,9 +63,9 @@ sysctl_handler(handle_core_count)
 	}
 	sys_close(fd);
 	if (count == 0) count = 1;
-	char tmp[64];
-	__simple_sprintf(tmp, "%d", count);
-	return copyout_string(tmp, (char*)old, oldlen);
+out:
+	__builtin_memcpy(old, &count, sizeof(count));
+	return 0;
 }
 
 #else /* x86 */
