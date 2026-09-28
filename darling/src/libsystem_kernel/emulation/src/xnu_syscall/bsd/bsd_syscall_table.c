@@ -46,6 +46,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/getrlimit.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/getrusage.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/iopolicysys.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/misc/kdebug_trace.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/mac_syscall.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/proc_info.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/ptrace.h>
@@ -328,6 +329,8 @@ void* __bsd_syscall_table[600] = {
 	[169] = sys_csops,
 	[170] = sys_csops_audittoken,
 	[173] = sys_waitid,
+	[179] = sys_kdebug_trace64,
+	[180] = sys_kdebug_trace,
 	[181] = sys_setgid,
 	[182] = sys_setegid,
 	[183] = sys_seteuid,
