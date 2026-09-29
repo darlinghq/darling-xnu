@@ -20,6 +20,11 @@ static auditinfo_addr_t info = {
 // should be a rw lock but *shrug*
 static libsimple_lock_t info_lock = LIBSIMPLE_LOCK_INITIALIZER;
 
+// BSM audit condition, as auditon(2)'s GETCOND/SETCOND report it. Darling
+// never writes audit records, so it starts out and stays AUC_DISABLED unless a
+// caller sets it.
+static int audit_condition = AUC_DISABLED;
+
 long sys_getaudit_addr(struct auditinfo_addr* auditinfo_addr, int length) {
 	libsimple_lock_lock(&info_lock);
 
@@ -42,3 +47,28 @@ long sys_setaudit_addr(struct auditinfo_addr* auditinfo_addr, int length) {
 	libsimple_lock_unlock(&info_lock);
 	return 0;
 };
+
+void audit_session_set_mask(au_mask_t mask) {
+	os_unfair_lock_lock(&info_lock);
+	info.ai_mask = mask;
+	os_unfair_lock_unlock(&info_lock);
+}
+
+void audit_session_set_auid(au_id_t auid) {
+	os_unfair_lock_lock(&info_lock);
+	info.ai_auid = auid;
+	os_unfair_lock_unlock(&info_lock);
+}
+
+void audit_session_set_condition(int condition) {
+	os_unfair_lock_lock(&info_lock);
+	audit_condition = condition;
+	os_unfair_lock_unlock(&info_lock);
+}
+
+int audit_session_get_condition(void) {
+	os_unfair_lock_lock(&info_lock);
+	int condition = audit_condition;
+	os_unfair_lock_unlock(&info_lock);
+	return condition;
+}
