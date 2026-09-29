@@ -175,7 +175,9 @@ struct xnu_attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, uns
 	if (alist->commonattr & ATTR_CMN_FNDRINFO)
 	{
 #if HAS_PATH
-		rv = LINUX_SYSCALL(__NR_getxattr, vc.path, XATTR_FINDER_INFO, next, 32);
+		rv = (options & FSOPT_NOFOLLOW) ?
+			LINUX_SYSCALL(__NR_lgetxattr, vc.path, XATTR_FINDER_INFO, next, 32) :
+			LINUX_SYSCALL(__NR_getxattr, vc.path, XATTR_FINDER_INFO, next, 32);
 #else
 		rv = LINUX_SYSCALL(__NR_fgetxattr, fd, XATTR_FINDER_INFO, next, 32);
 #endif
