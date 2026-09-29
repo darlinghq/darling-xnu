@@ -227,6 +227,11 @@ static long _proc_pidonfo_uniqinfo(int32_t pid, void* buffer, int32_t bufsize)
 	// Read info for ppid   //
 	//////////////////////////
 
+	if (ppid == 0) {
+		// A parent outside this PID namespace is reported as zero.
+		info->p_puniqueid = 0;
+		return sizeof(*info);
+	}
 	__simple_sprintf(path, "/proc/%d/stat", ppid);
 	if (!read_string(path, stat, sizeof(stat)))
 		return -ESRCH;
