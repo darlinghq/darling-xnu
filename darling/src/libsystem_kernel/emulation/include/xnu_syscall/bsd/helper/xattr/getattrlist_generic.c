@@ -210,8 +210,9 @@ struct xnu_attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, uns
 			goto attr_dir_entrycount_out_no_fd;
 		}
 #else
-		// dupe it to avoid advancing the internal `getdents` position if our caller is using that
-		tmp_fd = sys_dup(fd);
+		// dup shares the caller's directory offset. Open a separate description
+		// so counting starts at the beginning and leaves enumeration untouched.
+		tmp_fd = LINUX_SYSCALL(__NR_openat, fd, ".", LINUX_O_RDONLY | LINUX_O_DIRECTORY, 0);
 		if (tmp_fd < 0) {
 			rv = -EIO; // see above
 			goto attr_dir_entrycount_out_no_fd;
@@ -229,6 +230,9 @@ struct xnu_attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, uns
 			}
 
 			for (char* iter = buf; iter < buf + rv; iter += ((struct linux_dirent64*)iter)->d_reclen) {
+				const char* name = ((struct linux_dirent64*)iter)->d_name;
+				if (name[0] == '.' && (name[1] == '\0' || (name[1] == '.' && name[2] == '\0')))
+					continue;
 				++(*((uint32_t*)next));
 			}
 		}
