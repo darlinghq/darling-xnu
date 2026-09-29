@@ -1,4 +1,5 @@
 #include <darling/emulation/other/mach/lkm.h>
+#include <darling/emulation/linux_premigration/elfcalls_size.h>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -28,6 +29,7 @@ extern _libkernel_functions_t _libkernel_functions;
 
 VISIBLE
 struct elf_calls* _elfcalls;
+size_t _elfcalls_size;
 
 static bool use_per_thread_driver_fd = false;
 
@@ -60,6 +62,7 @@ void mach_driver_init(const char** applep)
 			{
 				uintptr_t table = (uintptr_t) __simple_atoi16(applep[i] + 10, NULL);
 				_elfcalls = (struct elf_calls*) table;
+				_elfcalls_size = elfcalls_size_from_apple(applep);
 			}
 		}
 	}
