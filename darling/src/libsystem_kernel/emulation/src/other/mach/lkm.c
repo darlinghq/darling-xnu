@@ -73,6 +73,11 @@ void mach_driver_init(const char** applep)
 		_libkernel_functions->dyld_func_lookup("__dyld_get_elfcalls", (void**)&p2);
 		if (p2) {
 			_elfcalls = p2();
+			size_t (*get_size)(void) = NULL;
+			_elfcalls_size = 0;
+			_libkernel_functions->dyld_func_lookup("__dyld_get_elfcalls_size", (void**)&get_size);
+			if (_elfcalls && get_size)
+				_elfcalls_size = get_size();
 		}
 	}
 
@@ -165,6 +170,11 @@ VISIBLE
 void* elfcalls_get_pointer(void) {
 	return _elfcalls;
 };
+
+VISIBLE
+size_t elfcalls_get_size(void) {
+	return _elfcalls ? _elfcalls_size : 0;
+}
 
 VISIBLE
 uint64_t mach_absolute_time(void)
