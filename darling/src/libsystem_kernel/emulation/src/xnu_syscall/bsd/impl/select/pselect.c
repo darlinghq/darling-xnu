@@ -12,23 +12,8 @@
 
 #define DARLING_SELECT_FD_SETSIZE 1024
 #define LINUX_POLLHUP 0x0010
-#define LINUX_POLLIN 0x0001
 #define LINUX_POLLPRI 0x0002
-#define LINUX_POLLOUT 0x0004
-#define LINUX_POLLERR 0x0008
-#define LINUX_POLLNVAL 0x0020
-#define LINUX_POLLRDNORM 0x0040
-#define LINUX_POLLRDBAND 0x0080
-#define LINUX_POLLWRNORM 0x0100
-#define LINUX_POLLWRBAND 0x0200
-#define LINUX_EBADF 9
 #define LINUX_TCGETA 0x5405
-
-struct linux_pollfd {
-	int fd;
-	short events;
-	short revents;
-};
 
 struct linux_timespec {
 	long tv_sec;
@@ -43,31 +28,6 @@ static int fd_is_set(int fd, const uint32_t* set)
 static void fd_set_bit(int fd, uint32_t* set)
 {
 	set[fd / 32] |= 1u << (fd % 32);
-}
-
-static int add_pty_hangups_to_exception_set(int nfds, const uint32_t* requested,
-		uint32_t* returned)
-{
-	int added = 0;
-	struct linux_timespec zero = { 0, 0 };
-
-	for (int fd = 0; fd < nfds; ++fd) {
-		if (!fd_is_set(fd, requested) || fd_is_set(fd, returned))
-			continue;
-
-		struct linux_pollfd pollfd = { .fd = fd };
-		int poll_result = LINUX_SYSCALL(__NR_ppoll, &pollfd, 1, &zero, NULL, 0);
-		if (poll_result <= 0 || !(pollfd.revents & LINUX_POLLHUP))
-			continue;
-
-		char termios[18];
-		if (__real_ioctl(fd, LINUX_TCGETA, termios) != 0)
-			continue;
-
-		fd_set_bit(fd, returned);
-		++added;
-	}
-	return added;
 }
 
 long sys_pselect(int nfds, void* rfds, void* wfds, void* efds, const struct bsd_timespec* timeout, const sigset_t* mask)
@@ -193,26 +153,10 @@ long sys_pselect_nocancel(int nfds, void* rfds, void* wfds, void* efds, const st
 	struct linux_timespec { long tv_sec; long tv_nsec; } lts;
 	long data[2];
 	linux_sigset_t lmask;
-	uint32_t requested_exceptions[DARLING_SELECT_FD_SETSIZE / 32];
-	uint32_t pending_pty_exceptions[DARLING_SELECT_FD_SETSIZE / 32] = { 0 };
-	int inspect_exceptions = efds != NULL && nfds > 0 &&
-		nfds <= DARLING_SELECT_FD_SETSIZE;
-	int pending_pty_count = 0;
-
-	if (inspect_exceptions) {
-		memcpy(requested_exceptions, efds, (size_t)((nfds + 31) / 32) * sizeof(uint32_t));
-		pending_pty_count = add_pty_hangups_to_exception_set(nfds,
-				requested_exceptions, pending_pty_exceptions);
-	}
-
 	if (timeout != NULL)
 	{
 		lts.tv_sec = timeout->tv_sec;
 		lts.tv_nsec = timeout->tv_nsec;
-	}
-	if (pending_pty_count > 0) {
-		lts.tv_sec = 0;
-		lts.tv_nsec = 0;
 	}
 	if (mask != NULL)
 	{
@@ -223,12 +167,10 @@ long sys_pselect_nocancel(int nfds, void* rfds, void* wfds, void* efds, const st
 	}
 
 	ret = LINUX_SYSCALL(__NR_pselect6, nfds, rfds, wfds, efds,
-			(timeout != NULL || pending_pty_count > 0) ? &lts : NULL,
+			(timeout != NULL) ? &lts : NULL,
 			(mask != NULL) ? data : NULL);
 
-	if (ret >= 0 && inspect_exceptions)
-		ret += add_pty_hangups_to_exception_set(nfds, requested_exceptions, efds);
-	else if (ret < 0)
+	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
 
 	return ret;
