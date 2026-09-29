@@ -74,6 +74,8 @@ typedef const struct _libkernel_functions {
 	void (*posix_spawn_prepare)(void);
 	void (*posix_spawn_parent)(void);
 	void (*posix_spawn_child)(void);
+	void (*kqueue_closed_fd)(int fd);
+	int (*kqueue_close)(int kq);
 #endif
 } *_libkernel_functions_t;
 

@@ -57,11 +57,9 @@ long sys_posix_spawn(int* pid, const char* path, const struct _posix_spawn_args_
 	if (ret < 0)
 		return ret;
 
-	// we don't want to call user atfork callbacks, but we *do* want to call most
-	// libsystem atfork callbacks to set up the environment for some of the calls we need
-	// to make for the setup
-
-	_libkernel_functions->posix_spawn_prepare();
+	// posix_spawn in macOS does not invoke fork handlers.
+	// Userspace atfork preparation causes deadlocks with multithreaded processes (like cmake).
+	// _libkernel_functions->posix_spawn_prepare();
 
 	if ((my_pid = sys_fork()) == 0)
 	{
@@ -69,7 +67,7 @@ long sys_posix_spawn(int* pid, const char* path, const struct _posix_spawn_args_
 		// close the reading side
 		close_internal(pipe[0]);
 
-		_libkernel_functions->posix_spawn_child();
+		// _libkernel_functions->posix_spawn_child();
 
 no_fork:
 		if (desc && desc->attrp)
@@ -216,8 +214,6 @@ no_fork:
 
 				act = &desc->factp->psfa_act_acts[i];
 
-				//__simple_kprintf("act count (on iter %d): %d\n", i, desc->factp->psfa_act_count);
-
 				if (act->psfaa_filedes == pipe[1] || (act->psfaa_type == XNU_PSFA_DUP2 && act->psfaa_dup2args.psfad_newfiledes == pipe[1]))
 				{
 					ret = sys_dup(pipe[1]);
@@ -331,7 +327,6 @@ no_fork:
 
 		ret = sys_execve((char*) path, argvp, envp);
 fail:
-		//__simple_kprintf("posix_spawn is failing with %d\n", ret);
 		if (desc && desc->attrp && desc->attrp->psa_flags & POSIX_SPAWN_SETEXEC)
 		{
 			// no_fork case
@@ -353,7 +348,7 @@ fail:
 		// close the writing side
 		close_internal(pipe[1]);
 
-		_libkernel_functions->posix_spawn_parent();
+		// _libkernel_functions->posix_spawn_parent();
 
 		if (my_pid < 0)
 		{
