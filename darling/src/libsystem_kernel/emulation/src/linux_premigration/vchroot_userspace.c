@@ -494,16 +494,21 @@ int vchroot_fdpath(struct vchroot_fdpath_args* args)
 	if (rv < 0)
 		return rv;
 
+	// readlink does not report truncation separately. Never return a partial
+	// path as a valid guest path when the input buffer may have filled.
+	if ((unsigned int)rv >= sizeof(link) - 1)
+		return -LINUX_ENAMETOOLONG;
 	link[rv] = '\0';
 
-	if (rv >= prefix_path_len && strncmp(link, prefix_path, prefix_path_len) == 0)
+	if (rv >= prefix_path_len && strncmp(link, prefix_path, prefix_path_len) == 0 &&
+		(link[prefix_path_len] == '\0' || link[prefix_path_len] == '/'))
 	{
-		if (args->maxlen-1 < rv - prefix_path_len)
+		const char* guest_path = link + prefix_path_len;
+		if (*guest_path == '\0')
+			guest_path = "/";
+		if (args->maxlen < strlen(guest_path) + 1)
 			return -LINUX_ENAMETOOLONG;
-		strcpy(args->path, link + prefix_path_len);
-
-		if (args->path[0] == '\0')
-			strcpy(args->path, "/");
+		strcpy(args->path, guest_path);
 	}
 	else
 	{
