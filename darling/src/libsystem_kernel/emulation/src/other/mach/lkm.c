@@ -35,6 +35,21 @@ extern void _xtrace_postfork_child(void);
 
 void mach_driver_init(const char** applep)
 {
+#if defined(__aarch64__)
+	// Both the static dyld copy and the dynamic kernel copy publish TSD. The
+	// latter must initialize this offset too, including on new guest threads.
+	if (applep != NULL) {
+		for (int i = 0; applep[i] != NULL; ++i) {
+			if (strncmp(applep[i], "darling_tsd_slot_offset=", 24) == 0) {
+				const char* end = NULL;
+				unsigned long offset = __simple_atoi16(applep[i] + 24, &end);
+				if (end && *end == '\0' && end != applep[i] + 24)
+					sys_thread_set_native_tsd_slot_offset(offset);
+			}
+		}
+	}
+#endif
+
 #ifdef VARIANT_DYLD
 	if (applep != NULL)
 	{
@@ -46,14 +61,6 @@ void mach_driver_init(const char** applep)
 				uintptr_t table = (uintptr_t) __simple_atoi16(applep[i] + 10, NULL);
 				_elfcalls = (struct elf_calls*) table;
 			}
-#if defined(__aarch64__)
-            if (strncmp(applep[i], "darling_tsd_slot_offset=", 24) == 0) {
-                const char* end = NULL;
-                unsigned long offset = __simple_atoi16(applep[i] + 24, &end);
-                if (end && *end == '\0' && end != applep[i] + 24)
-                    sys_thread_set_native_tsd_slot_offset(offset);
-            }
-#endif
 		}
 	}
 #else
