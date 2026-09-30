@@ -1,4 +1,5 @@
 #include <darling/emulation/xnu_syscall/machdep/impl/tls.h>
+#include <stdint.h>
 
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
@@ -22,6 +23,26 @@ struct tsd_entry {
 };
 
 static struct tsd_entry tsd_table[TSD_TABLE_SIZE];
+
+/* Optional native-loader-owned ELF TLS slot. Older loaders omit the apple
+ * metadata, retaining table lookup and the cached-instruction trap fallback. */
+static unsigned long native_tsd_slot_offset = ~0UL;
+__attribute__((visibility("default")))
+unsigned long sys_thread_get_native_tsd_slot_offset(void) {
+    return native_tsd_slot_offset;
+}
+static void publish_native_tsd_slot(void* base) {
+    if (native_tsd_slot_offset != ~0UL)
+        __atomic_store_n((void**)((uintptr_t)__builtin_thread_pointer() + native_tsd_slot_offset), base, __ATOMIC_RELEASE);
+}
+void sys_thread_set_native_tsd_slot_offset(unsigned long offset) {
+    // The cache's LDR unsigned immediate is an aligned 12-bit count of words.
+    if (offset < 16 || offset > 32760 || (offset & 7))
+        return;
+    native_tsd_slot_offset = offset;
+    publish_native_tsd_slot(sys_thread_get_tsd_base());
+}
+
 
 /* Fallback zero TSD page returned before pthread/dyld has set up a real one.
  * Some early-init code in dyld (e.g. __os_once) dereferences offsets off the
@@ -151,5 +172,6 @@ void sys_thread_set_tsd_base(void* ptr, int unk)
 	__asm__ ("movl %0, %%fs" :: "r" (desc.entry_number*8 + 3));
 #elif defined(__aarch64__)
 	tsd_set(current_tid(), ptr);
+	publish_native_tsd_slot(ptr);
 #endif
 }
