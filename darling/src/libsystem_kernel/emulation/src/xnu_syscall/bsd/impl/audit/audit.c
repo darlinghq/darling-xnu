@@ -5,6 +5,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/write.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/fsync.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/mkdir.h>
 
 #include <stdint.h>
 #include <bsm/audit.h>
@@ -51,6 +52,12 @@ long sys_audit(void* record, int length) {
 		trail_fd = sys_open(AUDIT_TRAIL_PATH,
 							BSD_O_WRONLY | BSD_O_APPEND | BSD_O_CREAT,
 							0600);
+		if (trail_fd < 0) {
+			sys_mkdir("/var/audit", 0700);
+			trail_fd = sys_open(AUDIT_TRAIL_PATH,
+								BSD_O_WRONLY | BSD_O_APPEND | BSD_O_CREAT,
+								0600);
+		}
 		if (trail_fd < 0) {
 			// No usable trail. Report this the way XNU does for a kernel
 			// built without audit support rather than claiming success.
