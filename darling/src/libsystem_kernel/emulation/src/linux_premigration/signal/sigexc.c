@@ -20,6 +20,7 @@
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/pthread_canceled.h>
 #include <darling/emulation/common/tsd.h>
+#include <darling/emulation/xnu_syscall/machdep/impl/tls.h>
 
 #include <darlingserver/rpc.h>
 
@@ -465,8 +466,33 @@ unsigned long sigexc_handlers_run(void)
 	return (unsigned long)(uintptr_t)_pthread_getspecific_direct(__PTK_DARLING_SIGNAL_HANDLERS_RUN);
 }
 
+#if defined(__aarch64__) || defined(__arm64__)
+// Private dyld/kernel ABI: UDF #0xda00..0xda1f replaces a cached Darwin
+// MRS TPIDRRO_EL0. The low five bits name Xd (31 means XZR). Linux owns
+// TPIDR_EL0; returning it here would expose and corrupt native ELF TLS.
+static bool emulate_darling_tsd_read(struct linux_ucontext* ctxt)
+{
+    struct linux_gregset* regs = &ctxt->uc_mcontext.gregs;
+    const uint32_t instruction = *(const uint32_t*)regs->pc;
+    if ( (instruction & 0xFFFFFFE0U) != 0x0000DA00U )
+        return false;
+    const uint32_t destination = instruction & 0x1FU;
+    if ( destination != 31 )
+        regs->regs[destination] = (uintptr_t)sys_thread_get_tsd_base();
+    regs->pc += sizeof(instruction);
+    return true;
+}
+
+#endif
+
 void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
+#if defined(__aarch64__) || defined(__arm64__)
+    // Consume the emulated register read before RPC and Mach exception delivery.
+    if ( linux_signum == LINUX_SIGILL && info && info->si_code > 0
+            && emulate_darling_tsd_read(ctxt) )
+        return;
+#endif
 	// Re-entrancy guard. The first thing this handler does is enter a server RPC,
 	// which takes duct-tape mutexes. A thread running inside a signal handler has
 	// no registered dtape thread, so dtape_mutex_lock takes its fallback path
