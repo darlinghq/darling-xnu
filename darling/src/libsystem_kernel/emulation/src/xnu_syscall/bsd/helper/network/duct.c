@@ -31,7 +31,15 @@ int sockaddr_fixup_from_bsd(struct sockaddr_fixup* out, const void* bsd_sockaddr
 
 		strncpy(out->sun_path, vc.path, sizeof(out->sun_path) - 1);
 		out->sun_path[sizeof(out->sun_path) - 1] = '\0';
-		ret = sizeof(*out) - sizeof(out->sun_path) + strlen(out->sun_path);
+		/* + 1 for the NUL terminator. A sockaddr length is the offset of the
+		 * path plus the path plus its terminator, and Linux's connect() reads
+		 * exactly that many bytes, so omitting it truncates the path by one
+		 * and the call fails on a socket that exists: the guest's
+		 * connect() to a live AF_UNIX socket returns ECONNREFUSED, and
+		 * EINVAL/ENAMETOOLONG rather than a useful error. The reverse
+		 * direction, sockaddr_fixup_from_linux, has always had the + 1;
+		 * this one did not. */
+		ret = sizeof(*out) - sizeof(out->sun_path) + strlen(out->sun_path) + 1;
 	}
 
 	return ret;
