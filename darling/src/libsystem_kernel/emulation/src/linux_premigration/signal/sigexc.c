@@ -169,6 +169,7 @@ static void cancel_interrupted_syscall(struct linux_ucontext* ctxt)
 
 void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
+
 	int status = dserver_rpc_interrupt_enter();
 
 	if (status != 0) {
@@ -426,6 +427,48 @@ static void handle_signal_without_server(int linux_signum, struct linux_siginfo*
 
 void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
+	// Re-entrancy guard. The first thing this handler does is enter a server RPC,
+	// which takes duct-tape mutexes. A thread running inside a signal handler has
+	// no registered dtape thread, so dtape_mutex_lock takes its fallback path
+	// (duct-tape/src/locks.c) and spins waiting for an owner to drop the lock. If
+	// anything inside the handler faults, the kernel reinvokes the handler, which
+	// spins again - and with both threads in that state the spin never ends.
+	//
+	// That was observed turning a single guest SIGSEGV into ~30 nested handler
+	// entries and ~3000 "Trying to lock mutex without an active thread!"
+	// warnings across two threads, which destroyed the original crash's stack: the
+	// cores only ever showed the signal trampoline.
+	//
+	// One entry per thread is allowed. A fault while already inside the handler
+	// cannot be reported through the same path, so kill the thread outright: the
+	// process still dies, but the core describes the first fault instead of the
+	// livelock.
+	//
+	// Only for signals that are themselves a fault. A benign re-entry - a SIGWINCH
+	// delivered while the handler is already running, which happens during normal
+	// startup - must not take the thread down with it.
+	static __thread bool in_sigexc_handler = false;
+	static __thread int in_sigexc_handler_signal = 0;
+
+	if (in_sigexc_handler) {
+		bool nested_is_fault =
+				linux_signum == LINUX_SIGSEGV || linux_signum == LINUX_SIGBUS ||
+				linux_signum == LINUX_SIGILL || linux_signum == LINUX_SIGFPE ||
+				linux_signum == LINUX_SIGSYS || linux_signum == LINUX_SIGTRAP;
+
+		if (nested_is_fault) {
+			kern_printf("sigexc: fault (%d) inside the handler for signal %d, killing this thread\n",
+					linux_signum, in_sigexc_handler_signal);
+			LINUX_SYSCALL(__NR_exit_group, 128 + LINUX_SIGKILL);
+			// exit_group does not return.
+		}
+
+		// Not a fault: fall through and let the nested signal be handled.
+	} else {
+		in_sigexc_handler = true;
+		in_sigexc_handler_signal = linux_signum;
+	}
+
 	int status = dserver_rpc_interrupt_enter();
 
 	if (status != 0) {
