@@ -459,6 +459,28 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 		if (nested_is_fault) {
 			kern_printf("sigexc: fault (%d) inside the handler for signal %d, killing this thread\n",
 					linux_signum, in_sigexc_handler_signal);
+
+			// Report where it faulted before killing the thread. Without this the
+			// register state is lost with the process and the nested fault - the
+			// one that actually matters - stays as invisible as it was before the
+			// guard existed. The usual dump further down is never reached, because
+			// that path would block on the same RPC that faulted.
+#if defined(__x86_64__)
+			if (ctxt)
+				kern_printf("sigexc: nested fault at RIP 0x%llx\n",
+					(unsigned long long)ctxt->uc_mcontext.gregs.rip);
+#elif defined(__aarch64__) || defined(__arm64__)
+			if (ctxt)
+				kern_printf("sigexc: nested fault at PC 0x%llx, fault_addr 0x%llx, SP 0x%llx\n",
+					(unsigned long long)ctxt->uc_mcontext.gregs.pc,
+					(unsigned long long)ctxt->uc_mcontext.gregs.fault_address,
+					(unsigned long long)ctxt->uc_mcontext.gregs.sp);
+#elif defined(__i386__)
+			if (ctxt)
+				kern_printf("sigexc: nested fault at EIP 0x%llx\n",
+					(unsigned long long)ctxt->uc_mcontext.gregs.eip);
+#endif
+
 			LINUX_SYSCALL(__NR_exit_group, 128 + LINUX_SIGKILL);
 			// exit_group does not return.
 		}
