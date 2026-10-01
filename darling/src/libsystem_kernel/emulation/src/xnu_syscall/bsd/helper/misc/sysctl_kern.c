@@ -28,6 +28,7 @@
 enum {
 	_KERN_MSGBUF = 1000,
 	_KERN_OSPRODUCTVERSION,
+	_KERN_NUM_FILES,
 
 	_KERN_SEMMNS = 1000,
 };
@@ -44,6 +45,9 @@ static sysctl_handler(handle_osrelease);
 static sysctl_handler(handle_version);
 static sysctl_handler(handle_osversion);
 static sysctl_handler(handle_maxproc);
+static sysctl_handler(handle_maxfiles);
+static sysctl_handler(handle_maxfilesperproc);
+static sysctl_handler(handle_num_files);
 static sysctl_handler(handle_netboot);
 static sysctl_handler(handle_safeboot);
 static sysctl_handler(handle_usrstack32);
@@ -68,6 +72,9 @@ const struct known_sysctl sysctls_kern[] = {
 	{ .oid = KERN_PROCARGS2, .type = CTLTYPE_STRUCT, .exttype = "", .name = "procargs2", .handler = handle_procargs32 },
 	{ .oid = KERN_ARGMAX, .type = CTLTYPE_INT, .exttype = "I", .name = "argmax", .handler = handle_argmax },
 	{ .oid = KERN_MAXPROC, .type = CTLTYPE_INT, .exttype = "I", .name = "maxproc", .handler = handle_maxproc },
+	{ .oid = KERN_MAXFILES, .type = CTLTYPE_INT, .exttype = "I", .name = "maxfiles", .handler = handle_maxfiles },
+	{ .oid = KERN_MAXFILESPERPROC, .type = CTLTYPE_INT, .exttype = "I", .name = "maxfilesperproc", .handler = handle_maxfilesperproc },
+	{ .oid = _KERN_NUM_FILES, .type = CTLTYPE_INT, .exttype = "I", .name = "num_files", .handler = handle_num_files },
 	{ .oid = KERN_NETBOOT, .type = CTLTYPE_INT, .exttype = "I", .name = "netboot", .handler = handle_netboot },
 	{ .oid = KERN_SAFEBOOT, .type = CTLTYPE_INT, .exttype = "I", .name = "safeboot", .handler = handle_safeboot },
 	{ .oid = KERN_BOOTTIME, .type = CTLTYPE_STRUCT, .exttype = "S,timeval", .name = "boottime", .handler = handle_boottime },
@@ -400,5 +407,23 @@ static sysctl_handler(handle_osrevision) {
 	if (ovalue)
 		*ovalue = EMULATED_OSREVISION;
 	*oldlen = sizeof(*ovalue);
+	return 0;
+}
+
+static sysctl_handler(handle_maxfiles) {
+	sysctl_handle_size(sizeof(int));
+	*((int*) old) = 49152;
+	return 0;
+}
+
+static sysctl_handler(handle_maxfilesperproc) {
+	sysctl_handle_size(sizeof(int));
+	*((int*) old) = 10240;
+	return 0;
+}
+
+static sysctl_handler(handle_num_files) {
+	sysctl_handle_size(sizeof(int));
+	*((int*) old) = 1024;
 	return 0;
 }

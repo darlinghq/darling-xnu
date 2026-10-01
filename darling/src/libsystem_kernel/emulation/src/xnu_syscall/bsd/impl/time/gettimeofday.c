@@ -7,7 +7,9 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/linux_premigration/ext/sys/linux_time.h>
 
-long sys_gettimeofday(struct bsd_timeval* tv, struct timezone* tz)
+extern uint64_t mach_absolute_time(void);
+
+long sys_gettimeofday(struct bsd_timeval* tv, struct timezone* tz, uint64_t* mach_time)
 {
 	int ret;
 	struct linux_timeval ltv;
@@ -33,8 +35,15 @@ long sys_gettimeofday(struct bsd_timeval* tv, struct timezone* tz)
 	}
 	else
 	{
-		tv->tv_sec = ltv.tv_sec;
-		tv->tv_usec = ltv.tv_usec;
+		if (tv)
+		{
+			tv->tv_sec = ltv.tv_sec;
+			tv->tv_usec = ltv.tv_usec;
+		}
+		if (mach_time)
+		{
+			*mach_time = mach_absolute_time();
+		}
 	}
 
 	return ret;

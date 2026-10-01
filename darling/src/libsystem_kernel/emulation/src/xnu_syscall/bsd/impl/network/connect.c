@@ -66,3 +66,71 @@ long sys_connect_nocancel(int fd, const void* name, int socklen)
 
 	return ret;
 }
+
+#include <darling/emulation/xnu_syscall/bsd/impl/network/bind.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/writev.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/network/shutdown.h>
+
+struct darling_sa_endpoints {
+	unsigned int            sae_srcif;
+	const struct sockaddr   *sae_srcaddr;
+	socklen_t               sae_srcaddrlen;
+	const struct sockaddr   *sae_dstaddr;
+	socklen_t               sae_dstaddrlen;
+};
+
+long sys_connectx(int fd, const void* endpoints_arg, unsigned int associd, unsigned int flags, const void* iov, unsigned int iovcnt, void* len, void* connid)
+{
+	CANCELATION_POINT();
+
+	if (!endpoints_arg)
+		return -EINVAL;
+
+	const struct darling_sa_endpoints* ep = (const struct darling_sa_endpoints*) endpoints_arg;
+	if (!ep->sae_dstaddr || ep->sae_dstaddrlen <= 0)
+		return -EINVAL;
+
+	if (ep->sae_srcaddr && ep->sae_srcaddrlen > 0)
+	{
+		long bind_ret = sys_bind(fd, ep->sae_srcaddr, ep->sae_srcaddrlen);
+		if (bind_ret < 0 && bind_ret != -EINVAL)
+			return bind_ret;
+	}
+
+	long ret = sys_connect_nocancel(fd, ep->sae_dstaddr, ep->sae_dstaddrlen);
+	if (ret < 0 && ret != -EINPROGRESS)
+		return ret;
+
+	if (iov && iovcnt > 0)
+	{
+		long bytes = sys_writev(fd, iov, iovcnt);
+		if (bytes > 0 && len)
+		{
+			*((__SIZE_TYPE__*) len) = bytes;
+		}
+	}
+	else if (len)
+	{
+		*((__SIZE_TYPE__*) len) = 0;
+	}
+
+	if (connid)
+	{
+		*((unsigned int*) connid) = 1;
+	}
+
+	return ret;
+}
+
+long sys_disconnectx(int fd, unsigned int associd, unsigned int connid)
+{
+	struct sockaddr sa;
+	__builtin_memset(&sa, 0, sizeof(sa));
+	sa.sa_family = AF_UNSPEC;
+	long ret = sys_connect_nocancel(fd, &sa, sizeof(sa));
+	if (ret < 0)
+	{
+		ret = sys_shutdown(fd, 2 /* SHUT_RDWR */);
+	}
+	return (ret < 0) ? ret : 0;
+}
