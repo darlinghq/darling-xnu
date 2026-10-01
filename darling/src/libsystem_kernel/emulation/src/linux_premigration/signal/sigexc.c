@@ -532,7 +532,14 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 #endif
 
 	state_to_kernel(ctxt, &tstate, &fstate);
-	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, info->si_pid, info->si_code, info->si_addr, &tstate, &fstate, &bsd_signum);
+
+	// info is NULL for signals the kernel raises itself rather than delivering
+	// from another process, so its fields cannot be read unconditionally.
+	int sig_pid = info ? info->si_pid : 0;
+	int sig_code = info ? info->si_code : 0;
+	unsigned long long sig_addr = info ? (unsigned long long) info->si_addr : 0;
+
+	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, sig_pid, sig_code, (void *) sig_addr, &tstate, &fstate, &bsd_signum);
 	if (ret < 0) {
 		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d", linux_signum, ret);
 		__simple_abort();
