@@ -40,6 +40,7 @@ static sysctl_handler(handle_cputhreadtype);
 static sysctl_handler(handle_cpu64bitcapable);
 static sysctl_handler(handle_machine);
 static sysctl_handler(handle_cpufrequency);
+static sysctl_handler(handle_cachelinesize);
 
 const struct known_sysctl sysctls_hw[] = {
 	{ .oid = HW_AVAILCPU, .type = CTLTYPE_INT, .exttype = "", .name = "availcpu", .handler = handle_availcpu },
@@ -56,6 +57,7 @@ const struct known_sysctl sysctls_hw[] = {
 	{ .oid = _HW_64BITCAPABLE, .type = CTLTYPE_INT, .exttype = "", .name = "cpu64bit_capable", .handler = handle_cpu64bitcapable },
 	{ .oid = HW_MACHINE, .type = CTLTYPE_STRING, .exttype = "S", .name = "machine", .handler = handle_machine },
 	{ .oid = _HW_CPUFREQUENCY, .type = CTLTYPE_INT, .exttype = "", .name = "cpufrequency", .handler = handle_cpufrequency },
+	{ .oid = HW_CACHELINE, .type = CTLTYPE_QUAD, .exttype = "U", .name = "cachelinesize", .handler = handle_cachelinesize },
 	{ .oid = -1 }
 };
 
@@ -196,5 +198,16 @@ sysctl_handler(handle_machine)
 #else
 	copyout_string(need_uname()->machine, (char*) old, oldlen);
 #endif
+	return 0;
+}
+
+sysctl_handler(handle_cachelinesize)
+{
+	// A fixed architectural constant, like the page size above. XNU aligns its cache
+	// maintenance on 1 << ARM64_CLINE_SHIFT with ARM64_CLINE_SHIFT == 6
+	// (osfmk/arm64/proc_reg.h), i.e. 64 bytes on arm64; on arm, MMU_CLINE is 6 for
+	// the same reason (osfmk/arm/proc_reg.h).
+	sysctl_handle_size(sizeof(unsigned long long));
+	*((unsigned long long*) old) = 64;
 	return 0;
 }
