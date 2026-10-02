@@ -953,9 +953,11 @@ static long _proc_pidinfo_pidrusage(int32_t pid, uint32_t flavor, void* buffer, 
 		case RUSAGE_INFO_V5:
 			size = sizeof(struct rusage_info_v5);
 			break;
+#ifdef RUSAGE_INFO_V6
 		case RUSAGE_INFO_V6:
 			size = sizeof(struct rusage_info_v6);
 			break;
+#endif
 		default:
 			return -EINVAL;
 	}
