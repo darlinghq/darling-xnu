@@ -1036,7 +1036,7 @@ static long _proc_pidinfo_vnodepathinfo(int32_t pid, void* buffer, int32_t bufsi
 
 	// 1. CWD
 	__simple_sprintf(linkpath, "/proc/%d/cwd", pid);
-	ret = LINUX_SYSCALL(__NR_readlink, linkpath, target, sizeof(target) - 1);
+	ret = sys_readlink(linkpath, target, sizeof(target) - 1);
 	if (ret > 0)
 	{
 		target[ret] = '\0';
@@ -1054,7 +1054,7 @@ static long _proc_pidinfo_vnodepathinfo(int32_t pid, void* buffer, int32_t bufsi
 	}
 
 	info->pvi_cdir.vip_vi.vi_type = 2; // VDIR
-	struct stat64 st_cwd;
+	darling_stat64_t st_cwd;
 	if (sys_stat64(info->pvi_cdir.vip_path, &st_cwd) == 0)
 	{
 		info->pvi_cdir.vip_vi.vi_stat.vst_dev = st_cwd.st_dev;
@@ -1067,7 +1067,7 @@ static long _proc_pidinfo_vnodepathinfo(int32_t pid, void* buffer, int32_t bufsi
 
 	// 2. ROOT
 	__simple_sprintf(linkpath, "/proc/%d/root", pid);
-	ret = LINUX_SYSCALL(__NR_readlink, linkpath, target, sizeof(target) - 1);
+	ret = sys_readlink(linkpath, target, sizeof(target) - 1);
 	if (ret > 0)
 	{
 		target[ret] = '\0';
@@ -1085,7 +1085,7 @@ static long _proc_pidinfo_vnodepathinfo(int32_t pid, void* buffer, int32_t bufsi
 	}
 
 	info->pvi_rdir.vip_vi.vi_type = 2; // VDIR
-	struct stat64 st_root;
+	darling_stat64_t st_root;
 	if (sys_stat64(info->pvi_rdir.vip_path, &st_root) == 0)
 	{
 		info->pvi_rdir.vip_vi.vi_stat.vst_dev = st_root.st_dev;
