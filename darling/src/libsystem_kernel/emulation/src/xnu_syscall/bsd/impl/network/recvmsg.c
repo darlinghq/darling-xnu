@@ -44,6 +44,11 @@ long sys_recvmsg_nocancel(int socket, struct bsd_msghdr* msg, int flags)
 		// __simple_printf("controllen=%d\n", msg->msg_controllen);
 		lmsg.msg_controllen = LINUX_CMSG_ALIGN(msg->msg_controllen + LINUX_BSD_CMSGHDR_SIZE_DIFFERENCE); // FIXME: there could be multiple control messages in a message
 		lchdr = (struct linux_cmsghdr*) malloc(lmsg.msg_controllen);
+		if (lchdr == NULL)
+		{
+			return ENOMEM;
+		}
+
 		lmsg.msg_control = lchdr;
 	}
 	else
