@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 #include <darling/emulation/common/base.h>
+#include <sys/errno.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/conversion/network/duct.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
