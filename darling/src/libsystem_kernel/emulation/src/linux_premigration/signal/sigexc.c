@@ -17,6 +17,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/kill.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/pthread_canceled.h>
+#include <darling/emulation/common/tsd.h>
 
 #include <darlingserver/rpc.h>
 
@@ -447,10 +448,12 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 	// Only for signals that are themselves a fault. A benign re-entry - a SIGWINCH
 	// delivered while the handler is already running, which happens during normal
 	// startup - must not take the thread down with it.
-	static __thread bool in_sigexc_handler = false;
-	static __thread int in_sigexc_handler_signal = 0;
+	// Compiler TLS requires __tlv_bootstrap, which is unavailable in the
+	// static dyld variant. Direct TSD is already initialized for signal delivery.
+	int in_sigexc_handler_signal = (int)(uintptr_t)
+			_pthread_getspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL);
 
-	if (in_sigexc_handler) {
+	if (in_sigexc_handler_signal) {
 		bool nested_is_fault =
 				linux_signum == LINUX_SIGSEGV || linux_signum == LINUX_SIGBUS ||
 				linux_signum == LINUX_SIGILL || linux_signum == LINUX_SIGFPE ||
@@ -487,8 +490,8 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 
 		// Not a fault: fall through and let the nested signal be handled.
 	} else {
-		in_sigexc_handler = true;
-		in_sigexc_handler_signal = linux_signum;
+		_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
+				(void*)(uintptr_t)linux_signum);
 	}
 
 	int status = dserver_rpc_interrupt_enter();
@@ -617,6 +620,10 @@ out:
 		__simple_printf("*** dserver_rpc_interrupt_exit failed with code %d ***\n", status);
 		__simple_abort();
 	}
+
+	// Clear the outermost guard, retaining it when a benign nested signal returns.
+	_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
+			(void*)(uintptr_t)in_sigexc_handler_signal);
 }
 
 #define DUMPREG(regname) kern_printf("sigexc:   " #regname ": 0x%llx\n", regs->regname);
