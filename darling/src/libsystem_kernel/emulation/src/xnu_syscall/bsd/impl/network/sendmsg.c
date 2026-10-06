@@ -59,7 +59,7 @@ long sys_sendmsg_nocancel(int socket, const struct bsd_msghdr* msg, int flags)
 		lchdr = (struct linux_cmsghdr*)malloc(lmsg.msg_controllen);
 		if (lchdr == NULL)
 		{
-			return ENOMEM;
+			return -ENOMEM;
 		}
 
 		lmsg.msg_control = lchdr;
