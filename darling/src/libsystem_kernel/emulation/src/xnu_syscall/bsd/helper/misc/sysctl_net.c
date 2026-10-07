@@ -5,6 +5,8 @@
 #include <sys/socket.h>
 #include <net/if.h>
 #include <net/if_dl.h>
+#include <net/if_types.h>
+#include <darling/emulation/conversion/network/ifreq.h>
 #include <netinet/in.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/network/socket.h>
@@ -20,47 +22,6 @@ extern size_t strlcpy(char* destination, const char* source, size_t size);
 
 static sysctl_handler(handle_route);
 static int do_iflist(void* old, unsigned long* oldlen);
-
-#define LINUX_SIOCGIFCONF 0x8912
-#define LINUX_SIOCGIFHWADDR 0x8927
-#define LINUX_SIOCGIFBRDADDR 0x8919
-#define LINUX_SIOCGIFNETMASK 0x891b
-#define LINUX_IFNAMSIZ 16
-
-#define MAC_LENGTH 6
-
-struct linux_sockaddr {
-	unsigned short sa_family;
-	char sa_data[14];
-};
-
-struct linux_ifmap {
-	unsigned long mem_start;
-	unsigned long mem_end;
-	unsigned short base_addr;
-	unsigned char irq;
-	unsigned char dma;
-	unsigned char port;
-};
-
-struct linux_ifreq {
-	char lifr_name[LINUX_IFNAMSIZ];
-	union {
-		struct linux_sockaddr lifr_addr;
-		struct linux_sockaddr lifr_dstaddr;
-		struct linux_sockaddr lifr_broadaddr;
-		struct linux_sockaddr lifr_netmask;
-		struct linux_sockaddr lifr_hwaddr;
-		short lifr_flags;
-		int lifr_ifindex;
-		int lifr_metric;
-		int lifr_mtu;
-		struct linux_ifmap lifr_map;
-		char lifr_slave[LINUX_IFNAMSIZ];
-		char lifr_newname[LINUX_IFNAMSIZ];
-		char* lifr_data;
-	};
-};
 
 // arbitrary number; only exists to avoid blowing up the stack
 #define IFC_MAX_INTERFACES 5
@@ -137,17 +98,30 @@ static int do_iflist(void* old, unsigned long* oldlen) {
 			dl->sdl_len = sizeof(struct sockaddr_dl) + additional_sockaddr_len;
 			dl->sdl_family = AF_LINK;
 			dl->sdl_index = ifm->ifm_index;
-			/* dl->sdl_type = 0; */ // TODO: determine this somehow
+			dl->sdl_type = IFT_OTHER;
 			dl->sdl_nlen = name_len;
 			dl->sdl_alen = MAC_LENGTH;
 			dl->sdl_slen = 0; // ???
 
 			memcpy(dl->sdl_data, curr->lifr_name, name_len);
 
+            // Translate Linux interface flags rather than leaving every interface down.
+            memcpy(tmp.lifr_name, curr->lifr_name, sizeof(curr->lifr_name));
+            if ((status = __real_ioctl(tmp_sock, LINUX_SIOCGIFFLAGS, &tmp)) < 0)
+                goto out;
+            ifm->ifm_flags = if_flags_linux_to_bsd(tmp.lifr_flags);
+
 			// grab the MAC
 			memcpy(tmp.lifr_name, curr->lifr_name, sizeof(curr->lifr_name));
 			if ((status = __real_ioctl(tmp_sock, LINUX_SIOCGIFHWADDR, &tmp)) < 0)
 				goto out;
+            // Linux returns an ARPHRD_* type with the link-layer address.
+            if (tmp.lifr_hwaddr.sa_family == 1) // ARPHRD_ETHER
+                dl->sdl_type = IFT_ETHER;
+            else if (tmp.lifr_hwaddr.sa_family == 772) // ARPHRD_LOOPBACK
+                dl->sdl_type = IFT_LOOP;
+            else if (tmp.lifr_hwaddr.sa_family == 512) // ARPHRD_PPP
+                dl->sdl_type = IFT_PPP;
 			memcpy(LLADDR(dl), tmp.lifr_hwaddr.sa_data, MAC_LENGTH);
 
 			old_ptr += ifm_length;
