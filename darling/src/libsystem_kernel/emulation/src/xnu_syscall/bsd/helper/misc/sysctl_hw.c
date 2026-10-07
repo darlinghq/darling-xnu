@@ -14,6 +14,10 @@
 #include <darling/emulation/common/string.h>
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
+#include <darling/emulation/conversion/fcntl/open.h>
 
 extern kern_return_t mach_port_deallocate(ipc_space_t task, mach_port_name_t name);
 extern kern_return_t host_info(mach_port_name_t host, int itype, void* hinfo, mach_msg_type_number_t* count);
@@ -33,6 +37,7 @@ enum {
 	_HW_CACHECONFIG,
 	_HW_CACHESIZE,
 	_HW_AVAILCPU_COMPAT,
+	_HW_PACKAGES,
 };
 
 static sysctl_handler(handle_ncpu);
@@ -68,6 +73,7 @@ static sysctl_handler(handle_l1icachesize);
 static sysctl_handler(handle_l1dcachesize);
 static sysctl_handler(handle_l2cachesize);
 static sysctl_handler(handle_l3cachesize);
+static sysctl_handler(handle_packages);
 
 #if defined(__i386__) || defined(__x86_64__)
 static void cpuid(unsigned int leaf, unsigned int regs[4])
@@ -209,6 +215,7 @@ const struct known_sysctl sysctls_hw[] = {
 	{ .oid = HW_L1DCACHESIZE, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "l1dcachesize", .handler = handle_l1dcachesize },
 	{ .oid = HW_L2CACHESIZE, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "l2cachesize", .handler = handle_l2cachesize },
 	{ .oid = HW_L3CACHESIZE, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "l3cachesize", .handler = handle_l3cachesize },
+	{ .oid = _HW_PACKAGES, .type = CTLTYPE_INT, .exttype = "I", .name = "packages", .handler = handle_packages },
 #if defined(__i386__) || defined(__x86_64__)
 	{ .oid = _HW_OPTIONAL, .type = CTLTYPE_NODE, .exttype = "", .name = "optional", .subctls = sysctls_hw_optional },
 #endif
@@ -566,4 +573,40 @@ sysctl_handler(handle_l2cachesize)
 sysctl_handler(handle_l3cachesize)
 {
 	return copyout_cache_size(3, false, old, oldlen);
+}
+
+sysctl_handler(handle_packages)
+{
+    if (!oldlen) return -EINVAL;
+    if (_new) return -EPERM;
+    sysctl_handle_size(sizeof(uint32_t));
+    int fd = sys_open_nocancel("/proc/cpuinfo", BSD_O_RDONLY, 0);
+    if (fd < 0) return fd;
+    uint32_t packages[256];
+    uint32_t count = 0;
+    struct rdline_buffer rbuf;
+    _readline_init(&rbuf);
+    const char* line;
+    while ((line = _readline(fd, &rbuf)) != NULL) {
+        if (strncmp(line, "physical id", 11) != 0) continue;
+        const char* value = line + 11;
+        while (*value && *value != ':') ++value;
+        if (!*value) continue;
+        ++value;
+        while (*value == ' ' || *value == '\t') ++value;
+        uint32_t package = __simple_atoi(value, NULL);
+        uint32_t i;
+        for (i = 0; i < count && packages[i] != package; ++i) {}
+        if (i == count) {
+            if (count == sizeof(packages) / sizeof(packages[0])) {
+                close_internal(fd);
+                return -EOVERFLOW;
+            }
+            packages[count++] = package;
+        }
+    }
+    close_internal(fd);
+    /* Architectures without a physical-id field describe one package. */
+    *(uint32_t*)old = count ? count : 1;
+    return 0;
 }

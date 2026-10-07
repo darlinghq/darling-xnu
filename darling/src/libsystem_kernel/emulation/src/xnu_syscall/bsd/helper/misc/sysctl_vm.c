@@ -16,14 +16,17 @@ enum {
 	// the OID for this sysctl is OID_AUTO, so we can assign anything to it
 	_VM_PAGE_PURGEABLE_COUNT = 1000,
 	_VM_PAGE_PAGEABLE_INTERNAL_COUNT,
+	_VM_SWAPUSAGE,
 };
 
 static sysctl_handler(handle_page_purgeable_count);
 static sysctl_handler(handle_page_pageable_internal_count);
+static sysctl_handler(handle_swapusage);
 
 const struct known_sysctl sysctls_vm[] = {
 	{ .oid = _VM_PAGE_PURGEABLE_COUNT, .type = CTLTYPE_INT, .exttype = "I", .name = "page_purgeable_count", .handler = handle_page_purgeable_count },
 	{ .oid = _VM_PAGE_PAGEABLE_INTERNAL_COUNT, .type = CTLTYPE_INT, .exttype = "IU", .name = "page_pageable_internal_count", .handler = handle_page_pageable_internal_count },
+	{ .oid = _VM_SWAPUSAGE, .type = CTLTYPE_OPAQUE, .exttype = "S,xsw_usage", .name = "swapusage", .handler = handle_swapusage },
 	{ .oid = -1 },
 };
 
@@ -36,6 +39,8 @@ struct meminfo {
 	uint64_t cached;
 	uint64_t slab_reclaimable;
 	uint64_t shmem;
+	uint64_t swap_total;
+	uint64_t swap_free;
 };
 
 static const char* find_first_not(const char* haystack, char needle) {
@@ -92,6 +97,8 @@ static int read_meminfo(struct meminfo* out_info) {
 			else PARSE("Cached:", cached)
 			else PARSE("SReclaimable:", slab_reclaimable)
 			else PARSE("Shmem:", shmem)
+			else PARSE("SwapTotal:", swap_total)
+			else PARSE("SwapFree:", swap_free)
 			;
 
 		#undef PARSE
@@ -143,3 +150,21 @@ static sysctl_handler(handle_page_pageable_internal_count) {
 
 	return 0;
 };
+
+static sysctl_handler(handle_swapusage) {
+    if (!oldlen) return -EINVAL;
+    if (_new) return -EPERM;
+    sysctl_handle_size(sizeof(struct xsw_usage));
+    struct meminfo info;
+    int status = read_meminfo(&info);
+    if (status < 0) return status;
+    struct xsw_usage usage = {0};
+    usage.xsu_total = info.swap_total * 1024;
+    usage.xsu_avail = info.swap_free * 1024;
+    usage.xsu_used = usage.xsu_total - usage.xsu_avail;
+    usage.xsu_pagesize = native_sysconf(LINUX_SC_PAGESIZE);
+    /* Linux /proc/meminfo does not report swap encryption. */
+    usage.xsu_encrypted = 0;
+    memcpy(old, &usage, sizeof(usage));
+    return 0;
+}
