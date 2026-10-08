@@ -18,12 +18,6 @@ long sys_getrlimit(unsigned int which, struct xnu_rlimit* rlp)
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
 
-	if (which == LINUX_RLIMIT_NOFILE)
-	{
-		rlp->rlim_cur--;
-		rlp->rlim_max--;
-	}
-
 	return ret;
 }
 
