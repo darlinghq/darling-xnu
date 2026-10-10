@@ -7,9 +7,7 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/bpf/bpf_device.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/nosigpipe.h>
 
-__attribute__((weak))
-__attribute__((visibility("default")))
-void kqueue_dup(int oldfd, int newfd) { }
+void WEAK_IMPORT kqueue_dup(int oldfd, int newfd);
 
 long sys_dup(int fd)
 {
@@ -25,6 +23,8 @@ long sys_dup(int fd)
 			bpf_device_dup(fd, ret);
 			nosigpipe_dup(fd, ret);
 		}
+		if (kqueue_dup)
+			kqueue_dup(fd, ret);
 	}
 
 	return ret;

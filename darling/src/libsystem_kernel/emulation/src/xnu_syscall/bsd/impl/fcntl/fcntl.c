@@ -42,7 +42,7 @@ int oflags_linux_to_bsd(int flags);
 extern int sprintf(char *str, const char *format, ...);
 long sys_readlink(const char* path, char* buf, unsigned long bsize);
 
-extern void kqueue_dup(int oldfd, int newfd);
+extern void kqueue_dup(int oldfd, int newfd) WEAK_IMPORT;
 
 static short int flock_type_linux_to_bsd(short int linux) {
 	switch (linux) {
@@ -375,12 +375,8 @@ static long sys_fcntl_common(int fd, int cmd, long arg, bool cancelable)
 		} break;
 		case F_DUPFD:
 		case F_DUPFD_CLOEXEC:
-			ret = nofile_limit_check_new(ret);
-			if (ret >= 0) {
+			if (kqueue_dup)
 				kqueue_dup(fd, ret);
-				bpf_device_dup(fd, ret);
-				nosigpipe_dup(fd, ret);
-			}
 			break;
 	}
 

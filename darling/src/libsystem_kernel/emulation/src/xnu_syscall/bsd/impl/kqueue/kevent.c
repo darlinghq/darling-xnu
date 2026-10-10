@@ -7,12 +7,15 @@
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
-int __attribute__((weak)) __attribute__((visibility("default"))) kevent_impl(int kq, ...) { return -ENOSYS; }
+int WEAK_IMPORT kevent_impl(int kq, ...);
 
 long sys_kevent(int	kq, const struct kevent	*changelist, int nchanges,
 			struct	kevent *eventlist, int nevents,
 			const struct timespec *timeout)
 {
+	if (!kevent_impl)
+		return -ENOSYS;
+
 	int ret = kevent_impl(kq, changelist, nchanges, eventlist, nevents, timeout);
 	if (ret < 0)
 		ret = -errno;

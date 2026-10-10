@@ -3,6 +3,18 @@
 
 #define VISIBLE __attribute__ ((visibility ("default")))
 
+/* An implementation that is genuinely optional and lives in another image is a WEAK IMPORT here, never a weak
+ * DEFINITION: an exported weak no-op can satisfy a guest dynamic binding and silently do nothing, which is how
+ * every guest os_unfair_lock became a no-op (ADR 0004). The caller must test the symbol for NULL. The spelling
+ * is target-dependent -- Apple's linker understands weak_import, while the i386/ELF side of this same source
+ * ignores that attribute (warning "attribute directive ignored") and would turn the reference into a hard
+ * undefined symbol, so a plain weak reference is used there. */
+#if defined(__APPLE__)
+#	define WEAK_IMPORT __attribute__((weak_import))
+#else
+#	define WEAK_IMPORT __attribute__((weak))
+#endif
+
 #ifdef __cplusplus
 #define CPP_EXTERN_BEGIN extern "C" {
 #define CPP_EXTERN_END }
