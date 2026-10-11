@@ -140,6 +140,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/kqueue/kevent64.c
 	src/xnu_syscall/bsd/impl/kqueue/kevent_qos.c
 	src/xnu_syscall/bsd/impl/kqueue/kqueue.c
+	src/xnu_syscall/bsd/impl/misc/terminate_with_payload.c
 	src/xnu_syscall/bsd/impl/misc/abort_with_payload.c
 	src/xnu_syscall/bsd/impl/misc/clonefile.c
 	src/xnu_syscall/bsd/impl/misc/csops.c
@@ -378,4 +379,3 @@ add_dependencies(emulation_dyld rtsig_h generate_dserver_rpc_wrappers)
 
 make_fat(emulation)
 make_fat(emulation_dyld)
-
