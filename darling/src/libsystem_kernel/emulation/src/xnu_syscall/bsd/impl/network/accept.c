@@ -34,17 +34,28 @@ long sys_accept_nocancel(int fd, void* from, int* socklen)
 		ret = errno_linux_to_bsd(ret);
 	else
 	{
-		fixed = (struct sockaddr_fixup*) from;
-		fixed->bsd_family = sfamily_linux_to_bsd(fixed->linux_family);
-		fixed->bsd_length = *socklen;
+		int accepted_fd = ret;
+
+		if (from != NULL && socklen != NULL)
+		{
+			fixed = (struct sockaddr_fixup*) from;
+			int conv = sockaddr_fixup_from_linux(fixed, from, *socklen);
+			if (conv < 0)
+				ret = conv;
+			else
+				*socklen = conv;
+		}
 
 		// on macOS (and BSD), accept-ed sockets inherit O_NONBLOCK
 		int parent_flags = sys_fcntl_nocancel(fd, F_GETFL, 0);
-		int child_flags = sys_fcntl_nocancel(ret, F_GETFL, 0);
+		int child_flags = sys_fcntl_nocancel(accepted_fd, F_GETFL, 0);
 		// we silently ignore errors we get from fcntl (it's probably fine; fnctl shouldn't fail here)
 		if (parent_flags >= 0 && child_flags >= 0 && (parent_flags & BSD_O_NONBLOCK) != 0) {
-			sys_fcntl_nocancel(ret, F_SETFL, child_flags | BSD_O_NONBLOCK);
+			sys_fcntl_nocancel(accepted_fd, F_SETFL, child_flags | BSD_O_NONBLOCK);
 		}
+
+		if (ret >= 0)
+			ret = accepted_fd;
 	}
 
 	return ret;
