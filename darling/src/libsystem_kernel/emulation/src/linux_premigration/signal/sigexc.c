@@ -79,7 +79,8 @@ static void float_state_to_mcontext(const arm_neon_state64_t_linux* s, unsigned 
 static void state_from_kernel(struct linux_ucontext* ctxt, const void* tstate, const void* fstate);
 static void state_to_kernel(struct linux_ucontext* ctxt, void* tstate, void* fstate);
 
-#define DEBUG_SIGEXC
+// Each kern_printf is a darlingserver request, and a handled signal makes
+// dozens of them (register dumps included). Build with -DDEBUG_SIGEXC to trace.
 #ifdef DEBUG_SIGEXC
 #define kern_printf(...) __simple_kprintf(__VA_ARGS__)
 #else
