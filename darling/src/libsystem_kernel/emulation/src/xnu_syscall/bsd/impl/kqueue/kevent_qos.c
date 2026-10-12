@@ -15,6 +15,8 @@
 
 static int default_kq = -1;
 
+extern void* malloc(__SIZE_TYPE__ size);
+extern void free(void* ptr);
 extern void* memmove(void* dst, const void* src, __SIZE_TYPE__ n);
 
 static void kevent_qos_to_64(const struct kevent_qos_s *ev, struct kevent64_s* ev64);
@@ -29,6 +31,13 @@ long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 	struct kevent64_s* eventlist64 = NULL;
 	struct wq_kevent_data wq_kevent;
 	struct timespec polling_timeout = {};
+	struct kevent64_s small_changes[16], small_events[16];
+	struct kevent_qos_s workq_event;
+	void* allocated_changes = NULL;
+	void* allocated_events = NULL;
+
+	if (nchanges < 0 || nevents < 0)
+		return -EINVAL;
 
 	if ((kq == -1) != !!(flags & KEVENT_FLAG_WORKQ))
 		return -EINVAL;
@@ -39,21 +48,43 @@ long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 		sys_fcntl(default_kq, F_SETFD, FD_CLOEXEC);
 	}
 
+	// Counts come from the caller: keep small batches on the stack, heap beyond that
 	if (changelist != NULL && nchanges > 0)
 	{
 		int i;
 
-		changelist64 = (struct kevent64_s*) __builtin_alloca(nchanges * sizeof(struct kevent64_s));
+		if (nchanges <= 16)
+			changelist64 = small_changes;
+		else
+		{
+			allocated_changes = malloc((__SIZE_TYPE__) nchanges * sizeof(struct kevent64_s));
+			if (allocated_changes == NULL)
+				return -ENOMEM;
+			changelist64 = allocated_changes;
+		}
 		for (i = 0; i < nchanges; i++)
 			kevent_qos_to_64(&changelist[i], &changelist64[i]);
 	}
 	if (eventlist != NULL && nevents > 0)
-		eventlist64 = (struct kevent64_s*) __builtin_alloca(nevents * sizeof(struct kevent64_s));
+	{
+		if (nevents <= 16)
+			eventlist64 = small_events;
+		else
+		{
+			allocated_events = malloc((__SIZE_TYPE__) nevents * sizeof(struct kevent64_s));
+			if (allocated_events == NULL)
+			{
+				free(allocated_changes);
+				return -ENOMEM;
+			}
+			eventlist64 = allocated_events;
+		}
+	}
 	if (nevents == 0 && (flags & KEVENT_FLAG_WORKQ))
 	{
-		eventlist = (struct kevent_qos_s*) __builtin_alloca(nevents * sizeof(struct kevent_qos_s));
+		eventlist = &workq_event;
 		nevents = 1;
-		eventlist64 = (struct kevent64_s*) __builtin_alloca(nevents * sizeof(struct kevent64_s));
+		eventlist64 = small_events;
 	}
 
 	rv = sys_kevent64(kq, changelist64, nchanges, eventlist64, nevents, flags, (flags & KEVENT_FLAG_IMMEDIATE) ? &polling_timeout : NULL);
@@ -82,7 +113,9 @@ long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 		memmove(eventlist, wq_kevent.events, rv * sizeof(struct kevent_qos_s));
 		// __simple_printf("workq done processing, returning %d to caller\n", rv);
 	}
-	
+
+	free(allocated_events);
+	free(allocated_changes);
 	return rv;
 }
 
