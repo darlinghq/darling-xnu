@@ -135,7 +135,7 @@ long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 			kevent_64_to_qos(&eventlist64[i], &eventlist[i]);
 	}
 
-	if ((flags & KEVENT_FLAG_WORKQ) && rv >= 0)
+	if ((flags & KEVENT_FLAG_WORKQ) && rv > 0)
 	{
 		// Pass to workqueue and wait
 		wq_kevent.sem = 0;
@@ -143,13 +143,20 @@ long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 		wq_kevent.nevents = rv;
 		wq_kevent.capacity = nevents;
 
-		sys_workq_kernreturn(WQOPS_QUEUE_REQTHREAD_FOR_KEVENT, &wq_kevent, 1, 0);
+		int request = sys_workq_kernreturn(WQOPS_QUEUE_REQTHREAD_FOR_KEVENT, &wq_kevent, 1, 0);
+		if (request < 0)
+		{
+			kevent_buffer_unmap(mapped_events, mapped_events_size);
+			kevent_buffer_unmap(mapped_changes, mapped_changes_size);
+			return request;
+		}
 		
 		// __simple_printf("waiting for workq processing\n");
 		sem_down(&wq_kevent.sem, -1);
 
 		rv = wq_kevent.nevents;
-		memmove(eventlist, wq_kevent.events, rv * sizeof(struct kevent_qos_s));
+		if (rv > 0)
+			memmove(eventlist, wq_kevent.events, (size_t) rv * sizeof(struct kevent_qos_s));
 		// __simple_printf("workq done processing, returning %d to caller\n", rv);
 	}
 
