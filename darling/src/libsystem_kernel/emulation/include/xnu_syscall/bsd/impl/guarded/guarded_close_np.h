@@ -3,6 +3,6 @@
 
 #include <stdint.h>
 
-long sys_guarded_close_np(int fd, uint64_t* guardid);
+long sys_guarded_close_np(int fd, const uint64_t* guardid);
 
 #endif // LINUX_GUARDED_CLOSE_H

@@ -3,6 +3,6 @@
 
 #include <stdint.h>
 
-long sys_guarded_kqueue_np(uint64_t* guardid, unsigned guardflags);
+long sys_guarded_kqueue_np(const uint64_t* guardid, unsigned guardflags);
 
 #endif // LINUX_GUARDED_KQUEUE_H
