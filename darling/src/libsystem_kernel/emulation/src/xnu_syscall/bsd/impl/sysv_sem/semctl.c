@@ -60,5 +60,6 @@ long sys_semctl(int semid, int semnum, int cmd, union xnu_semun arg)
 		arg.buf->sem_ctime = orig.sem_ctime;
 	}
 
-	return 0;
+	// GETVAL, GETPID, GETNCNT and GETZCNT return their result
+	return ret;
 }
