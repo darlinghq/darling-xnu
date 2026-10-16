@@ -1,5 +1,6 @@
 #define ioctl __real_ioctl
 #include <mach/mach_traps.h>
+#include <mach/thread_switch.h>
 #include <mach/vm_statistics.h>
 #include <mach/kern_return.h>
 #include <sys/mman.h>
@@ -701,17 +702,47 @@ boolean_t swtch_impl(void)
 }
 
 extern int __linux_nanosleep(struct timespec* tv, struct timespec* rem);
+#ifndef SWITCH_OPTION_DISPATCH_CONTENTION
+#define SWITCH_OPTION_DISPATCH_CONTENTION 3
+#define SWITCH_OPTION_OSLOCK_DEPRESS 4
+#define SWITCH_OPTION_OSLOCK_WAIT 5
+#endif
 kern_return_t syscall_thread_switch_impl(
 				mach_port_name_t thread_name,
 				int option,
 				mach_msg_timeout_t option_time)
 {
-	struct timespec tv = {
-		.tv_sec = 0,
-		.tv_nsec = 1000000
-	};
-	// Sleep for 1ms
-	__linux_nanosleep(&tv, &tv);
+	unsigned long long ns;
+
+	// As in XNU's thread_switch(): the wait options block for option_time
+	// (milliseconds, microseconds for DISPATCH_CONTENTION); the others only
+	// give up the CPU.
+	switch (option) {
+	case SWITCH_OPTION_NONE:
+	case SWITCH_OPTION_DEPRESS:
+	case SWITCH_OPTION_OSLOCK_DEPRESS:
+		ns = 0;
+		break;
+	case SWITCH_OPTION_WAIT:
+	case SWITCH_OPTION_OSLOCK_WAIT:
+		ns = option_time * 1000000ULL;
+		break;
+	case SWITCH_OPTION_DISPATCH_CONTENTION:
+		ns = option_time * 1000ULL;
+		break;
+	default:
+		return KERN_INVALID_ARGUMENT;
+	}
+
+	if (ns == 0) {
+		__linux_sched_yield();
+	} else {
+		struct timespec tv = {
+			.tv_sec = ns / 1000000000ULL,
+			.tv_nsec = ns % 1000000000ULL
+		};
+		__linux_nanosleep(&tv, &tv);
+	}
 
 	// TODO: we could implement this with yield_to() in LKM
 	return KERN_SUCCESS;
