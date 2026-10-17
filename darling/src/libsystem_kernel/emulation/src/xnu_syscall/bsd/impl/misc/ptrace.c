@@ -22,7 +22,7 @@ extern int getpid(void);
 long sys_ptrace(int request, int pid, void* addr, int data)
 {
 	const char* cmd = NULL;
-	int ret;
+	int ret = -EINVAL;
 
 	switch (request)
 	{
