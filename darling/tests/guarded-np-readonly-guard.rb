@@ -1,5 +1,6 @@
 # Call the real guarded_{open,close,kqueue}_np handlers with a guard that sits
-# on a read-only page, as a caller's static const guard does.
+# on a read-only page, as a caller's static const guard does, and with a NULL guard
+# (EFAULT, as XNU's copyin of the guard fails).
 # Usage: ruby darling/tests/guarded-np-readonly-guard.rb [path/to/emulation]
 require 'tmpdir'
 root = File.expand_path(ARGV[0] || '../src/libsystem_kernel/emulation', __dir__)
@@ -9,6 +10,7 @@ bodies = %w[open close kqueue].map do |kind|
     abort "sys_guarded_#{kind}_np not found"
 end
 program = <<~C
+  #include <errno.h>
   #include <stdint.h>
   #include <stdio.h>
   #include <string.h>
@@ -25,7 +27,10 @@ program = <<~C
       if (sys_guarded_open_np("/x", guard, 1, 0, 0) != 3 || sys_guarded_kqueue_np(guard, 1) != 4 ||
           sys_guarded_close_np(3, guard) != 0 || *guard != 0x1122334455667788ULL)
           return 1;
-      puts("PASS: the guard is only read");
+      if (sys_guarded_open_np("/x", NULL, 1, 0, 0) != -EFAULT || sys_guarded_kqueue_np(NULL, 1) != -EFAULT ||
+          sys_guarded_close_np(3, NULL) != -EFAULT)
+          return 3;
+      puts("PASS: the guard is only read and a NULL guard is EFAULT");
       return 0;
   }
 C
@@ -34,5 +39,5 @@ Dir.mktmpdir('guarded-np') do |tmp|
   File.write(input, program)
   abort 'compile failed' unless system(ENV.fetch('CC', 'clang'), '-O1', '-g',
       '-Wall', input, '-o', output)
-  abort 'guarded_*_np wrote the guard' unless system(output, rlimit_core: 0)
+  abort 'guarded_*_np wrote the guard or accepted a NULL guard' unless system(output, rlimit_core: 0)
 end
