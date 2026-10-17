@@ -137,10 +137,22 @@ __thread_set_tsd_base:
 	.align 2
 	.globl __thread_set_tsd_base
 __thread_set_tsd_base:
+#ifdef DARLING
+	// x0 already has the tsd base from the C caller; pass 0 as the second
+	// arg ("unk") and route through Darling's machdep syscall dispatcher.
+	mov	x1, #0
+	mov	x16, #3              // machdep syscall #3 = thread_set_tsd_base
+	stp	x29, x30, [sp, #-16]!
+	mov	x29, sp
+	bl	__darling_machdep_syscall
+	ldp	x29, x30, [sp], #16
+	ret
+#else
 	mov	x3, #2
 	mov	x16, #0x80000000
 	svc 	#SWI_SYSCALL
 	ret
+#endif
 
 #else
 #error unknown architecture

@@ -63,6 +63,11 @@
  */
 
 #include <TargetConditionals.h>
+// ARM64 Darling builds don't yet have IOKit/USB/FireWire framework headers,
+// so skip libkern/iokit error tables (same as DriverKit builds)
+#if !defined(TARGET_OS_DRIVERKIT) && (defined(__aarch64__) || defined(__arm64__))
+#define TARGET_OS_DRIVERKIT 1
+#endif
 #include <mach/error.h>
 #include "errorlib.h"
 #if !TARGET_OS_DRIVERKIT

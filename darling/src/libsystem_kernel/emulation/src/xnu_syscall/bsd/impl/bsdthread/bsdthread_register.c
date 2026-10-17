@@ -84,12 +84,19 @@ void pthread_entry_point_wrapper(void* self, int thread_port, void* funptr,
 	register void*         arg4 asm("edx") = funarg;
 	register unsigned long arg5 asm("edi") = stack_addr;
 	register unsigned int  arg6 asm("esi") = flags;
+#elif defined(__aarch64__) || defined(__arm64__)
+	register void*         arg1 asm("x0") = self;
+	register int           arg2 asm("w1") = thread_port;
+	register void*         arg3 asm("x2") = funptr;
+	register void*         arg4 asm("x3") = funarg;
+	register unsigned long arg5 asm("x4") = stack_addr;
+	register unsigned int  arg6 asm("w5") = flags;
 #endif
 
 #if __x86_64__
 	__asm__ __volatile__ (
-		// `_thread_start` does not expect the stack to be aligned (using the 
-		// call instruction will add the return address to the stack, causing 
+		// `_thread_start` does not expect the stack to be aligned (using the
+		// call instruction will add the return address to the stack, causing
 		// it to be aligned).
 		"jmpq *%[pthread_entry_point]\n"
 		::
@@ -103,10 +110,17 @@ void pthread_entry_point_wrapper(void* self, int thread_port, void* funptr,
 		"jmpl *%[pthread_entry_point]\n"
 		::
 		// `_thread_start` does not follow the i386 calling conventions
-		// for arguments. Instead of storing the arguments into the stack, 
+		// for arguments. Instead of storing the arguments into the stack,
 		// the arguments are stored in the registers.
 		"r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
 		[pthread_entry_point] "rmi"(pthread_entry_point)
+	);
+#elif defined(__aarch64__) || defined(__arm64__)
+	__asm__ __volatile__ (
+		"br %[pthread_entry_point]\n"
+		::
+		"r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
+		[pthread_entry_point] "r"(pthread_entry_point)
 	);
 #else
 	#error "Missing assembly for architecture"
@@ -149,12 +163,19 @@ void wqueue_entry_point_asm_jump(void* self, int thread_port, void* stackaddr,
 	register void* arg4 asm("edx") = item;
 	register int   arg5 asm("edi") = reuse;
 	register int   arg6 asm("esi") = nevents;
+#elif defined(__aarch64__) || defined(__arm64__)
+	register void* arg1 asm("x0") = self;
+	register int   arg2 asm("w1") = thread_port;
+	register void* arg3 asm("x2") = stackaddr;
+	register void* arg4 asm("x3") = item;
+	register int   arg5 asm("w4") = reuse;
+	register int   arg6 asm("w5") = nevents;
 #endif
 
 #if __x86_64__
 	__asm__ __volatile__ (
-		// `_start_wqthread` does not expect the stack to be aligned (using the 
-		// call instruction will add the return address to the stack, causing 
+		// `_start_wqthread` does not expect the stack to be aligned (using the
+		// call instruction will add the return address to the stack, causing
 		// it to be aligned).
 		"jmpq *%[wqueue_entry_point]\n"
 		::
@@ -168,10 +189,17 @@ void wqueue_entry_point_asm_jump(void* self, int thread_port, void* stackaddr,
 		"jmpl *%[wqueue_entry_point]\n"
 		::
 		// `_start_wqthread` does not follow the i386 calling conventions
-		// for arguments. Instead of storing the arguments into the stack, 
+		// for arguments. Instead of storing the arguments into the stack,
 		// the arguments are stored in the registers.
 		"r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
 		[wqueue_entry_point] "rmi"(wqueue_entry_point)
+	);
+#elif defined(__aarch64__) || defined(__arm64__)
+	__asm__ __volatile__ (
+		"br %[wqueue_entry_point]\n"
+		::
+		"r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
+		[wqueue_entry_point] "r"(wqueue_entry_point)
 	);
 #else
 	#error "Missing assembly for architecture"

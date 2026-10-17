@@ -228,7 +228,38 @@ Ltry_set_vfork:
 	csel	w12, w11, w10, pl	// If >= 0, set to -1, else set to (current - 1)
 	stxr	w13, w12, [x9]		// Attempt exclusive store to current pid
 	cbnz	w13, Ltry_set_vfork	// If store failed, retry
-	
+
+#ifdef DARLING
+	// Darling: route through __darling_bsd_syscall instead of svc.
+	// Like the fork fix in ___fork.S, the macOS asm assumes XNU kernel
+	// semantics (svc returns child PID in x0, 0/1 in x1, errors via carry).
+	// On Linux that doesn't apply. Route through __darling_bsd_syscall and
+	// dispatch by x0 sign/value.
+	PUSH_FRAME
+	mov		x16, #SYS_vfork
+	bl		__darling_bsd_syscall
+	POP_FRAME
+	tbnz	x0, #63, Lbotch_neg			// x0 < 0 => error
+	cbnz	x0, Lparent					// x0 > 0 => parent (child PID)
+	// Child (x0 == 0): just return 0 with current_pid bookkeeping deferred
+	ARM64_STACK_EPILOG
+
+Lbotch_neg:
+	neg		x0, x0						// -errno -> errno
+	PUSH_FRAME
+	bl		_cerror
+	mov		w0, #-1
+	MI_GET_ADDRESS(x9, __current_pid)
+	POP_FRAME
+	// fall through to Lparent for bookkeeping
+
+Lparent:
+	ldxr	w10, [x9]
+	add		w10, w10, #1
+	stxr	w11, w10, [x9]
+	cbnz	w11, Lparent
+	ARM64_STACK_EPILOG
+#else
 	// ARM sets r1 to 1 here.  I don't see why.
 	mov		w16, #SYS_vfork		// Set syscall code
 	svc		#SWI_SYSCALL
@@ -246,13 +277,14 @@ Lbotch:
 	mov		w0, #-1				// Set return value
 	MI_GET_ADDRESS(x9, __current_pid) // Reload current pid address
 	POP_FRAME
-	// Fall through	
+	// Fall through
 Lparent:
 	ldxr	w10, [x9]			// Exclusive load current pid value
 	add		w10, w10, #1		// Increment (i.e. decrement vfork count)
 	stxr	w11, w10, [x9]		// Attempt exclusive store of updated vfork count
 	cbnz	w11, Lparent		// If exclusive store failed, retry
 	ARM64_STACK_EPILOG		// Done, return
+#endif // DARLING
 
 #else
 #error Unsupported architecture

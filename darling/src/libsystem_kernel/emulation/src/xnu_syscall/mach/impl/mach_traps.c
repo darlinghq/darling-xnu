@@ -335,9 +335,54 @@ kern_return_t _kernelrpc_mach_vm_map_trap_impl(
 		posix_flags |= MAP_FIXED;
 	if ((flags >> 24) == VM_MEMORY_REALLOC)
 		addr = (void*)__linux_mremap(((char*)*address) - 0x1000, 0x1000, 0x1000 + size, 0, NULL);
-	else
+	else {
+#if defined(__aarch64__) || defined(__arm64__)
+		// libobjc's class_data_bits_t stores class_rw_t* using FAST_DATA_MASK
+		// (0x00007ffffffffff8 — 47 bits). Linux ARM64 user space is up to 48-bit,
+		// so glibc mmap can return addresses with bit 47 set (e.g.
+		// 0xf8b170b00000) for any ANYWHERE allocation, regardless of hint.
+		// Those values get truncated by FAST_DATA_MASK into unmapped pointers.
+		// Solution: when the kernel hands us a >= 2^47 address for an ANYWHERE
+		// request, drop it and re-place it low using the arena address as a hint
+		// (never MAP_FIXED, so we can't clobber an existing mapping). FIXED
+		// requests with explicit addresses are honored as-is.
+		static uintptr_t next_low_vm_addr = 0x500000000ULL;
+		const uintptr_t LOW_VA_LIMIT = 0x800000000000ULL; /* 2^47 */
 		addr = mmap((void*)*address, size, prot, posix_flags, -1, 0);
-	
+		// Re-place unless the *whole* range fits below the boundary: a mapping
+		// can start < 2^47 yet extend past it, which the ObjC mask would still
+		// truncate. (Same predicate the retry loop below enforces.)
+		uintptr_t a_end = (uintptr_t)addr + size;
+		int fits_low = (uintptr_t)addr < LOW_VA_LIMIT && a_end > (uintptr_t)addr
+				&& a_end <= LOW_VA_LIMIT;
+		if ((flags & VM_FLAGS_ANYWHERE) && addr != MAP_FAILED && !fits_low) {
+			munmap(addr, size);
+			// Pass the arena address as a hint only (no MAP_FIXED) so we never
+			// clobber an existing mapping. If the kernel ignores the hint and
+			// still places it high, advance the arena past the *hint* (not the
+			// returned high address, which would poison the cursor) and retry
+			// until the whole mapping fits below the 2^47 ObjC-mask boundary.
+			addr = MAP_FAILED;
+			for (int tries = 0; tries < 64 && next_low_vm_addr < LOW_VA_LIMIT; ++tries) {
+				uintptr_t hint = next_low_vm_addr;
+				void* got = mmap((void*)hint, size, prot, posix_flags, -1, 0);
+				if (got == MAP_FAILED)
+					break;
+				uintptr_t end = (uintptr_t)got + size;
+				if ((uintptr_t)got < LOW_VA_LIMIT && end > (uintptr_t)got && end <= LOW_VA_LIMIT) {
+					addr = got;
+					next_low_vm_addr = (end + 0xffffff) & ~0xffffffULL;
+					break;
+				}
+				munmap(got, size); // placed high or wrapped; skip past the hint and retry
+				next_low_vm_addr = (hint + size + 0xffffff) & ~0xffffffULL;
+			}
+		}
+#else
+		addr = mmap((void*)*address, size, prot, posix_flags, -1, 0);
+#endif
+	}
+
 	if (addr == MAP_FAILED)
 	{
 		return KERN_FAILURE;

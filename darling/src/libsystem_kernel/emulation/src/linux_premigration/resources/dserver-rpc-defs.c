@@ -87,7 +87,7 @@ static int printf_file = -1;
 static libsimple_once_t printf_file_token = LIBSIMPLE_ONCE_INITIALIZER;
 
 static void printf_file_init(void* context) {
-	printf_file = LINUX_SYSCALL(__NR_open, "/tmp/dserver-client-rpc.log", LINUX_O_WRONLY | LINUX_O_CREAT | LINUX_O_APPEND, 0644);
+	printf_file = LINUX_SYSCALL(__NR_openat, -100 /* AT_FDCWD */, "/tmp/dserver-client-rpc.log", LINUX_O_WRONLY | LINUX_O_CREAT | LINUX_O_APPEND, 0644);
 }
 #endif
 

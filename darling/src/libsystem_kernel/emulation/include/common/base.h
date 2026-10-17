@@ -34,7 +34,7 @@ int __linux_syscall(int nr, ...);
 
 #endif /* BUILDING_BASE_C */
 
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
 #	define LL_ARG(x) (x)
 #else
 #	define LL_ARG(x) ((union { long long ll; long l[2]; }){ .ll = x }).l[0], \

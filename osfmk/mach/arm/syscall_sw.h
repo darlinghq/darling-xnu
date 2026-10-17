@@ -107,6 +107,21 @@
 
 #include <mach/machine/vm_param.h>
 
+#ifdef DARLING
+/* Route Mach traps through Darling's dispatcher. We need to save/restore LR
+ * because the bl clobbers it and our caller will `ret` on the success path. */
+#define kernel_trap(trap_name, trap_number, num_args) \
+.globl _##trap_name                                           %% \
+.text                                                         %% \
+.align  2                                                     %% \
+_##trap_name:                                                 %% \
+    mov x16, #(trap_number)                                   %% \
+    stp x29, x30, [sp, #-16]!                                 %% \
+    mov x29, sp                                               %% \
+    bl  __darling_mach_syscall                                %% \
+    ldp x29, x30, [sp], #16                                   %% \
+    ret
+#else
 #define kernel_trap(trap_name, trap_number, num_args) \
 .globl _##trap_name                                           %% \
 .text                                                         %% \
@@ -115,6 +130,7 @@ _##trap_name:                                                 %% \
     mov x16, #(trap_number)                                   %% \
     svc #SWI_SYSCALL                                          %% \
     ret
+#endif
 
 #else
 #error Unsupported architecture

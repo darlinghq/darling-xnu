@@ -42,6 +42,47 @@ struct linux_stat {
 	unsigned long long      st_ino;
 };
 
+#elif defined(__aarch64__) || defined(__arm64__)
+
+/* Linux ARM64 follows the generic ABI; layout is different from x86_64:
+ *  - st_mode/uid/gid come right after dev/ino (no extra st_nlink upfront)
+ *  - st_blksize is `int` not `long`
+ *  - field order matches asm-generic/stat.h
+ */
+typedef unsigned long long __kernel_ulong_t;
+typedef long long __kernel_long_t;
+
+#ifdef st_atime
+#	undef st_atime
+#	undef st_mtime
+#	undef st_ctime
+#	undef __unused
+#endif
+
+struct linux_stat {
+	__kernel_ulong_t  st_dev;          /* 0 */
+	__kernel_ulong_t  st_ino;          /* 8 */
+	unsigned int      st_mode;         /* 16 */
+	unsigned int      st_nlink;        /* 20 */
+	unsigned int      st_uid;          /* 24 */
+	unsigned int      st_gid;          /* 28 */
+	__kernel_ulong_t  st_rdev;         /* 32 */
+	__kernel_ulong_t  __pad1;          /* 40 */
+	__kernel_long_t   st_size;         /* 48 */
+	int               st_blksize;      /* 56 */
+	int               __pad2;          /* 60 */
+	__kernel_long_t   st_blocks;       /* 64 */
+
+	__kernel_ulong_t  st_atime;        /* 72 */
+	__kernel_ulong_t  st_atime_nsec;   /* 80 */
+	__kernel_ulong_t  st_mtime;        /* 88 */
+	__kernel_ulong_t  st_mtime_nsec;   /* 96 */
+	__kernel_ulong_t  st_ctime;        /* 104 */
+	__kernel_ulong_t  st_ctime_nsec;   /* 112 */
+	unsigned int      __unused4;       /* 120 */
+	unsigned int      __unused5;       /* 124 */
+};
+
 #else
 
 typedef unsigned long long __kernel_ulong_t;
@@ -142,10 +183,16 @@ struct linux_statfs64
 };
 
 struct stat;
+#if !defined(__aarch64__) && !defined(__arm64__)
 struct stat64;
+#endif
 
 void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat);
+#if defined(__aarch64__) || defined(__arm64__)
+void stat_linux_to_bsd64(const struct linux_stat* lstat, struct stat* stat);
+#else
 void stat_linux_to_bsd64(const struct linux_stat* lstat, struct stat64* stat);
+#endif
 void statfs_linux_to_bsd(const struct linux_statfs64* lstat, struct bsd_statfs* stat);
 void statfs_linux_to_bsd64(const struct linux_statfs64* lstat, struct bsd_statfs64* stat);
 
