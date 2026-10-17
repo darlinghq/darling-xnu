@@ -4,6 +4,7 @@
 #include <mach/machine.h>
 #include <mach/mach_init.h>
 #include <sys/errno.h>
+#include <stdint.h>
 
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/sysctl_kern.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/sysctl_proc.h>
@@ -24,7 +25,7 @@ enum {
 	_HW_CPUSUBTYPE,
 	_HW_CPUTHREADTYPE,
 	_HW_64BITCAPABLE,
-	_HW_CPUFREQUENCY = 15,
+	_HW_CPUFREQUENCY,
 };
 
 static sysctl_handler(handle_availcpu);
@@ -40,6 +41,7 @@ static sysctl_handler(handle_cputhreadtype);
 static sysctl_handler(handle_cpu64bitcapable);
 static sysctl_handler(handle_machine);
 static sysctl_handler(handle_cpufrequency);
+static sysctl_handler(handle_cpufrequency_compat);
 static sysctl_handler(handle_cachelinesize);
 
 const struct known_sysctl sysctls_hw[] = {
@@ -56,7 +58,8 @@ const struct known_sysctl sysctls_hw[] = {
 	{ .oid = _HW_CPUTHREADTYPE, .type = CTLTYPE_INT, .exttype = "", .name = "cputhreadtype", .handler = handle_cputhreadtype },
 	{ .oid = _HW_64BITCAPABLE, .type = CTLTYPE_INT, .exttype = "", .name = "cpu64bit_capable", .handler = handle_cpu64bitcapable },
 	{ .oid = HW_MACHINE, .type = CTLTYPE_STRING, .exttype = "S", .name = "machine", .handler = handle_machine },
-	{ .oid = _HW_CPUFREQUENCY, .type = CTLTYPE_INT, .exttype = "", .name = "cpufrequency", .handler = handle_cpufrequency },
+	{ .oid = _HW_CPUFREQUENCY, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "cpufrequency", .handler = handle_cpufrequency },
+	{ .oid = HW_CPU_FREQ, .type = CTLTYPE_INT, .exttype = "I", .name = "cpufrequency_compat", .handler = handle_cpufrequency_compat },
 	{ .oid = HW_CACHELINE, .type = CTLTYPE_QUAD, .exttype = "U", .name = "cachelinesize", .handler = handle_cachelinesize },
 	{ .oid = -1 }
 };
@@ -171,15 +174,33 @@ sysctl_handler(handle_cputhreadtype)
 	return 0;
 }
 
-sysctl_handler(handle_cpufrequency)
+// Darwin reports hertz; Linux cpufreq reports kilohertz.
+static uint64_t cpu_frequency_hz(void)
 {
-	int freq = 2400000;
+	uint64_t khz = 2400000;
 	char buf[16];
 
 	if (read_string("/sys/bus/cpu/devices/cpu0/cpufreq/cpuinfo_max_freq", buf, sizeof(buf)))
-		freq = __simple_atoi(buf, NULL);
-	*((int*) old) = freq;
-	
+		khz = __simple_atoi(buf, NULL);
+
+	return khz * 1000;
+}
+
+sysctl_handler(handle_cpufrequency)
+{
+	sysctl_handle_size(sizeof(uint64_t));
+	*((uint64_t*) old) = cpu_frequency_hz();
+	return 0;
+}
+
+// HW_CPU_FREQ keeps the 32-bit ABI and saturates, as XNU's cpu_clock_rate_hz does.
+sysctl_handler(handle_cpufrequency_compat)
+{
+	uint64_t hz;
+
+	sysctl_handle_size(sizeof(uint32_t));
+	hz = cpu_frequency_hz();
+	*((uint32_t*) old) = hz > UINT32_MAX ? UINT32_MAX : (uint32_t) hz;
 	return 0;
 }
 
