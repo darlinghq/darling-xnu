@@ -42,11 +42,15 @@ const struct known_sysctl sysctls_root = {
 
 void copyout_string(const char* str, char* out, unsigned long* out_len)
 {
-	unsigned long len;
-	if (out != NULL)
-		len = strlcpy(out, str, *out_len);
-	else
-		len = strlen(str);
+	// as on XNU, the reported length includes the terminating NUL
+	unsigned long len = strlen(str) + 1;
+
+	if (out != NULL && out_len != NULL)
+	{
+		strlcpy(out, str, *out_len);
+		if (len > *out_len)
+			len = *out_len;
+	}
 
 	if (out_len != NULL)
 		*out_len = len;
