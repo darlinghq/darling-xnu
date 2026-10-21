@@ -11,6 +11,15 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/getuid.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/getgid.h>
 
+static inline unsigned int dev_linux_to_bsd(unsigned long long ldev)
+{
+	// Darwin dev_t packs major in bits [31:24] (8 bits) and minor in bits [23:0].
+	// Linux majors > 255 are truncated to 8 bits to fit Darwin dev_t ABI.
+	unsigned int maj = ((ldev >> 8) & 0xfff) | ((unsigned int)(ldev >> 32) & ~0xfff);
+	unsigned int min = (ldev & 0xff) | ((unsigned int)(ldev >> 12) & 0xfff00);
+	return (maj << 24) | (min & 0xffffff);
+}
+
 void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat)
 {
 	stat->st_dev = lstat->st_dev;
@@ -19,7 +28,10 @@ void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat)
 	stat->st_ino = lstat->st_ino;
 	stat->st_uid = /*lstat->st_uid*/ sys_getuid();
 	stat->st_gid = /*lstat->st_gid*/ sys_getgid();
-	stat->st_rdev = lstat->st_rdev;
+	if (S_ISCHR(lstat->st_mode) || S_ISBLK(lstat->st_mode))
+		stat->st_rdev = dev_linux_to_bsd(lstat->st_rdev);
+	else
+		stat->st_rdev = lstat->st_rdev;
 	stat->st_size = lstat->st_size;
 	stat->st_blksize = lstat->st_blksize;
 	stat->st_blocks = lstat->st_blocks;
@@ -45,7 +57,10 @@ void stat_linux_to_bsd64(const struct linux_stat* lstat, struct stat64* stat)
 	stat->st_ino = lstat->st_ino;
 	stat->st_uid = /*lstat->st_uid*/ sys_getuid();
 	stat->st_gid = /*lstat->st_gid*/ sys_getgid();
-	stat->st_rdev = lstat->st_rdev;
+	if (S_ISCHR(lstat->st_mode) || S_ISBLK(lstat->st_mode))
+		stat->st_rdev = dev_linux_to_bsd(lstat->st_rdev);
+	else
+		stat->st_rdev = lstat->st_rdev;
 	stat->st_size = lstat->st_size;
 	stat->st_blksize = lstat->st_blksize;
 	stat->st_blocks = lstat->st_blocks;
