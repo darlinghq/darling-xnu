@@ -44,7 +44,7 @@ add_circular(system_kernel FAT
 		$<IF:$<BOOL:${BUILD_TARGET_64BIT}>,$<TARGET_OBJECTS:libsyscall_64>,>
 		$<TARGET_OBJECTS:libsyscall>
 		$<TARGET_OBJECTS:libsyscall_dynamic>
-		#$<TARGET_OBJECTS:kqueue>
+		$<TARGET_OBJECTS:kqueue>
 		$<TARGET_OBJECTS:emulation>
 	SIBLINGS
 		system_c
@@ -52,6 +52,9 @@ add_circular(system_kernel FAT
 		system_dyld
 	DEPENDENCIES
 		libsimple_darling
+	UPWARD
+		system_malloc
+		system_pthread
 )
 #target_link_libraries(system_kernel system_duct platform_static32 platform_static64)
 make_fat(system_kernel)
