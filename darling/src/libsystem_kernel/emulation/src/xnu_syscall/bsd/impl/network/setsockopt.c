@@ -29,9 +29,15 @@ long sys_setsockopt(int fd, int level, int optname, const void* optval, int optl
 
 	if (level == BSD_SOL_SOCKET)
 	{
-		if (optname == BSD_SO_RCVTIMEO)
+		if (optname == BSD_SO_RCVTIMEO || optname == BSD_SO_SNDTIMEO)
 		{
+			if (optlen < (int)sizeof(struct bsd_timeval))
+				return -EINVAL;
+			if (!optval)
+				return -EFAULT;
 			const struct bsd_timeval* tv = (const struct bsd_timeval*) optval;
+			if ((long)tv->tv_sec < 0 || tv->tv_usec < 0 || tv->tv_usec >= 1000000)
+				return -EDOM;
 			struct linux_timeval* ltv = (struct linux_timeval*) __builtin_alloca(sizeof(struct linux_timeval));
 
 			ltv->tv_sec = tv->tv_sec;
