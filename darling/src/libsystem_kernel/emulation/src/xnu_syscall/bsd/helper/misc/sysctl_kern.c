@@ -1,4 +1,5 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/sysctl_kern.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/sysctl_vm.h>
 
 #include <sys/errno.h>
 #include <sys/syslimits.h>
@@ -28,6 +29,7 @@
 enum {
 	_KERN_MSGBUF = 1000,
 	_KERN_OSPRODUCTVERSION,
+	_KERN_MEMORYSTATUS_LEVEL,
 
 	_KERN_SEMMNS = 1000,
 };
@@ -44,6 +46,7 @@ static sysctl_handler(handle_osrelease);
 static sysctl_handler(handle_version);
 static sysctl_handler(handle_osversion);
 static sysctl_handler(handle_maxproc);
+static sysctl_handler(handle_memorystatus_level);
 static sysctl_handler(handle_netboot);
 static sysctl_handler(handle_safeboot);
 static sysctl_handler(handle_usrstack32);
@@ -63,6 +66,7 @@ const struct known_sysctl sysctls_kern_sysv[] = {
 };
 
 const struct known_sysctl sysctls_kern[] = {
+	{ .oid = _KERN_MEMORYSTATUS_LEVEL, .type = CTLTYPE_INT, .exttype = "I", .name = "memorystatus_level", .handler = handle_memorystatus_level },
 	{ .oid = _KERN_MSGBUF, .type = CTLTYPE_STRING, .exttype = "S", .name = "msgbuf", .handler = handle_msgbuf },
 	{ .oid = KERN_PROC, .type = CTLTYPE_STRUCT, .exttype = "", .name = "proc", .handler = handle_proc },
 	{ .oid = KERN_PROCARGS2, .type = CTLTYPE_STRUCT, .exttype = "", .name = "procargs2", .handler = handle_procargs32 },
@@ -401,4 +405,13 @@ static sysctl_handler(handle_osrevision) {
 		*ovalue = EMULATED_OSREVISION;
 	*oldlen = sizeof(*ovalue);
 	return 0;
+}
+
+static sysctl_handler(handle_memorystatus_level) {
+	if (_new != NULL || newlen != 0)
+		return -EPERM;
+	if (!oldlen)
+		return -EINVAL;
+	sysctl_handle_size(sizeof(int));
+	return _sysctl_memorystatus_level((int*)old);
 }
