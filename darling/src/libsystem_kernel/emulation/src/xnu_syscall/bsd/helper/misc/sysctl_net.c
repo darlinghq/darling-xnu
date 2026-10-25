@@ -8,6 +8,14 @@
 #include <net/if_types.h>
 #include <darling/emulation/conversion/network/ifreq.h>
 #include <netinet/in.h>
+#include <net/if_var.h>
+#include <stdint.h>
+#include <limits.h>
+#include <darling/emulation/common/simple.h>
+#include <darling/emulation/common/string.h>
+#include <darling/emulation/conversion/fcntl/open.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/network/socket.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/duct.h>
@@ -21,10 +29,12 @@ extern char* strncpy(char* destination, const char* source, size_t length);
 extern size_t strlcpy(char* destination, const char* source, size_t size);
 
 static sysctl_handler(handle_route);
-static int do_iflist(void* old, unsigned long* oldlen);
+static int do_iflist(void* old, unsigned long* oldlen, int modern, unsigned int index);
+extern void* malloc(size_t size);
+extern void free(void* ptr);
 
-// arbitrary number; only exists to avoid blowing up the stack
-#define IFC_MAX_INTERFACES 5
+#define IFC_MAX_BYTES (1024 * 1024)
+#define LINUX_SIOCGIFINDEX 0x8933
 
 struct linux_ifconf {
 	int lifc_len;
@@ -40,6 +50,7 @@ enum {
 
 enum {
 	_NET_RT_IFLIST = 3,
+	_NET_RT_IFLIST2 = 6,
 };
 
 const struct known_sysctl sysctls_net[] = {
@@ -53,13 +64,61 @@ static unsigned long round_up_sizeof_u32(unsigned long number) {
 	return (number + (sizeof(uint32_t) - 1)) & ~(sizeof(uint32_t) - 1);
 }
 
-static int do_iflist(void* old, unsigned long* oldlen) {
+static int number(const char** input, unsigned base, uint64_t* result) {
+    const char* p = *input;
+    while (*p == ' ' || *p == '\t') p++;
+    uint64_t value = 0;
+    unsigned count = 0;
+    for (;;) {
+        unsigned digit = *p >= '0' && *p <= '9' ? *p - '0' :
+            *p >= 'a' && *p <= 'f' ? *p - 'a' + 10 :
+            *p >= 'A' && *p <= 'F' ? *p - 'A' + 10 : base;
+        if (digit >= base) break;
+        if (value > (UINT64_MAX - digit) / base) return -EOVERFLOW;
+        value = value * base + digit; p++; count++;
+    }
+    if (!count || (*p && *p != ' ' && *p != '\t')) return -EIO;
+    *input = p; *result = value; return 0;
+}
+
+static int interface_statistics(const char* name, struct if_data64* stats) {
+    int fd = sys_open_nocancel("/proc/net/dev", BSD_O_RDONLY, 0);
+    if (fd < 0) return fd;
+    struct rdline_buffer buffer;
+    _readline_init(&buffer);
+    const char* line;
+    int status = -ENOENT;
+    size_t length = strnlen(name, LINUX_IFNAMSIZ);
+    while ((line = _readline(fd, &buffer)) != NULL) {
+        while (*line == ' ' || *line == '\t') line++;
+        if (strncmp(line, name, length) || line[length] != ':') continue;
+        line += length + 1;
+        uint64_t values[16];
+        status = 0;
+        for (int i = 0; i < 16; i++) {
+            status = number(&line, 10, &values[i]);
+            if (status) break;
+        }
+        if (status) break;
+        stats->ifi_ibytes = values[0]; stats->ifi_ipackets = values[1];
+        stats->ifi_ierrors = values[2]; stats->ifi_iqdrops = values[3];
+        stats->ifi_imcasts = values[7]; stats->ifi_obytes = values[8];
+        stats->ifi_opackets = values[9]; stats->ifi_oerrors = values[10];
+        stats->ifi_collisions = values[13];
+        break;
+    }
+    close_internal(fd);
+    return status;
+}
+
+static int do_iflist(void* old, unsigned long* oldlen, int modern, unsigned int wanted_index) {
 	// we only do IPv4 addresses for now
 	int tmp_sock;
-	char buf[IFC_MAX_INTERFACES * sizeof(struct linux_ifreq)];
+	char* buf = NULL;
+	unsigned long capacity = *oldlen;
 	struct linux_ifconf lifc = {
-		.lifc_len = sizeof(buf),
-		.lifc_buf = buf,
+		.lifc_len = 0,
+		.lifc_buf = NULL,
 	};
 	int status = 0;
 	char* old_ptr = old;
@@ -68,36 +127,53 @@ static int do_iflist(void* old, unsigned long* oldlen) {
 	if ((status = tmp_sock = sys_socket(AF_INET, SOCK_DGRAM, 0)) < 0)
 		goto out;
 
-	if ((status = __real_ioctl(tmp_sock, LINUX_SIOCGIFCONF, &lifc)) < 0)
-		goto out;
+    // Linux first reports the required buffer size; retry if interfaces grow.
+    if ((status = __real_ioctl(tmp_sock, LINUX_SIOCGIFCONF, &lifc)) < 0) goto out;
+    if (lifc.lifc_len < 0 || lifc.lifc_len > IFC_MAX_BYTES - 2 * (int)sizeof(struct linux_ifreq)) { status = -EOVERFLOW; goto out; }
+    int bytes = lifc.lifc_len + 2 * sizeof(struct linux_ifreq);
+    for (;;) {
+        if (bytes <= 0 || bytes > IFC_MAX_BYTES) { status = -EOVERFLOW; goto out; }
+        buf = malloc(bytes);
+        if (!buf) { status = -ENOMEM; goto out; }
+        lifc.lifc_buf = buf; lifc.lifc_len = bytes;
+        if ((status = __real_ioctl(tmp_sock, LINUX_SIOCGIFCONF, &lifc)) < 0) goto out;
+        if (lifc.lifc_len <= bytes - (int)sizeof(struct linux_ifreq)) break;
+        free(buf); buf = NULL; bytes *= 2;
+    }
+    if (lifc.lifc_len < 0 || lifc.lifc_len % sizeof(struct linux_ifreq)) { status = -EIO; goto out; }
 
 	for (int i = 0; i < lifc.lifc_len; i += sizeof(struct linux_ifreq)) {
 		struct linux_ifreq* curr = &lifc.lifc_req[i / sizeof(struct linux_ifreq)];
+        struct linux_ifreq index_request = {0};
+        memcpy(index_request.lifr_name, curr->lifr_name, LINUX_IFNAMSIZ);
+        if ((status = __real_ioctl(tmp_sock, LINUX_SIOCGIFINDEX, &index_request)) < 0) goto out;
+        unsigned int iface_idx = index_request.lifr_ifindex;
+        if (!iface_idx || iface_idx > UINT16_MAX) { status = -EOVERFLOW; goto out; }
+        if (wanted_index && iface_idx != wanted_index) continue;
 		size_t name_len = strnlen(curr->lifr_name, sizeof(curr->lifr_name));
 		size_t additional_sockaddr_len = name_len + MAC_LENGTH;
 		additional_sockaddr_len = (additional_sockaddr_len <= sizeof(((struct sockaddr_dl*)NULL)->sdl_data)) ? 0 : (additional_sockaddr_len - sizeof(((struct sockaddr_dl*)NULL)->sdl_data));
-		size_t ifm_length = sizeof(struct if_msghdr) + round_up_sizeof_u32(sizeof(struct sockaddr_dl) + additional_sockaddr_len);
+        size_t header_length = modern ? sizeof(struct if_msghdr2) : sizeof(struct if_msghdr);
+		size_t ifm_length = header_length + round_up_sizeof_u32(sizeof(struct sockaddr_dl) + additional_sockaddr_len);
 		size_t ifam_length = sizeof(struct ifa_msghdr) + round_up_sizeof_u32(sizeof(struct sockaddr)) * 3;
-		// technically not correct; SIOCGIFCONF could return the same interfaces in a different order on each call
-		// but this is enough for our purposes
-		size_t iface_idx = (i / sizeof(struct linux_ifreq)) + 1;
 
-		if (old && *oldlen >= total_len + ifm_length) {
+
+		if (old && capacity >= total_len + ifm_length) {
 			struct if_msghdr* ifm = (void*)old_ptr;
-			struct sockaddr_dl* dl = (void*)(old_ptr + sizeof(struct if_msghdr));
+			struct sockaddr_dl* dl = (void*)(old_ptr + header_length);
 			struct linux_ifreq tmp;
 
 			memset(old_ptr, 0, ifm_length);
 
 			ifm->ifm_msglen = ifm_length;
 			ifm->ifm_index = iface_idx;
-			ifm->ifm_type = RTM_IFINFO;
+			ifm->ifm_type = modern ? RTM_IFINFO2 : RTM_IFINFO;
 			ifm->ifm_version = RTM_VERSION;
 			ifm->ifm_addrs = RTA_IFP;
 
 			dl->sdl_len = sizeof(struct sockaddr_dl) + additional_sockaddr_len;
 			dl->sdl_family = AF_LINK;
-			dl->sdl_index = ifm->ifm_index;
+			dl->sdl_index = iface_idx;
 			dl->sdl_type = IFT_OTHER;
 			dl->sdl_nlen = name_len;
 			dl->sdl_alen = MAC_LENGTH;
@@ -124,11 +200,26 @@ static int do_iflist(void* old, unsigned long* oldlen) {
                 dl->sdl_type = IFT_PPP;
 			memcpy(LLADDR(dl), tmp.lifr_hwaddr.sa_data, MAC_LENGTH);
 
+            struct linux_ifreq mtu_request = {0};
+            memcpy(mtu_request.lifr_name, curr->lifr_name, LINUX_IFNAMSIZ);
+            if ((status = __real_ioctl(tmp_sock, LINUX_SIOCGIFMTU, &mtu_request)) < 0) goto out;
+            if (modern) {
+                struct if_msghdr2* info = (void*)old_ptr;
+                if ((status = interface_statistics(curr->lifr_name, &info->ifm_data)) < 0) goto out;
+                info->ifm_data.ifi_type = dl->sdl_type;
+                info->ifm_data.ifi_addrlen = dl->sdl_alen;
+                info->ifm_data.ifi_mtu = mtu_request.lifr_mtu;
+            } else {
+                ifm->ifm_data.ifi_type = dl->sdl_type;
+                ifm->ifm_data.ifi_addrlen = dl->sdl_alen;
+                ifm->ifm_data.ifi_mtu = mtu_request.lifr_mtu;
+            }
+
 			old_ptr += ifm_length;
 		}
 		total_len += ifm_length;
 
-		if (old && *oldlen >= total_len + ifam_length) {
+		if (old && capacity >= total_len + ifam_length) {
 			struct ifa_msghdr* ifam = (void*)old_ptr;
 			struct sockaddr* netmask = (void*)(old_ptr + sizeof(struct ifa_msghdr));
 			struct sockaddr* ip_addr = (void*)(old_ptr + sizeof(struct ifa_msghdr) + round_up_sizeof_u32(sizeof(struct sockaddr)));
@@ -162,10 +253,11 @@ static int do_iflist(void* old, unsigned long* oldlen) {
 		total_len += ifam_length;
 	}
 
-	// we succeeded if we got here
-	status = 0;
+	// A size probe succeeds; a short output buffer reports its required length.
+	status = old && capacity < total_len ? -ENOMEM : 0;
 
 out:
+    free(buf);
 	if (tmp_sock >= 0) {
 		// ignore errors while closing
 		close_internal(tmp_sock);
@@ -177,15 +269,18 @@ out:
 static sysctl_handler(handle_route) {
 	int status = 0;
 
-	if (nlen != 6) {
+	if (nlen != 6 || !oldlen) {
 		status = -EINVAL;
 		goto out;
 	}
 
+	if (_new || newlen) return -EPERM;
+
 	// name[4] is the desired operation
 	switch (name[4]) {
 		case _NET_RT_IFLIST:
-			status = do_iflist(old, oldlen);
+        case _NET_RT_IFLIST2:
+			status = do_iflist(old, oldlen, name[4] == _NET_RT_IFLIST2, name[5]);
 			break;
 		default:
 			status = -EINVAL;
