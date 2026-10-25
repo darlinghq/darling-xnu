@@ -460,6 +460,7 @@ void* __bsd_syscall_table[600] = {
 	[413] = sys_sendto_nocancel,
 	[414] = sys_pread_nocancel,
 	[415] = sys_pwrite_nocancel,
+	[416] = sys_waitid_nocancel,
 	[417] = sys_poll_nocancel,
 	[420] = sys_sem_wait_nocancel,
 	[422] = sys_sigwait_nocancel,
