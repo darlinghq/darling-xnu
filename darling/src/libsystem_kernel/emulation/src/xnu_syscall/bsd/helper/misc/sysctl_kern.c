@@ -18,6 +18,10 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
 
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
+#include <darling/emulation/common/string.h>
+#include "proc_boottime.h"
+
 #include <darling-config.h>
 
 enum {
@@ -136,29 +140,40 @@ sysctl_handler(handle_argmax)
 
 sysctl_handler(handle_boottime)
 {
-	// Fill in struct timeval { tv_sec, tv_usec }
-	struct sysinfo info;
-	struct bsd_timeval* tv;
-
-	if (__linux_sysinfo(&info) == -1)
-		return -errno;
-
-	tv = (struct bsd_timeval*) old;
-	if (tv != NULL)
+	if (_new != NULL || newlen != 0)
+		return -EPERM;
+	if (old == NULL)
 	{
-		if (*oldlen < sizeof(*tv))
-			return -EINVAL;
-		sys_gettimeofday(tv, NULL);
-
-		tv->tv_sec -= info.uptime;
-
-		// we don't want the microseconds to be constantly jumping around
-		// (that actually causes an infinite loop in `_mach_boottime_usec` in libc)
-		// but Linux doesn't give us microseconds, so just settle for 0
-		tv->tv_usec = 0;
+		*oldlen = sizeof(struct bsd_timeval);
+		return 0;
 	}
-	*oldlen = sizeof(*tv);
-	
+	if (*oldlen < sizeof(struct bsd_timeval))
+		return -EINVAL;
+
+	int fd = sys_open("/proc/stat", BSD_O_RDONLY, 0);
+	if (fd < 0)
+		return fd;
+	struct rdline_buffer buffer;
+	_readline_init(&buffer);
+	const char* line;
+	unsigned long seconds = 0;
+	while ((line = _readline(fd, &buffer)) != NULL)
+	{
+		if (strncmp(line, "btime ", 6) == 0)
+		{
+			if (!parse_proc_boottime(line + 6, &seconds))
+				seconds = 0;
+			break;
+		}
+	}
+	close_internal(fd);
+	if (!seconds)
+		return -EIO;
+
+	struct bsd_timeval* value = old;
+	value->tv_sec = seconds;
+	value->tv_usec = 0;
+	*oldlen = sizeof(*value);
 	return 0;
 }
 
