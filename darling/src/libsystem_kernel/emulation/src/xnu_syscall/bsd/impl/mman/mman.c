@@ -1,7 +1,10 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/mman/mman.h>
 
+#include <stdint.h>
+#include <unistd.h>
 #include <darling/emulation/conversion/mman/duct_mman.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/duct_errno.h>
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
@@ -19,6 +22,42 @@ static int prot_bsd_to_linux(int prot)
 	return linux_prot;
 }
 
+#if defined(__aarch64__) || defined(__arm64__)
+/* XNU osfmk/mach/arm/vm_param.h: macOS MACH_VM_MAX_ADDRESS_RAW. */
+#define DARWIN_ARM64_MMAP_LIMIT 0x00007ffffe000000ULL
+#define LOW_VA_GRANULE 0x1000000ULL
+
+static void* mmap_low(unsigned long len, int prot, int flags, int fd, long pos)
+{
+	/* Share the old Mach ANYWHERE fallback policy with direct BSD mappings. */
+	static uintptr_t next_low_vm_addr = 0x500000000ULL;
+	uintptr_t span;
+	if (len > DARWIN_ARM64_MMAP_LIMIT - (LOW_VA_GRANULE - 1))
+		return (void*)-LINUX_ENOMEM;
+	span = (len + LOW_VA_GRANULE - 1) & ~(LOW_VA_GRANULE - 1);
+	for (;;) {
+		uintptr_t candidate = __atomic_load_n(&next_low_vm_addr, __ATOMIC_RELAXED);
+		if (candidate >= DARWIN_ARM64_MMAP_LIMIT || span > DARWIN_ARM64_MMAP_LIMIT - candidate)
+			return (void*)-LINUX_ENOMEM;
+		if (!__atomic_compare_exchange_n(&next_low_vm_addr, &candidate, candidate + span,
+				0, __ATOMIC_RELAXED, __ATOMIC_RELAXED))
+			continue;
+		void* result = (void*)LINUX_SYSCALL6(__NR_mmap, (void*)candidate, len, prot,
+				flags | LINUX_MAP_FIXED_NOREPLACE, fd, pos);
+		if (result == (void*)candidate)
+			return result;
+		if (result == (void*)-LINUX_EEXIST)
+			continue;
+		if ((uintptr_t)result < (uintptr_t)-4096) {
+			/* Older kernels can ignore NOREPLACE and treat candidate as a hint. */
+			LINUX_SYSCALL2(__NR_munmap, result, len);
+			return (void*)-LINUX_EINVAL;
+		}
+		return result;
+	}
+}
+#endif
+
 void* sys_mmap(void* start, unsigned long len, int prot, int flags, int fd, long pos)
 {
 	int linux_prot;
@@ -33,12 +72,20 @@ void* sys_mmap(void* start, unsigned long len, int prot, int flags, int fd, long
 		linux_flags |= LINUX_MAP_ANONYMOUS;
 	if (flags & MAP_FIXED)
 		linux_flags |= LINUX_MAP_FIXED;
+	if (flags & MAP_FIXED_NOREPLACE)
+		linux_flags |= LINUX_MAP_FIXED_NOREPLACE;
 	if (flags & MAP_SHARED)
 		linux_flags |= LINUX_MAP_SHARED;
 	if (flags & MAP_PRIVATE)
 		linux_flags |= LINUX_MAP_PRIVATE;
 	// if (flags & MAP_STACK)
 	// 	linux_flags |= LINUX_MAP_STACK;
+
+#if defined(__aarch64__) || defined(__arm64__)
+	if ((linux_flags & (LINUX_MAP_FIXED | LINUX_MAP_FIXED_NOREPLACE)) &&
+			((uintptr_t)start >= DARWIN_ARM64_MMAP_LIMIT || len > DARWIN_ARM64_MMAP_LIMIT - (uintptr_t)start))
+		return (void*)(long)-EINVAL;
+#endif
 
 #ifdef __NR_mmap2
 #ifdef __i386__
@@ -47,6 +94,15 @@ void* sys_mmap(void* start, unsigned long len, int prot, int flags, int fd, long
 	ret = (void*) LINUX_SYSCALL6(__NR_mmap2, start, len, linux_prot, linux_flags, fd, pos / 4096);
 #else
 	ret = (void*) LINUX_SYSCALL6(__NR_mmap, start, len, linux_prot, linux_flags, fd, pos);
+#endif
+
+#if defined(__aarch64__) || defined(__arm64__)
+	if (!(linux_flags & (LINUX_MAP_FIXED | LINUX_MAP_FIXED_NOREPLACE)) &&
+			(uintptr_t)ret < (uintptr_t)-4096 &&
+			((uintptr_t)ret >= DARWIN_ARM64_MMAP_LIMIT || len > DARWIN_ARM64_MMAP_LIMIT - (uintptr_t)ret)) {
+		LINUX_SYSCALL2(__NR_munmap, ret, len);
+		ret = mmap_low(len, linux_prot, linux_flags, fd, pos);
+	}
 #endif
 
 	if ((unsigned long)ret > (unsigned long) -4096)
