@@ -49,6 +49,7 @@ enum {
 };
 
 enum {
+	_NET_RT_DUMP = 1,
 	_NET_RT_IFLIST = 3,
 	_NET_RT_IFLIST2 = 6,
 };
@@ -108,6 +109,134 @@ static int interface_statistics(const char* name, struct if_data64* stats) {
         break;
     }
     close_internal(fd);
+    return status;
+}
+
+static int route_name(const char** input, char* name) {
+    const char* p = *input;
+    while (*p == ' ' || *p == '\t') p++;
+    unsigned length = 0;
+    while (*p && *p != ' ' && *p != '\t') {
+        if (length >= LINUX_IFNAMSIZ - 1) return -EOVERFLOW;
+        name[length++] = *p++;
+    }
+    if (!length) return -EIO;
+    name[length] = 0; *input = p; return 0;
+}
+
+static int ipv6_bytes(const char** input, unsigned char* bytes) {
+    const char* p = *input;
+    while (*p == ' ' || *p == '\t') p++;
+    for (unsigned i = 0; i < 16; i++) {
+        unsigned value = 0;
+        for (unsigned j = 0; j < 2; j++) {
+            unsigned digit = *p >= '0' && *p <= '9' ? *p - '0' :
+                *p >= 'a' && *p <= 'f' ? *p - 'a' + 10 :
+                *p >= 'A' && *p <= 'F' ? *p - 'A' + 10 : 16;
+            if (digit == 16) return -EIO;
+            value = value * 16 + digit; p++;
+        }
+        bytes[i] = value;
+    }
+    if (*p && *p != ' ' && *p != '\t') return -EIO;
+    *input = p; return 0;
+}
+
+static int append_route(int socket, const char* name, int family, uint64_t flags,
+    const unsigned char* destination, const unsigned char* gateway, const unsigned char* mask,
+    void* output, unsigned long capacity, unsigned long* total) {
+    struct linux_ifreq request = {0};
+    strlcpy(request.lifr_name, name, LINUX_IFNAMSIZ);
+    int status = __real_ioctl(socket, LINUX_SIOCGIFINDEX, &request);
+    if (status < 0) return status;
+    if (request.lifr_ifindex <= 0 || request.lifr_ifindex > UINT16_MAX) return -EOVERFLOW;
+    size_t address_length = family == AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+    size_t length = sizeof(struct rt_msghdr) + 3 * address_length;
+    if (*total > ULONG_MAX - length) return -EOVERFLOW;
+    if (output && capacity >= *total + length) {
+        struct rt_msghdr* header = (void*)((char*)output + *total);
+        memset(header, 0, length);
+        header->rtm_msglen = length; header->rtm_version = RTM_VERSION;
+        header->rtm_type = RTM_GET; header->rtm_index = request.lifr_ifindex;
+        header->rtm_addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK;
+        if (flags & 1) header->rtm_flags |= RTF_UP;
+        if (flags & 2) header->rtm_flags |= RTF_GATEWAY;
+        if (flags & 4) header->rtm_flags |= RTF_HOST;
+        if (flags & 0x10) header->rtm_flags |= RTF_DYNAMIC;
+        if (flags & 0x20) header->rtm_flags |= RTF_MODIFIED;
+        if (flags & 0x200) header->rtm_flags |= RTF_REJECT;
+        const unsigned char* values[] = {destination, gateway, mask};
+        for (unsigned i = 0; i < 3; i++) {
+            char* address = (char*)(header + 1) + i * address_length;
+            if (family == AF_INET) {
+                struct sockaddr_in* ipv4 = (void*)address;
+                ipv4->sin_len = address_length; ipv4->sin_family = AF_INET;
+                memcpy(&ipv4->sin_addr, values[i], 4);
+            } else {
+                struct sockaddr_in6* ipv6 = (void*)address;
+                ipv6->sin6_len = address_length; ipv6->sin6_family = AF_INET6;
+                memcpy(&ipv6->sin6_addr, values[i], 16);
+                if (values[i][0] == 0xfe && (values[i][1] & 0xc0) == 0x80)
+                    ipv6->sin6_scope_id = request.lifr_ifindex;
+            }
+        }
+    }
+    *total += length;
+    return 0;
+}
+
+static int route_file(int socket, int family, void* output, unsigned long capacity, unsigned long* total) {
+    int fd = sys_open_nocancel(family == AF_INET ? "/proc/net/route" : "/proc/net/ipv6_route", BSD_O_RDONLY, 0);
+    if (fd < 0) return family == AF_INET6 && fd == -ENOENT ? 0 : fd;
+    struct rdline_buffer buffer; _readline_init(&buffer);
+    const char* line;
+    int status = 0;
+    while ((line = _readline(fd, &buffer)) != NULL) {
+        char name[LINUX_IFNAMSIZ];
+        unsigned char destination[16] = {0}, gateway[16] = {0}, mask[16] = {0};
+        uint64_t flags;
+        if (family == AF_INET) {
+            if (strncmp(line, "Iface", 5) == 0) continue;
+            if ((status = route_name(&line, name)) < 0) break;
+            uint64_t fields[10];
+            for (unsigned i = 0; i < 10; i++) {
+                status = number(&line, i == 0 || i == 1 || i == 2 || i == 6 ? 16 : 10, &fields[i]);
+                if (status) break;
+            }
+            if (status) break;
+            if (fields[0] > UINT32_MAX || fields[1] > UINT32_MAX || fields[6] > UINT32_MAX) {status = -EOVERFLOW; break;}
+            uint32_t address = fields[0]; memcpy(destination, &address, 4);
+            address = fields[1]; memcpy(gateway, &address, 4);
+            address = fields[6]; memcpy(mask, &address, 4); flags = fields[2];
+        } else {
+            unsigned char source[16];
+            uint64_t prefix, source_prefix, metric, refs, use;
+            if ((status = ipv6_bytes(&line, destination)) < 0 || (status = number(&line, 16, &prefix)) < 0 ||
+                (status = ipv6_bytes(&line, source)) < 0 || (status = number(&line, 16, &source_prefix)) < 0 ||
+                (status = ipv6_bytes(&line, gateway)) < 0 || (status = number(&line, 16, &metric)) < 0 ||
+                (status = number(&line, 16, &refs)) < 0 || (status = number(&line, 16, &use)) < 0 ||
+                (status = number(&line, 16, &flags)) < 0 || (status = route_name(&line, name)) < 0) break;
+            if (prefix > 128 || source_prefix > 128) {status = -EIO; break;}
+            // Source-specific routes cannot be represented by this legacy ABI.
+            if (source_prefix) continue;
+            for (unsigned bit = 0; bit < prefix; bit++) mask[bit / 8] |= 0x80 >> (bit % 8);
+        }
+        status = append_route(socket, name, family, flags, destination, gateway, mask, output, capacity, total);
+        if (status) break;
+    }
+    close_internal(fd); return status;
+}
+
+static int do_routes(int family, void* output, unsigned long* length) {
+    if (family != 0 && family != AF_INET && family != AF_INET6) return -EAFNOSUPPORT;
+    int socket = sys_socket(AF_INET, SOCK_DGRAM, 0);
+    if (socket < 0) return socket;
+    unsigned long capacity = *length, total = 0;
+    int status = 0;
+    if (family == 0 || family == AF_INET) status = route_file(socket, AF_INET, output, capacity, &total);
+    if (!status && (family == 0 || family == AF_INET6)) status = route_file(socket, AF_INET6, output, capacity, &total);
+    close_internal(socket); *length = total;
+    if (!status && output && capacity < total) status = -ENOMEM;
     return status;
 }
 
@@ -278,6 +407,9 @@ static sysctl_handler(handle_route) {
 
 	// name[4] is the desired operation
 	switch (name[4]) {
+        case _NET_RT_DUMP:
+            status = do_routes(name[3], old, oldlen);
+            break;
 		case _NET_RT_IFLIST:
         case _NET_RT_IFLIST2:
 			status = do_iflist(old, oldlen, name[4] == _NET_RT_IFLIST2, name[5]);
