@@ -56,8 +56,6 @@ int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* bufl
 
 	if (buflen == NULL)
 		return -EFAULT;
-	if (*buflen > 0 && out == NULL)
-		return -EFAULT;
 
 	fd = sys_open_nocancel("/proc", BSD_O_RDONLY | BSD_O_DIRECTORY, 0);
 	if (fd < 0)
@@ -111,10 +109,10 @@ int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* bufl
 		}
 	}
 
-	if (*buflen < nproc*sizeof(struct kinfo_proc))
+	if (out == NULL || *buflen < nproc*sizeof(struct kinfo_proc))
 	{
 		*buflen = nproc*sizeof(struct kinfo_proc);
-		ret = out ? -ENOSPC : 0;
+		ret = out ? -ENOMEM : 0;
 	}
 	else
 	{
@@ -124,7 +122,7 @@ int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* bufl
 		*buflen = nproc*sizeof(struct kinfo_proc);
 
 		next = first;
-		for (i = 0; next != NULL; i++)
+		for (i = 0; next != NULL && out != NULL; i++)
 		{
 			memcpy(&out[i], &next->kinfo, sizeof(struct kinfo_proc));
 			next = next->next;
