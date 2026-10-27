@@ -40,6 +40,20 @@ enum {
 	BSD_RLIMIT_POSIX = 0x1000
 };
 
+// Darwin's RLIM_INFINITY is 2^63 - 1 (xnu bsd/sys/resource.h); Linux uses ~0.
+#define XNU_RLIM_INFINITY 0x7fffffffffffffffULL
+#define LINUX_RLIM_INFINITY (~0ULL)
+
 unsigned int rlimit_bsd_to_linux(unsigned int which);
+
+static inline unsigned long long rlim_linux_to_bsd(unsigned long long value)
+{
+	return value > XNU_RLIM_INFINITY ? XNU_RLIM_INFINITY : value;
+}
+
+static inline unsigned long long rlim_bsd_to_linux(unsigned long long value)
+{
+	return value == XNU_RLIM_INFINITY ? LINUX_RLIM_INFINITY : value;
+}
 
 #endif // DARLING_CONVERSION_MISC_GETRLIMIT

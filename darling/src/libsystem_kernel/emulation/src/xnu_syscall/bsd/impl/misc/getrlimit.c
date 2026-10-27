@@ -19,11 +19,18 @@ long sys_getrlimit(unsigned int which, struct xnu_rlimit* rlp)
 
 	ret = LINUX_SYSCALL(__NR_prlimit64, 0, (unsigned int)lwhich, 0, rlp);
 	if (ret < 0)
-		ret = errno_linux_to_bsd(ret);
+		return errno_linux_to_bsd(ret);
+
+	if (rlp != NULL)
+	{
+		rlp->rlim_cur = rlim_linux_to_bsd(rlp->rlim_cur);
+		rlp->rlim_max = rlim_linux_to_bsd(rlp->rlim_max);
+	}
+
 	// BSD_RLIMIT_POSIX (0x1000) is the SUSv3 conformance bit flag in macOS libc.
 	// In macOS, RLIMIT_NOFILE is always capped at OPEN_MAX (10240) and never returns
 	// unbounded Linux host limits or RLIM_INFINITY.
-	else if (rlp != NULL && (which & ~BSD_RLIMIT_POSIX) == BSD_RLIMIT_NOFILE)
+	if (rlp != NULL && (which & ~BSD_RLIMIT_POSIX) == BSD_RLIMIT_NOFILE)
 	{
 		if (rlp->rlim_cur > DARWIN_OPEN_MAX)
 			rlp->rlim_cur = DARWIN_OPEN_MAX;

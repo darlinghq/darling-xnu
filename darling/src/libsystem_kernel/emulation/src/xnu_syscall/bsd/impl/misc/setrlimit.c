@@ -9,7 +9,7 @@
 long sys_setrlimit(unsigned int which, const struct xnu_rlimit* rlp)
 {
 	int ret;
-	struct xnu_rlimit lim = { rlp->rlim_cur, rlp->rlim_max };
+	struct xnu_rlimit lim = { rlim_bsd_to_linux(rlp->rlim_cur), rlim_bsd_to_linux(rlp->rlim_max) };
 
 	which = rlimit_bsd_to_linux(which);
 	if (which == -1)
