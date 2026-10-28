@@ -29,6 +29,32 @@
 extern int strcmp(const char *s1, const char *s2);
 extern char* strcpy(char* dst, const char* src);
 
+// O_SYMLINK opens the object itself; on XNU that only differs from a plain open when the object is a
+// symlink. The O_PATH descriptor we need for a symlink can't be read, have its xattrs read (EBADF) and so on, so a
+// regular file or directory is reopened through /proc/self/fd with the access asked for (O_PATH kept if that
+// fails, e.g. EACCES or a directory opened for writing). FileProvider opens every item with O_SYMLINK
+// (fpfs_openat) and then reads its attributes and xattrs: the On My iPhone extension failed "can't obtain VFSItem
+// ... [9: Bad file descriptor]" for every file, and Files could not open a document.
+#ifndef LINUX_O_PATH
+#	define LINUX_O_PATH 010000000
+#endif
+static int reopen_non_symlink(int pfd, int linux_flags)
+{
+	unsigned long st[18]; // Linux x86_64 struct stat (144 bytes); st_mode is the u32 at offset 24
+	if (LINUX_SYSCALL(__NR_fstat, pfd, st) < 0)
+		return pfd;
+	unsigned int fmt = ((unsigned int*) st)[6] & 0170000;
+	if (fmt != 0100000 && fmt != 0040000) // S_IFREG, S_IFDIR
+		return pfd;
+	char path[32];
+	__simple_sprintf(path, "/proc/self/fd/%d", pfd);
+	int nfd = LINUX_SYSCALL(__NR_openat, LINUX_AT_FDCWD, path, linux_flags & ~(LINUX_O_PATH | LINUX_O_NOFOLLOW), 0);
+	if (nfd < 0)
+		return pfd;
+	LINUX_SYSCALL(__NR_close, pfd); // never seen by the caller
+	return nfd;
+}
+
 long sys_openat(int fd, const char* filename, int flags, unsigned int mode)
 {
 	CANCELATION_POINT();
@@ -102,6 +128,8 @@ long sys_openat_common(int fd, const char* filename, int flags, unsigned int mod
 	ret = LINUX_SYSCALL_C(cancelable, __NR_openat, vc.dfd, vc.path, linux_flags, mode);
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
+	else if (linux_flags & LINUX_O_PATH)
+		ret = reopen_non_symlink(ret, linux_flags);
 
 	return nofile_limit_check_new(ret);
 }
