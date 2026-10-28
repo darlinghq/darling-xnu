@@ -3,6 +3,7 @@
 #include <sys/errno.h>
 
 #include <darling/emulation/conversion/stat/common.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/bsdflags.h>
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
@@ -82,6 +83,8 @@ long sys_lstat64(const char* path, darling_stat64_t* stat)
 		return errno_linux_to_bsd(ret);
 
 	stat_linux_to_bsd64(&lstat, stat);
+	if ((lstat.st_mode & 0170000) != 0120000) (none on symlinks)
+		stat_set_flags64(stat, darling_bsdflags_bsdflags_get_at(vc.dfd, vc.path, 1));
 
 	return 0;
 }

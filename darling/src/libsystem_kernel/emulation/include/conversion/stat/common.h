@@ -194,6 +194,8 @@ struct linux_statfs64
 
 void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat);
 void stat_linux_to_bsd64(const struct linux_stat* lstat, darling_stat64_t* stat);
+// chflags flags are held in a Linux extended attribute; stat64 is opaque here.
+void stat_set_flags64(darling_stat64_t* stat, unsigned int flags);
 void statfs_linux_to_bsd64(const struct linux_statfs64* lstat, struct bsd_statfs64* stat);
 void statfs_bsd64_to_bsd(const struct bsd_statfs64* wide, struct bsd_statfs* stat);
 
