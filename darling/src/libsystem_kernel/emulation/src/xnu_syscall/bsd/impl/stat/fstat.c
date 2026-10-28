@@ -1,6 +1,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/fstat.h>
 
 #include <darling/emulation/conversion/stat/common.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/bsdflags.h>
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
@@ -56,6 +57,7 @@ long sys_fstat64(int fd, darling_stat64_t* stat)
 
 	bpf_fstat_fixup(fd, &lstat);
 	stat_linux_to_bsd64(&lstat, stat);
+	stat_set_flags64(stat, darling_bsdflags_bsdflags_get_fd(fd));
 
 	return 0;
 }

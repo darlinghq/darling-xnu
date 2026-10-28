@@ -10,6 +10,7 @@
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/conversion/common_at.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/bsdflags.h>
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/dirent/getdirentries.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/dup.h>
@@ -384,11 +385,18 @@ int bulk)
 	uint32_t availableCommon = COMMON_SUPPORTED;
 	struct attribute_linux_statx birthStat = {0};
 	uint32_t userAccess = 0;
+	uint32_t bsdFlags = 0;
 	char volumeName[1024];
 	__SIZE_TYPE__ volumeNameLength = 0;
 
 	if (!alist)
 		return -EFAULT;
+	int rv = attribute_validate_request(alist, options);
+	if (rv < 0)
+		return rv;
+	vol = alist->volattr & ~ATTR_VOL_INFO;
+	if (options & FSOPT_ATTR_CMN_EXTENDED)
+		cmnext = alist->forkattr;
 
 #if HAS_PATH
 	if (!path)
@@ -533,6 +541,15 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 			fullPathLength = strlen(fullPath) + 1;
 	}
 
+	// The flags are held in a Linux xattr, so fetch them from the O_PATH
+	// descriptor used for this lookup. Symlinks cannot carry user xattrs.
+	if (objfd >= 0 && !S_ISLNK(fileStat.st_mode))
+	{
+		rv = darling_bsdflags_bsdflags_get_fd(objfd);
+		if (rv >= 0)
+			bsdFlags = (uint32_t) rv;
+	}
+
 	// ATTR_VOL_NAME: the caller passes the volume root, but any object names its volume.
 	if (alist->volattr & ATTR_VOL_NAME) {
 		char hostPath[4096];
@@ -584,12 +601,6 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 			variableSize += (itemNameLength + 3) & ~((__SIZE_TYPE__)3);
 		if (packedCommon & 0x08000000) {
 			variableSize += (fullPathLength + 3) & ~((__SIZE_TYPE__)3);
-		}
-		if (packedVolume & ATTR_VOL_NAME)
-			variableSize += (volumeNameLength + 3) & ~((__SIZE_TYPE__)3);
-		spaceNeeded += variableSize;
-	}
-	spaceNeeded += packed_width(packedVolume, volume_attr_widths);
 
 	if (!packInvalidAttributes && !returnSupportedAttributes) {
 		if (alist->commonattr & ATTR_CMN_NAME) {
@@ -708,12 +719,19 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 			} else if (width->bit == 0x00020000) {
 				*((uint32_t*)next) = fileStat.st_mode;
 			} else if (width->bit == 0x00040000) {
-				*((uint32_t*)next) = 0;
-			} else if (width->bit == 0x00080000 || width->bit == 0x00100000) {
-				// Generation/document IDs need persistent tracking that the
-				// bridge does not provide. Zero is an invalid placeholder,
-				// not a valid identifier to advertise in RETURNED_ATTRS.
-				*((uint32_t*)next) = 0;
+				*((uint32_t*)next) = bsdFlags;
+			} else if (width->bit == 0x00080000) {
+				// APFS generation counts change with content. Approximate it
+				// from the modification time, never returning a zero (which
+				// callers treat as "not supported").
+				uint32_t gen = (uint32_t)fileStat.st_mtime * 1000003u ^
+					(uint32_t)fileStat.st_mtim.tv_nsec;
+				*((uint32_t*)next) = gen ? gen : 1;
+			} else if (width->bit == 0x00100000) {
+				// APFS assigns a document id to UF_TRACKED items. Use the
+				// Linux inode number as a stable stand-in.
+				*((uint32_t*)next) = (bsdFlags & 0x40 /* UF_TRACKED */) ?
+					((uint32_t)fileStat.st_ino ? (uint32_t)fileStat.st_ino : 1) : 0;
 			} else if (width->bit == 0x00200000) {
 				*((uint32_t*)next) = userAccess;
 			} else if (width->bit == 0x02000000) {
