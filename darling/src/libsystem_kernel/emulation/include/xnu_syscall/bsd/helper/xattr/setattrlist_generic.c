@@ -17,8 +17,16 @@ extern int do_linux_fchmodat(int fd, const char* path, int mode, int flag);
 #define ATTR_CMN_CHGTIME 0x800
 #define ATTR_CMN_ACCTIME 0x1000
 #define ATTR_CMN_ACCESSMASK 0x20000
+#define ATTR_CMN_FLAGS 0x40000
+#define ATTR_CMN_DATA_PROTECT_FLAGS 0x40000000
+#define ATTR_CMN_EXTENDED_SECURITY 0x400000
+#define ATTR_CMN_UUID 0x800000
+#define ATTR_CMN_GRPUUID 0x1000000
 
-#define COMMON_SUPPORTED (ATTR_CMN_MODTIME|ATTR_CMN_ACCTIME|ATTR_CMN_ACCESSMASK)
+// Creation and change times, Finder info, backup time, owner/group, BSD flags,
+// data protection class and ACL/UUIDs are accepted but ignored: Linux cannot
+// set them here. Foundation and installd expect these requests to succeed.
+#define COMMON_SUPPORTED (ATTR_CMN_EXTENDED_SECURITY|ATTR_CMN_UUID|ATTR_CMN_GRPUUID|ATTR_CMN_CRTIME|ATTR_CMN_MODTIME|ATTR_CMN_CHGTIME|ATTR_CMN_ACCTIME|ATTR_CMN_BKUPTIME|ATTR_CMN_FNDRINFO|ATTR_CMN_OWNERID|ATTR_CMN_GRPID|ATTR_CMN_ACCESSMASK|ATTR_CMN_FLAGS|ATTR_CMN_DATA_PROTECT_FLAGS)
 #define VOLUME_SUPPORTED 0
 #define DIR_SUPPORTED 0
 #define FILE_SUPPORTED 0
@@ -138,6 +146,8 @@ struct xnu_attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, uns
 			return errno_linux_to_bsd(rv);
 		next += 4;
 	}
+	// ATTR_CMN_FLAGS, ATTR_CMN_EXTENDED_SECURITY, ATTR_CMN_UUID, ATTR_CMN_GRPUUID and
+	// ATTR_CMN_DATA_PROTECT_FLAGS are accepted but ignored.
 
 	return 0;
 }

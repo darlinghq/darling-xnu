@@ -11,6 +11,7 @@
 #include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/conversion/common_at.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/bsdflags.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/stat/linux_statfs.h>
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/dirent/getdirentries.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/dup.h>
@@ -49,26 +50,15 @@
 #define ATTR_CMN_ERROR 0x20000000
 #define ATTR_DIR_ENTRYCOUNT 0x00000002
 
-// bsd/sys/attr.h. These are the subset of ATTR_VOL_CAPABILITIES bits backed by
-// real emulation behavior. CLONE follows clonefileat()/fclonefileat() through
-// Linux FICLONE, ALLOCATE follows F_PREALLOCATE through fallocate(), and the
-// rename variants follow renameatx_np() through renameat2(). An individual
-// host filesystem can still reject an operation with ENOTSUP.
-#define VOL_CAP_FMT_SPARSE_FILES        0x00000040
-#define VOL_CAP_FMT_CASE_SENSITIVE      0x00000100
-#define VOL_CAP_FMT_CASE_PRESERVING     0x00000200
-#define VOL_CAP_FMT_FAST_STATFS         0x00000400
-#define VOL_CAP_FMT_2TB_FILESIZE        0x00000800
-#define VOL_CAP_FMT_64BIT_OBJECT_IDS    0x00020000
-#define VOL_CAP_INT_ATTRLIST            0x00000002
-#define VOL_CAP_INT_ALLOCATE            0x00000040
-#define VOL_CAP_INT_ADVLOCK             0x00000100
-#define VOL_CAP_INT_FLOCK               0x00000200
-#define VOL_CAP_INT_USERACCESS          0x00000800
-#define VOL_CAP_INT_EXTENDED_ATTR       0x00004000
-#define VOL_CAP_INT_CLONE               0x00010000
-#define VOL_CAP_INT_RENAME_SWAP         0x00040000
-#define VOL_CAP_INT_RENAME_EXCL         0x00080000
+
+// Newer Darwin volume attributes (XNU 8792+). installd asks for
+// MOUNTPOINT|UUID|FSTYPENAME together when copying volume information.
+#define ATTR_VOL_MOUNTEXTFLAGS  0x00080000
+#define ATTR_VOL_FSTYPENAME     0x00100000
+#define ATTR_VOL_FSSUBTYPE      0x00200000
+#define ATTR_VOL_OWNER          0x00400000
+#define ATTR_VOL_SPACEUSED      0x00800000
+#define ATTR_VOL_VALIDMASK      0xF0FFFFFF
 
 // Fills the eight words of struct vol_capabilities_attr: capabilities[4] and
 // valid[4]. Only bits we actually answer are marked valid.
@@ -163,8 +153,10 @@ static const struct attr_width volume_attr_widths[] = {
 	{ 0x00000040, 8 }, { 0x00000080, 4 }, { 0x00000100, 4 },
 	{ 0x00000200, 4 }, { 0x00000400, 4 }, { 0x00000800, 4 },
 	{ 0x00001000, 8 }, { 0x00002000, 8 }, { 0x00004000, 4 },
-	{ 0x00008000, 8 }, { 0x00010000, 8 }, { ATTR_VOL_CAPABILITIES, 32 },
-	{ ATTR_VOL_UUID, 16 }, { 0x10000000, 8 }, { 0x20000000, 8 },
+	{ 0x00008000, 8 }, { 0x00010000, 8 }, { 0x00080000, 4 },
+	{ ATTR_VOL_CAPABILITIES, 32 },
+	{ ATTR_VOL_UUID, 16 }, { 0x00800000, 8 }, { 0x10000000, 8 }, { 0x20000000, 8 },
+	{ 0x00100000, 8 }, { 0x00200000, 4 }, { 0x00400000, 4 },
 	{ ATTR_VOL_ATTRIBUTES, 40 }, { ATTR_VOL_INFO, 0 }, { 0, 0 },
 };
 
@@ -295,7 +287,7 @@ static int attribute_validate_request(struct xnu_attrlist* alist, unsigned long 
 {
 	if (alist->bitmapcount != ATTR_BIT_MAP_COUNT)
 		return -EINVAL;
-	if (alist->volattr & ~0xf007ffffU)
+	if (alist->volattr & ~0xf0ffffffU)
 		return -EINVAL;
 	if (alist->volattr) {
 		// Darwin's volume-common table is narrower than the object table.
@@ -540,6 +532,17 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 		else
 			fullPathLength = strlen(fullPath) + 1;
 	}
+	// The type name is the one statfs reports (apfs, see the statfs conversion); subtype 0, owner root
+	if (vol & ATTR_VOL_FSTYPENAME)
+		getattr_put_ref(&p, sfs.f_fstypename);
+	if (vol & ATTR_VOL_FSSUBTYPE)
+		getattr_put_u32(&p, 0);
+	if (vol & ATTR_VOL_OWNER)
+		getattr_put_u32(&p, 0);
+
+	struct linux_statfs64 sfs;
+	if (vol && linux_statfs_path(vc.path, &sfs) < 0)
+		vol = 0;
 
 	// The flags are held in a Linux xattr, so fetch them from the O_PATH
 	// descriptor used for this lookup. Symlinks cannot carry user xattrs.
@@ -601,6 +604,12 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 			variableSize += (itemNameLength + 3) & ~((__SIZE_TYPE__)3);
 		if (packedCommon & 0x08000000) {
 			variableSize += (fullPathLength + 3) & ~((__SIZE_TYPE__)3);
+		}
+		if (packedVolume & ATTR_VOL_NAME)
+			variableSize += (volumeNameLength + 3) & ~((__SIZE_TYPE__)3);
+		spaceNeeded += variableSize;
+	}
+	spaceNeeded += packed_width(packedVolume, volume_attr_widths);
 
 	if (!packInvalidAttributes && !returnSupportedAttributes) {
 		if (alist->commonattr & ATTR_CMN_NAME) {
@@ -771,6 +780,20 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 				volume_capabilities((uint32_t*)next);
 			} else if (width->bit == ATTR_VOL_UUID) {
 				attribute_volume_uuid(fileStat.st_dev, (unsigned char*)next);
+			} else if (width->bit == 0x00080000) {
+				*((uint32_t*)next) = 0; // mount extended flags
+			} else if (width->bit == 0x00800000) {
+				pack_uint64(next, (uint64_t)(sfs.f_blocks - sfs.f_bfree) * sfs.f_bsize);
+			} else if (width->bit == 0x00100000) {
+				int32_t* reference = (int32_t*)next;
+				const char* fstype = statfs_fstype_linux_to_bsd(sfs.f_type);
+				__SIZE_TYPE__ len = strlen(fstype) + 1;
+				reference[0] = variable - next;
+				((uint32_t*)next)[1] = len;
+				__builtin_memcpy(variable, fstype, len);
+				variable += (len + 3) & ~((__SIZE_TYPE__)3);
+			} else if (width->bit == 0x00200000 || width->bit == 0x00400000) {
+				*((uint32_t*)next) = 0; // subtype, owner
 			} else if (width->bit == ATTR_VOL_ATTRIBUTES) {
 				attribute_pack_support((uint32_t*)next);
 			}
