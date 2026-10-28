@@ -1,5 +1,6 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/getgroups.h>
 
+#include <limits.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -87,6 +88,11 @@ long __setgroups(unsigned int size, const unsigned int* gidset) {
 
 long sys_getgroups(unsigned int size, int* gidset)
 {
+	// The public capacity is signed; preserve XNU's EINVAL for negative values.
+	if (size > INT_MAX) {
+		return -EINVAL;
+	}
+
 	// NOTE(facekapow): is this actually used anywhere?
 	//                  this seems like a vestige of the old UID/GID system (before we were faking it).
 	if (getenv("__FAKE_SETGID_ROOT"))
