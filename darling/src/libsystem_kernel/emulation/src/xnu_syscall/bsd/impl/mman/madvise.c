@@ -15,6 +15,7 @@
 #define MADV_FREE 5
 #define MADV_FREE_REUSABLE 7
 #define MADV_FREE_REUSE 8
+#define MADV_ZERO 11
 
 #define LINUX_MADV_FREE 8
 #define LINUX_MADV_POPULATE_WRITE 23
@@ -113,6 +114,11 @@ static void round_to_pages(void** addr, unsigned long* len)
 long sys_madvise(void* addr, unsigned long len, int advice)
 {
 	int ret;
+
+	// XNU's MADV_ZERO zero-fills the range. Returning success without doing so would let allocators reuse
+	// memory they believe is zeroed. We cannot implement it here, so fail honestly instead.
+	if (advice == MADV_ZERO)
+		return -ENOTSUP;
 
 	// Observed on macOS 26 (x86_64; see madvise_rounding.c): an
 	// unaligned address succeeds for the reuse, reusable, free and
