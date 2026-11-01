@@ -453,6 +453,16 @@ int vchroot_expand(struct vchroot_expand_args* args)
 
 	const char* input_path = args->path;
 
+	// "/.nofollow/<path>" (Darwin 23+) is <path> resolved without following symlinks (O_NOFOLLOW_ANY).
+	// iOS 27's Foundation builds such paths (NSFileManager moves, nsurlsessiond's download hand-off, mobileassetd);
+	// taken literally they landed in <prefix>/.nofollow/..., a tree nothing else sees (Siri/Spotlight assets never
+	// reached mobileassetd's staging). Strip the prefix; the last component isn't followed.
+	if (strncmp(input_path, "/.nofollow/", 11) == 0)
+	{
+		input_path += 10;
+		ctxt.follow = false;
+	}
+
 	if (*input_path == '\0')
 		return -LINUX_ENOENT;
 
