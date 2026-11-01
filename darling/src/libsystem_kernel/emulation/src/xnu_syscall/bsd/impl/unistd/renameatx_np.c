@@ -16,6 +16,12 @@ extern char* strcpy(char* dst, const char* src);
 #define DARWIN_RENAME_SECLUDE 0x00000001
 #define DARWIN_RENAME_SWAP    0x00000002
 #define DARWIN_RENAME_EXCL    0x00000004
+// Newer Darwin flags: NOFOLLOW_ANY leaves the last component unresolved (as
+// rename always does) and avoids following any symlink in the path; SECLUDE is
+// a namespace hint and RESOLVE_BENEATH has no effect for a rename inside the
+// vchroot prefix. Accept them instead of returning ENOTSUP.
+#define DARWIN_RENAME_NOFOLLOW_ANY    0x00000010
+#define DARWIN_RENAME_RESOLVE_BENEATH 0x00000020
 
 // linux/fs.h.
 #define LINUX_RENAME_NOREPLACE 0x00000001
@@ -30,9 +36,10 @@ long sys_renameatx_np(int fromfd, const char* from, int tofd, const char* to, un
 	if (from == NULL || to == NULL)
 		return -EFAULT;
 
-	// Only the two atomic variants have a documented Linux mapping. The
-	// others are Darwin-specific namespace/sandbox policies.
-	if (flags & ~(DARWIN_RENAME_SWAP | DARWIN_RENAME_EXCL))
+	// Only the two atomic variants have a Linux mapping. The newer namespace
+	// flags are accepted but need no kernel support here.
+	if (flags & ~(DARWIN_RENAME_SECLUDE | DARWIN_RENAME_SWAP | DARWIN_RENAME_EXCL |
+	              DARWIN_RENAME_NOFOLLOW_ANY | DARWIN_RENAME_RESOLVE_BENEATH))
 		return -ENOTSUP;
 	if ((flags & DARWIN_RENAME_SWAP) && (flags & DARWIN_RENAME_EXCL))
 		return -EINVAL;
