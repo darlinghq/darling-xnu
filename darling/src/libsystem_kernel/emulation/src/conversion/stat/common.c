@@ -67,6 +67,7 @@ void statfs_linux_to_bsd64(const struct linux_statfs64* lstat, struct bsd_statfs
 {
 	stat->f_type = lstat->f_type;
 	stat->f_bsize = lstat->f_bsize;
+	stat->f_iosize = lstat->f_bsize;
 	stat->f_blocks = lstat->f_blocks;
 	stat->f_bfree = lstat->f_bfree;
 	stat->f_bavail = lstat->f_bavail;
