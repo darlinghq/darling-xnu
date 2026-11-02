@@ -15,6 +15,7 @@
 #define MADV_FREE 5
 #define MADV_FREE_REUSABLE 7
 #define MADV_FREE_REUSE 8
+#define MADV_ZERO 11
 
 #define LINUX_MADV_FREE 8
 #define LINUX_MADV_POPULATE_WRITE 23
@@ -113,6 +114,12 @@ static void round_to_pages(void** addr, unsigned long* len)
 long sys_madvise(void* addr, unsigned long len, int advice)
 {
 	int ret;
+
+	// XNU's MADV_ZERO (macOS 15 / iOS 18) zero-fills the range, or fails with ENOTSUP where it can't, and callers
+	// (libpas' zero fill, libmalloc) then zero it themselves. Returning success without zeroing leaves stale data in
+	// memory the caller treats as zeroed (WebCore's wrapper-map tables in Safari's WebContent, for example).
+	if (advice == MADV_ZERO)
+		return -ENOTSUP;
 
 	// Observed on macOS 26 (x86_64; see madvise_rounding.c): an
 	// unaligned address succeeds for the reuse, reusable, free and
