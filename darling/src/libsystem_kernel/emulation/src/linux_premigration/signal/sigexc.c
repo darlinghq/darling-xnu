@@ -138,7 +138,7 @@ void sigexc_setup(void)
 		}
 		if (tracer != 0) {
 			kern_printf("sigexc: already traced -> SIGTRAP\n");
-			sys_kill(0, SIGTRAP, 0);
+			sys_kill(getpid(), SIGTRAP, 0);
 		}
 	}
 #else
@@ -342,7 +342,7 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 			if (bsd_signum == SIGTSTP || bsd_signum == SIGSTOP)
 			{
 				kern_printf("sigexc: emulating SIGTSTP/SIGSTOP\n");
-				LINUX_SYSCALL(__NR_kill, 0, LINUX_SIGSTOP);
+				LINUX_SYSCALL(__NR_kill, LINUX_SYSCALL0(__NR_getpid), LINUX_SIGSTOP);
 			}
 			else
 			{
@@ -359,7 +359,7 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 						sizeof(sa.sa_mask));
 
 				// Resend signal to self
-				LINUX_SYSCALL(__NR_kill, 0, linux_signum);
+				LINUX_SYSCALL(__NR_kill, LINUX_SYSCALL0(__NR_getpid), linux_signum);
 			}
 		}
 	}
