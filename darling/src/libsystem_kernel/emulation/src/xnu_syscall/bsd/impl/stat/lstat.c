@@ -54,6 +54,9 @@ long sys_lstat64(const char* path, struct stat64* stat)
 	struct linux_stat lstat;
 	struct vchroot_expand_args vc;
 
+	if (!path)
+		return -EFAULT;
+
 	vc.flags = 0;
 	vc.dfd = get_perthread_wd();
 	
