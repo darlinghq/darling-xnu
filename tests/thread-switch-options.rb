@@ -34,8 +34,10 @@ Dir.mktmpdir('thread-switch-options-') do |dir|
       assert(SWITCH(2,3)==KERN_SUCCESS && sleeps==1 && yields==0 && slept_ns==3000000LL);
       assert(SWITCH(5,1500)==KERN_SUCCESS && sleeps==1 && slept_ns==1500000000LL);
       assert(SWITCH(2,0)==KERN_SUCCESS && sleeps==0 && yields==1);
+      assert(SWITCH(2,5000)==KERN_SUCCESS && sleeps==1 && slept_ns==5000000000LL);
       /* DISPATCH_CONTENTION: option_time is in microseconds. */
       assert(SWITCH(3,250)==KERN_SUCCESS && sleeps==1 && slept_ns==250000LL);
+      assert(SWITCH(3,5000000)==KERN_SUCCESS && sleeps==1 && slept_ns==5000000000LL);
       /* Unknown options are rejected, as XNU does. */
       assert(SWITCH(6,1)==KERN_INVALID_ARGUMENT && yields==0 && sleeps==0);
       assert(SWITCH(-1,1)==KERN_INVALID_ARGUMENT);
