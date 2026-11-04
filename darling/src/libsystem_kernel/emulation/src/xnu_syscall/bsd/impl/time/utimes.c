@@ -33,7 +33,17 @@ long sys_utimes(const char* path, struct bsd_timeval* tv)
 	#if defined(__NR_utimes)
 		ret = LINUX_SYSCALL(__NR_utimes, vc.path, tv ? ltv: 0);
 	#else
-		ret = LINUX_SYSCALL(__NR_utimensat, LINUX_AT_FDCWD, vc.path, tv ? ltv: 0, 0);
+		// utimensat takes nanoseconds, not the microseconds of a timeval
+		struct { long tv_sec; long tv_nsec; } times[2];
+		if (tv) {
+			for (int i = 0; i < 2; ++i) {
+				if (tv[i].tv_usec < 0 || tv[i].tv_usec >= 1000000)
+					return errno_linux_to_bsd(-LINUX_EINVAL);
+				times[i].tv_sec = tv[i].tv_sec;
+				times[i].tv_nsec = (long)tv[i].tv_usec * 1000;
+			}
+		}
+		ret = LINUX_SYSCALL(__NR_utimensat, LINUX_AT_FDCWD, vc.path, tv ? times : 0, 0);
 	#endif
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
