@@ -9,6 +9,8 @@
 #include <sys/sockio.h>
 #include <netinet6/in6_var.h>
 #include <darling/emulation/conversion/network/ifreq.h>
+#include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/duct_errno.h>
 
 int handle_socket(int fd, unsigned int cmd, void* arg, int* retval)
 {
@@ -42,8 +44,11 @@ int handle_socket(int fd, unsigned int cmd, void* arg, int* retval)
             struct linux_ifreq host_request = {0};
             __builtin_memcpy(host_request.lifr_name, request->ifm_name, LINUX_IFNAMSIZ);
             *retval = __real_ioctl(fd, LINUX_SIOCGIFFLAGS, &host_request);
-            if (*retval < 0)
+            if (*retval < 0) {
+                // XNU's ifioctl returns ENXIO for an unknown interface; Linux says ENODEV.
+                *retval = *retval == -LINUX_ENODEV ? -ENXIO : errno_linux_to_bsd(*retval);
                 return IOCTL_HANDLED;
+            }
             unsigned int flags = if_flags_linux_to_bsd(host_request.lifr_flags);
             // XNU's lo0 does not implement media requests.
             if (flags & IFF_LOOPBACK) {

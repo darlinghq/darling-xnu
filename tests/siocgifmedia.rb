@@ -6,6 +6,8 @@ emu="#{root}/darling/src/libsystem_kernel/emulation"
 strip=->(path){File.read(path).lines.reject{|l|l.start_with?('#include ')}.join}
 source=strip["#{emu}/src/xnu_syscall/bsd/helper/ioctl/socket.c"]
 ifreq=strip["#{emu}/include/conversion/network/ifreq.h"]
+# The tree's real Linux-to-Darwin errno table (host errno names equal Darwin's for the codes it maps).
+errno_conv=strip["#{emu}/include/conversion/duct_errno.h"]+strip["#{emu}/src/conversion/errno.c"]
 # Darwin definitions from this tree's headers (the host's <net/if.h> is Linux's).
 if_h=File.read("#{root}/bsd/net/if.h")
 iff=if_h.scan(/^#define IFF_\w+\s+0x\h+.*$/).join("\n")
@@ -29,6 +31,7 @@ Dir.mktmpdir('siocgifmedia-') do |dir|
     enum { IOCTL_PASS, IOCTL_HANDLED };
     enum { SIOCGIFFLAGS=1, SIOCGIFMTU, SIOCSIFFLAGS, SIOCAIFADDR, SIOCAIFADDR_IN6, SIOCGIFMEDIA, SIOCGIFXMEDIA };
     #{ifreq}
+    #{errno_conv}
     /* Linux interface flags: IFF_UP 0x1, IFF_LOOPBACK 0x8, IFF_RUNNING 0x40 */
     static long __real_ioctl(int fd, int req, void *arg) {
       struct linux_ifreq *r=arg;
@@ -37,7 +40,7 @@ Dir.mktmpdir('siocgifmedia-') do |dir|
       if (!strcmp(r->lifr_name,"eth0")) { r->lifr_flags=0x1|0x40; return 0; }
       if (!strcmp(r->lifr_name,"eth1")) { r->lifr_flags=0x1; return 0; }
       if (!strcmp(r->lifr_name,"wlan0")) { r->lifr_flags=0x1|0x40; return 0; }
-      return -ENXIO;
+      return -19; /* Linux ENODEV */
     }
     #{source}
     static struct ifmediareq req(const char *name, int count, int *list) {
@@ -82,7 +85,7 @@ Dir.mktmpdir('siocgifmedia-') do |dir|
       assert(handle_socket(3,SIOCGIFMEDIA,&r,&ret)==IOCTL_HANDLED && ret==-EOPNOTSUPP);
 
       r=req("nope0",0,NULL);
-      assert(handle_socket(3,SIOCGIFMEDIA,&r,&ret)==IOCTL_HANDLED && ret==-ENXIO);
+      assert(handle_socket(3,SIOCGIFMEDIA,&r,&ret)==IOCTL_HANDLED && ret==-6); /* Darwin ENXIO, as XNU if.c:3110 */
       assert(handle_socket(3,SIOCGIFMEDIA,NULL,&ret)==IOCTL_HANDLED && ret==-EFAULT);
     }
   C
