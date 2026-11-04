@@ -5,41 +5,64 @@ require 'tmpdir'
 root = File.expand_path(ARGV[0] || '../src/libsystem_kernel/emulation', __dir__)
 src = File.read(File.join(root, 'src/xnu_syscall/bsd/impl/guarded/change_fdguard_np.c'))
 body = src[/^long sys_change_fdguard_np\(.*?^\}/m] or abort 'sys_change_fdguard_np not found'
+defs = src.scan(/^#define GUARD_(?:REQUIRED|ALL).*$/).join("\n  ")
 program = <<~C
   #include <errno.h>
   #include <fcntl.h>
   #include <stdint.h>
   #include <stdio.h>
   static int cloexec[8];
-  static long sys_fcntl(int fd, int cmd, long arg) {
+  static long sys_fcntl_nocancel(int fd, int cmd, long arg) {
       if (fd < 0 || fd >= 8) return -EBADF;
       if (cmd == F_GETFD) return cloexec[fd];
       if (cmd == F_SETFD) { cloexec[fd] = (int)arg; return 0; }
       return -EINVAL;
   }
+  #define GUARD_CLOSE (1u << 0)
+  #define GUARD_DUP (1u << 1)
+  #define GUARD_SOCKET_IPC (1u << 2)
+  #define GUARD_FILEPORT (1u << 3)
+  #define GUARD_WRITE (1u << 4)
+  #{defs}
   #{body}
+  #define GF (GUARD_CLOSE | GUARD_DUP)
   #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\\n", __LINE__, #c); return 1; } } while (0)
   int main(void) {
       uint64_t g = 0x1122334455667788ULL;
       int saved;
       /* Example 1: guard an unguarded fd, then restore it. */
       cloexec[3] = 0; saved = 0;
-      CHECK(sys_change_fdguard_np(3, NULL, 0, &g, 1, &saved) == 0);
+      CHECK(sys_change_fdguard_np(3, NULL, 0, &g, GF, &saved) == 0);
       CHECK(saved == 0 && cloexec[3] == FD_CLOEXEC);
-      CHECK(sys_change_fdguard_np(3, &g, 1, NULL, 0, &saved) == 0);
+      CHECK(sys_change_fdguard_np(3, &g, GF, NULL, 0, &saved) == 0);
       CHECK(saved == FD_CLOEXEC && cloexec[3] == 0);
       /* fd that already had close-on-exec keeps it after the round trip. */
       cloexec[4] = FD_CLOEXEC; saved = 0;
-      CHECK(sys_change_fdguard_np(4, NULL, 0, &g, 1, &saved) == 0);
+      CHECK(sys_change_fdguard_np(4, NULL, 0, &g, GF, &saved) == 0);
       CHECK(saved == FD_CLOEXEC && cloexec[4] == FD_CLOEXEC);
-      CHECK(sys_change_fdguard_np(4, &g, 1, NULL, 0, &saved) == 0);
+      CHECK(sys_change_fdguard_np(4, &g, GF, NULL, 0, &saved) == 0);
       CHECK(cloexec[4] == FD_CLOEXEC);
       /* NULL fdflagsp is accepted. */
       cloexec[5] = 0;
-      CHECK(sys_change_fdguard_np(5, NULL, 0, &g, 1, NULL) == 0 && cloexec[5] == FD_CLOEXEC);
+      CHECK(sys_change_fdguard_np(5, NULL, 0, &g, GF, NULL) == 0 && cloexec[5] == FD_CLOEXEC);
       /* A bad fd fails and leaves the caller's flags alone. */
       saved = 42;
-      CHECK(sys_change_fdguard_np(7 + 1, NULL, 0, &g, 1, &saved) == -EBADF && saved == 42);
+      CHECK(sys_change_fdguard_np(7 + 1, NULL, 0, &g, GF, &saved) == -EBADF && saved == 42);
+      /* Argument errors are EINVAL and leave the fd and the caller's flags alone. */
+      cloexec[6] = FD_CLOEXEC; saved = 42;
+      CHECK(sys_change_fdguard_np(6, NULL, 0, NULL, 0, &saved) == -EINVAL);                 /* no guards at all */
+      CHECK(sys_change_fdguard_np(6, &g, GF, NULL, GF, &saved) == -EINVAL);                 /* flags without nguard */
+      CHECK(sys_change_fdguard_np(6, &g, 0, NULL, 0, &saved) == -EINVAL);                   /* guard without flags */
+      CHECK(sys_change_fdguard_np(6, NULL, GF, &g, GF, &saved) == -EINVAL);                 /* flags without guard */
+      uint64_t zero = 0;
+      CHECK(sys_change_fdguard_np(6, NULL, 0, &zero, GF, &saved) == -EINVAL);               /* zero nguard */
+      CHECK(sys_change_fdguard_np(6, NULL, 0, &g, GUARD_CLOSE, &saved) == -EINVAL);         /* lacks GUARD_REQUIRED */
+      CHECK(sys_change_fdguard_np(6, NULL, 0, &g, GF | (1u << 7), &saved) == -EINVAL);      /* outside GUARD_ALL */
+      CHECK(saved == 42 && cloexec[6] == FD_CLOEXEC);
+      /* Changing a guard (both non-NULL) succeeds and keeps close-on-exec on. */
+      uint64_t g2 = 0x99;
+      cloexec[6] = FD_CLOEXEC; saved = 0;
+      CHECK(sys_change_fdguard_np(6, &g, GF, &g2, GF, &saved) == 0 && cloexec[6] == FD_CLOEXEC);
       puts("PASS: change_fdguard_np returns the old close-on-exec state and sets it when guarding");
       return 0;
   }
