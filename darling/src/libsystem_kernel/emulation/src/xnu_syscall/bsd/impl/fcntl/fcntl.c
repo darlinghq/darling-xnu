@@ -288,6 +288,12 @@ long sys_fcntl_nocancel(int fd, int cmd, long arg)
 				return errno_linux_to_bsd(ret);
 			return 0;
 		}
+		// Linux files have no per-file data protection, which is iOS's
+		// class D. iOS apps (Cydia's setnsfpn) query and set it.
+		case F_GETPROTECTIONCLASS:
+			return 4;
+		case F_SETPROTECTIONCLASS:
+			return 0;
 		// TODO: implement remaining commands
 		default:
 			if (linux_cmd == -1)
