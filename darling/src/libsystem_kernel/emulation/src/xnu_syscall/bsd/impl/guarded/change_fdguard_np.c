@@ -18,11 +18,16 @@
 #define GUARD_ALL (GUARD_REQUIRED | GUARD_CLOSE | GUARD_SOCKET_IPC | GUARD_FILEPORT | GUARD_WRITE)
 
 // Darling does not keep per-descriptor guard state for callers, so the guard
-// values are never compared and the EPERM of XNU is not produced. The EINVAL
-// checks that need no guard state are made before the fd is touched, in the
-// order of bsd/kern/kern_guarded.c. The mode is read from which guards were
-// passed, as in the examples there: a new guard on an unguarded fd, or no
-// new guard to remove one. Only the fd flag side effects are modelled.
+// values are never compared and the EPERM of XNU for a mismatched guard is not
+// produced. XNU also fails every call whose old guard value is zero: EPERM
+// when the fd is guarded, EINVAL when it is not. Without state the two cannot
+// be told apart, so a zero old guard returns EINVAL and the guarded EPERM is
+// not reproduced. The EINVAL checks that need no guard state run after the
+// F_GETFD that validates the fd, as XNU validates the fd first, and before
+// *fdflagsp is written (XNU writes it before the guard checks; this does not).
+// The mode is read from which guards were passed, as in the examples in
+// bsd/kern/kern_guarded.c: a new guard on an unguarded fd, or no new guard to
+// remove one. Only the fd flag side effects are modelled.
 long sys_change_fdguard_np(int fd, const uint64_t* guard, unsigned int guardflags,
 	const uint64_t* nguard, unsigned int nguardflags, int* fdflagsp)
 {
@@ -38,6 +43,8 @@ long sys_change_fdguard_np(int fd, const uint64_t* guard, unsigned int guardflag
 	if ((guard == NULL) != (guardflags == 0))
 		return -EINVAL;
 	if (guard == NULL && nguard == NULL)
+		return -EINVAL;
+	if (guard != NULL && *guard == 0)
 		return -EINVAL;
 
 	if (nguard != NULL) {

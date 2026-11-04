@@ -15,7 +15,7 @@ program = <<~C
   static long sys_fcntl_nocancel(int fd, int cmd, long arg) {
       if (fd < 0 || fd >= 8) return -EBADF;
       if (cmd == F_GETFD) return cloexec[fd];
-      if (cmd == F_SETFD) { cloexec[fd] = (int)arg; return 0; }
+      if (cmd == F_SETFD) { if (fd == 1) return -EIO; cloexec[fd] = (int)arg; return 0; }
       return -EINVAL;
   }
   #{defs}
@@ -54,6 +54,22 @@ program = <<~C
       CHECK(sys_change_fdguard_np(6, NULL, 0, &g, GUARD_CLOSE, &saved) == -EINVAL);         /* lacks GUARD_REQUIRED */
       CHECK(sys_change_fdguard_np(6, NULL, 0, &g, GF | (1u << 7), &saved) == -EINVAL);      /* outside GUARD_ALL */
       CHECK(saved == 42 && cloexec[6] == FD_CLOEXEC);
+      /* A zero old guard is an error in XNU for any fd state; EINVAL here (EPERM for guarded not reproduced). */
+      cloexec[6] = FD_CLOEXEC; saved = 42;
+      CHECK(sys_change_fdguard_np(6, &zero, GF, NULL, 0, &saved) == -EINVAL);
+      CHECK(sys_change_fdguard_np(6, &zero, GF, &g, GF, &saved) == -EINVAL);
+      CHECK(saved == 42 && cloexec[6] == FD_CLOEXEC);
+      /* Every GUARD_ALL bit is accepted in nguardflags. */
+      cloexec[6] = 0;
+      CHECK(sys_change_fdguard_np(6, NULL, 0, &g, GF | GUARD_WRITE, NULL) == 0 && cloexec[6] == FD_CLOEXEC);
+      cloexec[6] = 0;
+      CHECK(sys_change_fdguard_np(6, NULL, 0, &g, GF | GUARD_SOCKET_IPC, NULL) == 0 && cloexec[6] == FD_CLOEXEC);
+      cloexec[6] = 0;
+      CHECK(sys_change_fdguard_np(6, NULL, 0, &g, GUARD_ALL, NULL) == 0 && cloexec[6] == FD_CLOEXEC);
+      /* A failing F_SETFD is returned, not turned into success. */
+      cloexec[1] = 0;
+      CHECK(sys_change_fdguard_np(1, NULL, 0, &g, GF, NULL) == -EIO);
+      CHECK(sys_change_fdguard_np(1, &g, GF, NULL, 0, NULL) == -EIO);
       /* Changing a guard (both non-NULL) succeeds and keeps close-on-exec on. */
       uint64_t g2 = 0x99;
       cloexec[6] = FD_CLOEXEC; saved = 0;
