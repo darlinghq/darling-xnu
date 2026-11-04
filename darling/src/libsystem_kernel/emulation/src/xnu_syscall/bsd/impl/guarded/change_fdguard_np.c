@@ -4,11 +4,16 @@
 
 #include <sys/errno.h>
 #include <sys/fcntl.h>
-#include <sys/guarded.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/fcntl.h>
 
-// as in bsd/kern/kern_guarded.c
+// bsd/sys/guarded.h only exposes these to PRIVATE builds; values and masks
+// as in it and bsd/kern/kern_guarded.c
+#define GUARD_CLOSE (1u << 0)
+#define GUARD_DUP (1u << 1)
+#define GUARD_SOCKET_IPC (1u << 2)
+#define GUARD_FILEPORT (1u << 3)
+#define GUARD_WRITE (1u << 4)
 #define GUARD_REQUIRED GUARD_DUP
 #define GUARD_ALL (GUARD_REQUIRED | GUARD_CLOSE | GUARD_SOCKET_IPC | GUARD_FILEPORT | GUARD_WRITE)
 

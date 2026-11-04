@@ -5,7 +5,7 @@ require 'tmpdir'
 root = File.expand_path(ARGV[0] || '../src/libsystem_kernel/emulation', __dir__)
 src = File.read(File.join(root, 'src/xnu_syscall/bsd/impl/guarded/change_fdguard_np.c'))
 body = src[/^long sys_change_fdguard_np\(.*?^\}/m] or abort 'sys_change_fdguard_np not found'
-defs = src.scan(/^#define GUARD_(?:REQUIRED|ALL).*$/).join("\n  ")
+defs = src.scan(/^#define GUARD_.*$/).join("\n  ")
 program = <<~C
   #include <errno.h>
   #include <fcntl.h>
@@ -18,11 +18,6 @@ program = <<~C
       if (cmd == F_SETFD) { cloexec[fd] = (int)arg; return 0; }
       return -EINVAL;
   }
-  #define GUARD_CLOSE (1u << 0)
-  #define GUARD_DUP (1u << 1)
-  #define GUARD_SOCKET_IPC (1u << 2)
-  #define GUARD_FILEPORT (1u << 3)
-  #define GUARD_WRITE (1u << 4)
   #{defs}
   #{body}
   #define GF (GUARD_CLOSE | GUARD_DUP)
