@@ -15,23 +15,25 @@ Dir.mktmpdir('madvise-free-reuse-') do |dir|
     #define BSD_ENOMEM 1012 /* distinct, so translation is visible */
     #define __NR_madvise 0
     #define LINUX_SYSCALL(n, ...) fake_madvise(__VA_ARGS__)
-    static int old_kernel, calls, last_advice, next_error;
+    static int old_kernel, calls, probes, last_advice, next_error;
+    static void *last_addr;
     static unsigned long last_len;
     static int fake_madvise(void *addr, unsigned long len, int advice) {
+      if (len == 0 && advice == 23) probes++;
       if (old_kernel && advice == 23) return -LINUX_EINVAL; /* Linux < 5.14 */
       if (len == 0) return 0;
-      calls++; last_advice=advice; last_len=len;
+      calls++; last_advice=advice; last_len=len; last_addr=addr;
       int e=next_error; next_error=0;
       return e;
     }
     static int errno_linux_to_bsd(int e) { return e == -LINUX_ENOMEM ? -BSD_ENOMEM : e; }
     #{source}
-    #define CALL(advice) (calls=0, last_advice=-1, sys_madvise((void *)0x10000, 0x4000, (advice)))
+    #define CALL(advice) (calls=0, last_advice=-1, last_addr=0, sys_madvise((void *)0x10000, 0x4000, (advice)))
     int main(int argc, char **argv) {
       old_kernel = argc > 1 && !strcmp(argv[1], "old");
 
       /* Darwin MADV_FREE (5): Linux MADV_FREE (8) on every kernel. */
-      assert(CALL(5)==0 && calls==1 && last_advice==8 && last_len==0x4000);
+      assert(CALL(5)==0 && calls==1 && last_advice==8 && last_len==0x4000 && last_addr==(void *)0x10000);
       /* Mappings Linux cannot lazily free (EINVAL): advisory, still succeeds. */
       next_error=-LINUX_EINVAL;
       assert(CALL(5)==0 && calls==1);
@@ -40,8 +42,8 @@ Dir.mktmpdir('madvise-free-reuse-') do |dir|
 
       if (!old_kernel) {
         /* REUSABLE (7) -> MADV_FREE, REUSE (8) -> MADV_POPULATE_WRITE (23). */
-        assert(CALL(7)==0 && calls==1 && last_advice==8);
-        assert(CALL(8)==0 && calls==1 && last_advice==23 && last_len==0x4000);
+        assert(CALL(7)==0 && calls==1 && last_advice==8 && last_addr==(void *)0x10000);
+        assert(CALL(8)==0 && calls==1 && last_advice==23 && last_len==0x4000 && last_addr==(void *)0x10000);
         /* XNU's reuse does not populate, so populate failures other than a hole are not errors. */
         next_error=-LINUX_EFAULT;
         assert(CALL(8)==0);
@@ -57,6 +59,9 @@ Dir.mktmpdir('madvise-free-reuse-') do |dir|
       assert(CALL(3)==0 && calls==1 && last_advice==3);
       assert(CALL(6)==0 && calls==0);
       assert(CALL(9)==0 && calls==0);
+
+      /* The kernel-support probe runs once per process, not per call. */
+      assert(probes==1);
     }
   C
   %w[-O0 -O2].each do |opt|
