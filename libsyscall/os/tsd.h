@@ -102,7 +102,11 @@ _os_cpu_number(void)
 #endif
 
 	unsigned int cpu_num = 0;
-	int status = __linux_syscall(__NR_getcpu, &cpu_num, 0, 0, 0, 0, 0);
+	/* __linux_syscall is defined with six longs, not variadic: on arm64 Darwin
+	 * a variadic call passes them on the stack, where it never looks, and the
+	 * kernel sees garbage (getcpu then fails with EFAULT on every call). */
+	int status = ((int (*)(int, long, long, long, long, long, long))__linux_syscall)(
+		__NR_getcpu, (long)&cpu_num, 0, 0, 0, 0, 0);
 	// should we even check? i don't think it's possible for it to fail with these arguments
 	if (status < 0) {
 		return 0; // i guess?
