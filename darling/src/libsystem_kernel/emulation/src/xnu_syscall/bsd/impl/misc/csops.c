@@ -13,7 +13,10 @@ long sys_csops(int pid, unsigned int ops, void* useraddr, size_t usersize) {
 
 	switch (ops) {
 		case CS_OPS_STATUS: {
-			*(uint32_t*)useraddr = CS_VALID;
+			// Linux lets any process map writable+executable memory, so tell
+			// apps what iOS tells a process with a debugger attached: CS_DEBUGGED
+			// is the bit JIT-using apps (emulators, UTM) check before they JIT.
+			*(uint32_t*)useraddr = CS_VALID | CS_DEBUGGED;
 		} break;
 
 		case CS_OPS_BLOB:
