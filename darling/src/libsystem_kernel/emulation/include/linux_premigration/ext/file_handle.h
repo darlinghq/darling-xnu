@@ -27,25 +27,19 @@ typedef struct {
 			{
 				struct file_handle fh;
 
+				// Identifies the file itself, so all references to a file are identical.
+				// Not 64-bit fields: that would move everything else in this union.
 				struct
 				{
-					int index;
-					int gen;
+					uint32_t device;
+					uint32_t inode_low;
+					uint32_t inode_high;
 				};
 			};
 		};
 	};
 
 } RefData;
-
-// Like open_by_handle_at, but provides a path and doesn't need CAP_DAC_READ_SEARCH
-struct handle_to_path_args
-{
-	int mfd; // in
-	//int mntid; // in
-	char fh[80]; // in
-	char path[4096]; // out
-};
 
 int sys_name_to_handle(const char* name, RefData* ref, int follow);
 //int sys_open_by_handle(RefData* ref, int flags);
