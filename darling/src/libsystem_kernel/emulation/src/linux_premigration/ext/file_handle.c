@@ -1,7 +1,10 @@
+// This is needed for struct stat64 to exist alongside struct stat
+#define _DARWIN_NO_64_BIT_INODE
+
 #include <darling/emulation/linux_premigration/ext/file_handle.h>
 
 #include <sys/errno.h>
-#include <os/lock.h>
+#include <sys/stat.h>
 
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/conversion/fcntl/open.h>
@@ -10,27 +13,23 @@
 #include <darling/emulation/common/bsdthread/per_thread_wd.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/common/simple.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/lstat.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/stat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
-#include <darling/emulation/other/mach/lkm.h>
-#include <darling/emulation/conversion/duct_errno.h>
-#include <darling/emulation/xnu_syscall/bsd/impl/unistd/access.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
-extern void free(void* ptr);
+#include <darlingserver/rpc.h>
 
-struct SavedRef
+// A reference is the device and inode of a file, which needs no privileges to obtain and is the same
+// however the file is reached, or by whichever process. Getting back to a path is another matter, as
+// kernel file handles can only be opened with CAP_DAC_READ_SEARCH, which we don't have, and overlayfs
+// may not provide them at all. So darlingserver remembers the last path used for each file.
+#define MOUNT_ID_FILE_REF (-100)
+
+static uint64_t ref_inode(const RefData* ref)
 {
-	char* path;
-	int gen;
-};
-
-#define MOUNT_ID_SAVED (-100)
-static struct SavedRef g_savedRefs[200];
-static int g_nextSavedRef = 0, g_nextGen = 0;
-static os_unfair_lock g_savedRefLock = OS_UNFAIR_LOCK_INIT;
-
-void __attribute__((weak)) os_unfair_lock_unlock(os_unfair_lock_t lock) {}
-void __attribute__((weak)) os_unfair_lock_lock(os_unfair_lock_t lock) {}
+	return ((uint64_t) ref->inode_high << 32) | ref->inode_low;
+}
 
 VISIBLE
 int sys_name_to_handle(const char* name, RefData* ref, int follow)
@@ -41,139 +40,78 @@ int sys_name_to_handle(const char* name, RefData* ref, int follow)
 	vc.flags = follow ? VCHROOT_FOLLOW : 0;
 	vc.dfd = get_perthread_wd();
 
+	if (strlen(name) >= sizeof(vc.path))
+		return -ENAMETOOLONG;
+
 	strcpy(vc.path, name);
 	ret = vchroot_expand(&vc);
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
-	ref->fh.handle_bytes = sizeof(RefData) - offsetof(RefData, fh.f_handle);
-
-	ret = LINUX_SYSCALL(__NR_name_to_handle_at, LINUX_AT_FDCWD, vc.path, &ref->fh, &ref->mount_id, 0);
-
-	// This is unfortunately the case for overlayfs, which doesn't support "nfs_export" along with "metacopy"
-	if (ret == -LINUX_EOPNOTSUPP && sys_access(name, 0) == 0)
-	{
-		os_unfair_lock_lock(&g_savedRefLock);
-
-		if (g_savedRefs[g_nextSavedRef].path)
-			free(g_savedRefs[g_nextSavedRef].path);
-
-		ref->gen = g_nextGen++;
-		g_savedRefs[g_nextSavedRef].path = strdup(name);
-		g_savedRefs[g_nextSavedRef].gen = ref->gen;
-		ref->mount_id = MOUNT_ID_SAVED;
-		ref->index = g_nextSavedRef;
-
-		g_nextSavedRef = (g_nextSavedRef + 1) % (sizeof(g_savedRefs) / sizeof(g_savedRefs[0]));
-
-		os_unfair_lock_unlock(&g_savedRefLock);
-
-		ret = 0;
-	}
-
+	struct stat64 st;
+	ret = follow ? sys_stat64(name, &st) : sys_lstat64(name, &st);
 	if (ret < 0)
-		ret = errno_linux_to_bsd(ret);
+		return ret;
 
-	return ret;
+	// Unused bytes must be the same too, for callers comparing references directly
+	memset(ref, 0, sizeof(*ref));
+	ref->mount_id = MOUNT_ID_FILE_REF;
+	ref->device = st.st_dev;
+	ref->inode_low = (uint32_t) st.st_ino;
+	ref->inode_high = (uint32_t) (st.st_ino >> 32);
+
+	ret = dserver_rpc_file_ref_register(st.st_dev, st.st_ino, vc.path, strlen(vc.path));
+	if (ret < 0)
+		return errno_linux_to_bsd(ret);
+
+	return 0;
 }
 
 VISIBLE
 int sys_handle_to_name(RefData* ref, char name[4096])
 {
-	if (ref->mount_id == MOUNT_ID_SAVED)
-	{
-		int ret = -ENOENT;
-		os_unfair_lock_lock(&g_savedRefLock);
-
-		if (g_savedRefs[ref->index].gen == ref->gen)
-		{
-			strlcpy(name, g_savedRefs[ref->index].path, 4096);
-			ret = sys_access(name, 0);
-		}
-
-		os_unfair_lock_unlock(&g_savedRefLock);
-		return ret;
-	}
-
-	// Now we need to find out the path of ref->mount_id
-	struct simple_readline_buf rbuf;
-	char line[1024];
-
-	int fd_m = sys_open("/proc/self/mountinfo", BSD_O_RDONLY, 0);
-	if (fd_m < 0)
-		return fd_m;
-	const char* mount_path = NULL;
-	
-	__simple_readline_init(&rbuf);
-
-	while (__simple_readline(fd_m, &rbuf, line, sizeof(line)))
-	{
-		char *p, *saveptr;
-
-		p = strtok_r(line, " ", &saveptr);
-		if (p == NULL)
-			continue;
-
-		if (__simple_atoi(p, NULL) != ref->mount_id)
-			continue;
-
-		for (int i = 0; i < 4; i++)
-		{
-			p = strtok_r(NULL, " ", &saveptr);
-			if (p == NULL)
-			{
-				close_internal(fd_m);
-				return -ENOENT;
-			}
-		}
-
-		mount_path = p;
-
-		break;
-	}
-
-	close_internal(fd_m);
-
-	if (mount_path == NULL)
+	// These are real kernel file handles, which we have no way to resolve
+	if (ref->mount_id != MOUNT_ID_FILE_REF)
 		return -ENOENT;
-	
-	// We have the path of the mount, lets get a file descriptor
-	#if defined(__NR_open)
-		fd_m = LINUX_SYSCALL(__NR_open, mount_path, LINUX_O_RDONLY, 0);
-	#else
-		fd_m = LINUX_SYSCALL(__NR_openat, LINUX_AT_FDCWD, mount_path, LINUX_O_RDONLY, 0);
-	#endif
-	if (fd_m < 0)
-		return fd_m;
-
-	struct handle_to_path_args args;
-	args.mfd = fd_m;
-	memcpy(args.fh, &ref->fh, sizeof(RefData) - offsetof(RefData, fh));
-
-	int ret = lkm_call(NR_handle_to_path, &args);
-
-	close_internal(fd_m);
-
-	if (ret < 0)
-		return errno_linux_to_bsd(ret);
 
 	struct vchroot_unexpand_args uargs;
-	strcpy(uargs.path, args.path);
+	uint64_t length;
 
-	ret = vchroot_unexpand(&uargs);
-
+	int ret = dserver_rpc_file_ref_path(ref->device, ref_inode(ref), uargs.path, sizeof(uargs.path), &length);
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
-	strcpy(name, uargs.path);
+	ret = vchroot_unexpand(&uargs);
+	if (ret < 0)
+		return errno_linux_to_bsd(ret);
 
+	// The file may have been moved or deleted since, and something else may be there now
+	struct stat64 st;
+	ret = sys_lstat64(uargs.path, &st);
+	if (ret < 0)
+		return ret;
+
+	if ((uint32_t) st.st_dev != ref->device || st.st_ino != ref_inode(ref))
+		return -ENOENT;
+
+	strlcpy(name, uargs.path, 4096);
 	return 0;
 }
 
-// Requires CAP_DAC_READ_SEARCH
 VISIBLE
 int sys_open_by_handle(RefData* ref, int flags)
 {
+	if (ref->mount_id == MOUNT_ID_FILE_REF)
+	{
+		char name[4096];
+
+		int ret = sys_handle_to_name(ref, name);
+		if (ret < 0)
+			return ret;
+
+		return sys_open(name, flags, 0);
+	}
+
 	int linux_flags = oflags_bsd_to_linux(flags);
 
 	if (sizeof(void*) == 4)
