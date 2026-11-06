@@ -138,6 +138,58 @@ sysctl_handler(handle_argmax)
 	return 0;
 }
 
+// Linux clock IDs (Darwin's <time.h> numbers its clocks differently).
+#define LINUX_CLOCK_REALTIME 0
+#define LINUX_CLOCK_BOOTTIME 7
+
+// Last boot time read from /proc/stat, in seconds; 0 until the first read.
+static unsigned long boottime_cache;
+
+static int read_proc_boottime(unsigned long* seconds)
+{
+	int fd = sys_open("/proc/stat", BSD_O_RDONLY, 0);
+	if (fd < 0)
+		return fd;
+	struct rdline_buffer buffer;
+	_readline_init(&buffer);
+	const char* line;
+	*seconds = 0;
+	while ((line = _readline(fd, &buffer)) != NULL)
+	{
+		if (strncmp(line, "btime ", 6) == 0)
+		{
+			if (!parse_proc_boottime(line + 6, seconds))
+				*seconds = 0;
+			break;
+		}
+	}
+	close_internal(fd);
+	return *seconds ? 0 : -EIO;
+}
+
+// Linux derives btime from the offset between CLOCK_REALTIME and
+// CLOCK_BOOTTIME, which only moves when the wall clock is set. Libc reads
+// kern.boottime twice for every CLOCK_MONOTONIC query, so keep the last
+// btime and only go back to /proc/stat when the current offset has left
+// the second that btime describes.
+static bool boottime_cache_valid(unsigned long seconds)
+{
+	struct timespec boot, real;
+
+	if (seconds == 0)
+		return false;
+	if (LINUX_SYSCALL(__NR_clock_gettime, LINUX_CLOCK_BOOTTIME, &boot) < 0)
+		return false;
+	if (LINUX_SYSCALL(__NR_clock_gettime, LINUX_CLOCK_REALTIME, &real) < 0)
+		return false;
+
+	long long offset_ns = (long long)(real.tv_sec - boot.tv_sec) * 1000000000LL
+		+ (real.tv_nsec - boot.tv_nsec);
+	long long cached_ns = (long long)seconds * 1000000000LL;
+
+	return offset_ns >= cached_ns && offset_ns < cached_ns + 1000000000LL;
+}
+
 sysctl_handler(handle_boottime)
 {
 	if (_new != NULL || newlen != 0)
@@ -150,25 +202,14 @@ sysctl_handler(handle_boottime)
 	if (*oldlen < sizeof(struct bsd_timeval))
 		return -EINVAL;
 
-	int fd = sys_open("/proc/stat", BSD_O_RDONLY, 0);
-	if (fd < 0)
-		return fd;
-	struct rdline_buffer buffer;
-	_readline_init(&buffer);
-	const char* line;
-	unsigned long seconds = 0;
-	while ((line = _readline(fd, &buffer)) != NULL)
+	unsigned long seconds = __atomic_load_n(&boottime_cache, __ATOMIC_RELAXED);
+	if (!boottime_cache_valid(seconds))
 	{
-		if (strncmp(line, "btime ", 6) == 0)
-		{
-			if (!parse_proc_boottime(line + 6, &seconds))
-				seconds = 0;
-			break;
-		}
+		int err = read_proc_boottime(&seconds);
+		if (err < 0)
+			return err;
+		__atomic_store_n(&boottime_cache, seconds, __ATOMIC_RELAXED);
 	}
-	close_internal(fd);
-	if (!seconds)
-		return -EIO;
 
 	struct bsd_timeval* value = old;
 	value->tv_sec = seconds;
