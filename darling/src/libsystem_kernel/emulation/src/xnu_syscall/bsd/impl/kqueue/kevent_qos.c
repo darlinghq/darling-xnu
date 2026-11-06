@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <sys/errno.h>
 #include <sys/fcntl.h>
+#include <sys/mman.h>
 
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
@@ -12,6 +13,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/kqueue/kqueue.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/workq_kernreturn.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/kqueue/kevent64.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/mman/mman.h>
 
 static int default_kq = -1;
 
@@ -19,6 +21,31 @@ extern void* memmove(void* dst, const void* src, __SIZE_TYPE__ n);
 
 static void kevent_qos_to_64(const struct kevent_qos_s *ev, struct kevent64_s* ev64);
 static void kevent_64_to_qos(const struct kevent64_s* ev64, struct kevent_qos_s *ev);
+
+#define KEVENT_STACK_BATCH 16
+
+// Batches too large for the stack are mapped directly, as libsystem_kernel
+// sits below the malloc implementation. Returns NULL on failure.
+static struct kevent64_s* kevent_buffer_map(int count, unsigned long* size)
+{
+	void* buffer;
+
+	if ((unsigned long) count > ~0ul / sizeof(struct kevent64_s))
+		return NULL;
+
+	*size = (unsigned long) count * sizeof(struct kevent64_s);
+	buffer = sys_mmap(NULL, *size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+	if ((unsigned long) buffer > -4096ul)
+		return NULL;
+
+	return buffer;
+}
+
+static void kevent_buffer_unmap(struct kevent64_s* buffer, unsigned long size)
+{
+	if (buffer != NULL)
+		sys_munmap(buffer, size);
+}
 
 long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 			struct	kevent_qos_s *eventlist, int nevents,
@@ -29,6 +56,14 @@ long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 	struct kevent64_s* eventlist64 = NULL;
 	struct wq_kevent_data wq_kevent;
 	struct timespec polling_timeout = {};
+	struct kevent64_s small_changes[KEVENT_STACK_BATCH], small_events[KEVENT_STACK_BATCH];
+	struct kevent_qos_s workq_event;
+	struct kevent64_s* mapped_changes = NULL;
+	struct kevent64_s* mapped_events = NULL;
+	unsigned long mapped_changes_size = 0, mapped_events_size = 0;
+
+	if (nchanges < 0 || nevents < 0)
+		return -EINVAL;
 
 	if ((kq == -1) != !!(flags & KEVENT_FLAG_WORKQ))
 		return -EINVAL;
@@ -39,21 +74,43 @@ long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 		sys_fcntl(default_kq, F_SETFD, FD_CLOEXEC);
 	}
 
+	// Counts come from the caller: keep small batches on the stack, map larger ones
 	if (changelist != NULL && nchanges > 0)
 	{
 		int i;
 
-		changelist64 = (struct kevent64_s*) __builtin_alloca(nchanges * sizeof(struct kevent64_s));
+		if (nchanges <= KEVENT_STACK_BATCH)
+			changelist64 = small_changes;
+		else
+		{
+			mapped_changes = kevent_buffer_map(nchanges, &mapped_changes_size);
+			if (mapped_changes == NULL)
+				return -ENOMEM;
+			changelist64 = mapped_changes;
+		}
 		for (i = 0; i < nchanges; i++)
 			kevent_qos_to_64(&changelist[i], &changelist64[i]);
 	}
 	if (eventlist != NULL && nevents > 0)
-		eventlist64 = (struct kevent64_s*) __builtin_alloca(nevents * sizeof(struct kevent64_s));
+	{
+		if (nevents <= KEVENT_STACK_BATCH)
+			eventlist64 = small_events;
+		else
+		{
+			mapped_events = kevent_buffer_map(nevents, &mapped_events_size);
+			if (mapped_events == NULL)
+			{
+				kevent_buffer_unmap(mapped_changes, mapped_changes_size);
+				return -ENOMEM;
+			}
+			eventlist64 = mapped_events;
+		}
+	}
 	if (nevents == 0 && (flags & KEVENT_FLAG_WORKQ))
 	{
-		eventlist = (struct kevent_qos_s*) __builtin_alloca(nevents * sizeof(struct kevent_qos_s));
+		eventlist = &workq_event;
 		nevents = 1;
-		eventlist64 = (struct kevent64_s*) __builtin_alloca(nevents * sizeof(struct kevent64_s));
+		eventlist64 = small_events;
 	}
 
 	rv = sys_kevent64(kq, changelist64, nchanges, eventlist64, nevents, flags, (flags & KEVENT_FLAG_IMMEDIATE) ? &polling_timeout : NULL);
@@ -82,7 +139,9 @@ long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 		memmove(eventlist, wq_kevent.events, rv * sizeof(struct kevent_qos_s));
 		// __simple_printf("workq done processing, returning %d to caller\n", rv);
 	}
-	
+
+	kevent_buffer_unmap(mapped_events, mapped_events_size);
+	kevent_buffer_unmap(mapped_changes, mapped_changes_size);
 	return rv;
 }
 

@@ -3,7 +3,7 @@
 #include <sys/errno.h>
 #include <stddef.h>
 #include <sys/queue.h>
-#include <os/lock.h>
+#include <libsimple/lock.h>
 #include <pthread/tsd_private.h>
 
 #define __PTHREAD_EXPOSE_INTERNALS__ 1
@@ -61,7 +61,7 @@
 #define WORKQ_EXIT_THREAD_NKEVENT (-1)
 
 static int workq_sem = WQ_MAX_THREADS; // max 64 threads in use
-static os_unfair_lock workq_parked_lock = OS_UNFAIR_LOCK_INIT;
+static libsimple_lock_t workq_parked_lock = LIBSIMPLE_LOCK_INITIALIZER;
 // static int workq_parked_threads = 0; // num spawned, but unused threads
 static int workq_parked[WQ_MAX_THREADS];
 static int workq_parked_prio[WQ_MAX_THREADS];
@@ -84,8 +84,6 @@ struct timespec
 	long tv_nsec;
 };
 
-void __attribute__((weak)) os_unfair_lock_unlock(os_unfair_lock_t lock) {}
-void __attribute__((weak)) os_unfair_lock_lock(os_unfair_lock_t lock) {}
 
 //void* __attribute__((weak)) __attribute__((visibility("default"))) pthread_getspecific(unsigned long key) { return NULL; }
 //int __attribute__((weak)) __attribute__((visibility("default"))) pthread_setspecific(unsigned long key, const void* value) { return 1; }
@@ -166,7 +164,7 @@ long sys_workq_kernreturn(int options, void* item, int affinity, int prio)
 			dthread_t dthread;
 			bool terminating = false;
 
-			os_unfair_lock_lock(&workq_parked_lock);
+			libsimple_lock_lock(&workq_parked_lock);
 
 			// Semaphore locked state (wait for wakeup)
 			me.sem = 0;
@@ -185,7 +183,7 @@ long sys_workq_kernreturn(int options, void* item, int affinity, int prio)
 			// Decrease the amount of running threads
 			sem_up(&workq_sem);
 
-			os_unfair_lock_unlock(&workq_parked_lock);
+			libsimple_lock_unlock(&workq_parked_lock);
 
 			// Wait until someone calls WQOPS_QUEUE_REQTHREADS
 			// and wakes us up
@@ -193,17 +191,17 @@ long sys_workq_kernreturn(int options, void* item, int affinity, int prio)
 			{
 				// Make sure we haven't just been woken up before locking the queue
 				// and remove us from the queue if not.
-				os_unfair_lock_lock(&workq_parked_lock);
+				libsimple_lock_lock(&workq_parked_lock);
 	
 				if (me.sem > 0)
 				{
-					os_unfair_lock_unlock(&workq_parked_lock);
+					libsimple_lock_unlock(&workq_parked_lock);
 					goto wakeup;
 				}
 
 				TAILQ_REMOVE(&workq_parked_head, &me, entries);
 
-				os_unfair_lock_unlock(&workq_parked_lock);
+				libsimple_lock_unlock(&workq_parked_lock);
 
 				terminating = true;
 
@@ -257,7 +255,7 @@ resume_thread: // we want the thread to resume, but it might be just to die
 				// Increase the amount of running threads
 				sem_down(&workq_sem, -1);
 
-				os_unfair_lock_lock(&workq_parked_lock);
+				libsimple_lock_lock(&workq_parked_lock);
 
 				if (workq_parked_head.tqh_first != NULL)
 				{
@@ -276,12 +274,12 @@ resume_thread: // we want the thread to resume, but it might be just to die
 
 					// Resume the thread
 					sem_up(&thread->sem);
-					os_unfair_lock_unlock(&workq_parked_lock);
+					libsimple_lock_unlock(&workq_parked_lock);
 
 					continue;
 				}
 
-				os_unfair_lock_unlock(&workq_parked_lock);
+				libsimple_lock_unlock(&workq_parked_lock);
 
 				// __simple_printf("Spawning a new thread, nevents=%d\n", (wq_event != NULL) ? wq_event->nevents : -1);
 				wq_event_pending = wq_event;

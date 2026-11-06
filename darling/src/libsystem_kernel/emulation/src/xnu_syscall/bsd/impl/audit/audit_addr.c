@@ -1,6 +1,6 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/audit/audit_addr.h>
 
-#include <os/lock.h>
+#include <libsimple/lock.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/geteuid.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/getentropy.h>
@@ -18,19 +18,19 @@ static auditinfo_addr_t info = {
 	.ai_flags = 0,
 };
 // should be a rw lock but *shrug*
-static os_unfair_lock info_lock = OS_UNFAIR_LOCK_INIT;
+static libsimple_lock_t info_lock = LIBSIMPLE_LOCK_INITIALIZER;
 
 long sys_getaudit_addr(struct auditinfo_addr* auditinfo_addr, int length) {
-	os_unfair_lock_lock(&info_lock);
+	libsimple_lock_lock(&info_lock);
 
 	memcpy(auditinfo_addr, &info, min(length, sizeof(auditinfo_addr_t)));
 
-	os_unfair_lock_unlock(&info_lock);
+	libsimple_lock_unlock(&info_lock);
 	return 0;
 };
 
 long sys_setaudit_addr(struct auditinfo_addr* auditinfo_addr, int length) {
-	os_unfair_lock_lock(&info_lock);
+	libsimple_lock_lock(&info_lock);
 
 	memcpy(&info, auditinfo_addr, min(length, sizeof(auditinfo_addr_t)));
 
@@ -39,6 +39,6 @@ long sys_setaudit_addr(struct auditinfo_addr* auditinfo_addr, int length) {
 		sys_getentropy(&info.ai_asid, sizeof(info.ai_asid));
 	}
 
-	os_unfair_lock_unlock(&info_lock);
+	libsimple_lock_unlock(&info_lock);
 	return 0;
 };

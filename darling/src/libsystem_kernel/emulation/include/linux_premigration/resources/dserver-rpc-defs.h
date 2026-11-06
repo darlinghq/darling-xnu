@@ -11,7 +11,7 @@
 #include <darling/emulation/other/mach/lkm.h>
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
 #include <darling/emulation/common/simple.h>
-#include <darling/emulation/xnu_syscall/bsd/impl/signal/sigprocmask.h>
+#include <darling/emulation/conversion/signal/duct_signals.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
@@ -280,16 +280,19 @@ __attribute__((format(printf, 1, 2)))
 void __dserver_rpc_hooks_printf(const char* format, ...);
 #define dserver_rpc_hooks_printf __dserver_rpc_hooks_printf
 
-#define dserver_rpc_hooks_atomic_save_t sigset_t
+// The mask is saved and restored in Linux form: a round trip through a BSD
+// sigset_t would drop the real-time signals (and Linux-only ones) that were
+// blocked before the call, unblocking them afterwards.
+#define dserver_rpc_hooks_atomic_save_t linux_sigset_t
 
 static void dserver_rpc_hooks_atomic_begin(dserver_rpc_hooks_atomic_save_t* atomic_save) {
 	// block standard unix signals (not real-time signals, though)
-	sigset_t set = 0x7fffffff;
-	sys_sigprocmask(SIG_BLOCK, &set, atomic_save);
+	linux_sigset_t set = 0x7fffffff;
+	LINUX_SYSCALL(__NR_rt_sigprocmask, 0 /* LINUX_SIG_BLOCK */, &set, atomic_save, sizeof(linux_sigset_t));
 };
 
 static void dserver_rpc_hooks_atomic_end(dserver_rpc_hooks_atomic_save_t* atomic_save) {
-	sys_sigprocmask(SIG_SETMASK, atomic_save, NULL);
+	LINUX_SYSCALL(__NR_rt_sigprocmask, 2 /* LINUX_SIG_SETMASK */, atomic_save, NULL, sizeof(linux_sigset_t));
 };
 
 #define dserver_rpc_hooks_get_interrupt_status() (-LINUX_EINTR)
