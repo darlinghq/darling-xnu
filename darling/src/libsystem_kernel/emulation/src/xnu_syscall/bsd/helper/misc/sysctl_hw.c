@@ -189,22 +189,30 @@ static const struct known_sysctl sysctls_hw_optional[] = {
 /* AT_HWCAP and AT_HWCAP2 from /proc/self/auxv, read once. */
 static int read_hwcaps(unsigned long long caps[2])
 {
-	static int state; /* 0: not read, 1: read, -1: unavailable */
+	static volatile int state = 0; /* 0: not read, 1: read, -1: unavailable, -2: reading */
 	static unsigned long long cached[2];
-	if (state == 0) {
-		int fd = sys_open_nocancel("/proc/self/auxv", BSD_O_RDONLY, 0);
-		state = -1;
-		if (fd >= 0) {
-			unsigned long long pair[2];
-			while (sys_read_nocancel(fd, pair, sizeof(pair)) == sizeof(pair) && pair[0] != 0 /* AT_NULL */) {
-				if (pair[0] == 16 /* AT_HWCAP */) {
-					cached[0] = pair[1];
-					state = 1;
-				} else if (pair[0] == 26 /* AT_HWCAP2 */) {
-					cached[1] = pair[1];
+	if (__builtin_expect(state == 0, 0)) {
+		if (__sync_bool_compare_and_swap(&state, 0, -2)) {
+			int local_state = -1;
+			int fd = sys_open_nocancel("/proc/self/auxv", BSD_O_RDONLY, 0);
+			if (fd >= 0) {
+				unsigned long long pair[2];
+				while (sys_read_nocancel(fd, pair, sizeof(pair)) == sizeof(pair) && pair[0] != 0 /* AT_NULL */) {
+					if (pair[0] == 16 /* AT_HWCAP */) {
+						cached[0] = pair[1];
+						local_state = 1;
+					} else if (pair[0] == 26 /* AT_HWCAP2 */) {
+						cached[1] = pair[1];
+					}
 				}
+				close_internal(fd);
 			}
-			close_internal(fd);
+			__sync_synchronize();
+			state = local_state;
+		} else {
+			while (state == -2) {
+				/* spin wait until initialization completes */
+			}
 		}
 	}
 	caps[0] = cached[0];
