@@ -171,6 +171,13 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 			// return ret;
 			cmd = "PT_THUPDATE"; break;
 		}
+		case XNU_PT_DENY_ATTACH:
+		{
+			// TODO: refuse later attach requests. The request itself
+			// succeeds; callers treat any other result as a failure.
+			ret = 0;
+			cmd = "PT_DENY_ATTACH"; break;
+		}
 	}
 
 	if (cmd != NULL)
