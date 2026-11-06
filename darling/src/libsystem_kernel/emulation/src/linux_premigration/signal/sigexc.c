@@ -283,13 +283,67 @@ static void state_from_kernel(struct linux_ucontext* ctxt, const void* tstate, c
 #endif
 }
 
+// Whether the kernel raised this signal for a fault in the current thread.
+// Such a signal can only be handled by the thread that caused it.
+static bool is_thread_fault(int linux_signum, const struct linux_siginfo* info)
+{
+	if (info == NULL || info->si_code <= 0)
+		return false; // sent by a process, not raised by the kernel
+
+	switch (linux_signum)
+	{
+		case LINUX_SIGSEGV:
+		case LINUX_SIGBUS:
+		case LINUX_SIGILL:
+		case LINUX_SIGFPE:
+		case LINUX_SIGTRAP:
+		case LINUX_SIGSYS:
+			return true;
+		default:
+			return false;
+	}
+}
+
+// The signal arrived on a thread that cannot talk to darlingserver: one that
+// was not created as a Darwin thread (it never had a connection), or any
+// thread once the server is gone. The signal cannot be processed here.
+static void handle_signal_without_server(int linux_signum, struct linux_siginfo* info)
+{
+	int pid = LINUX_SYSCALL0(__NR_getpid);
+	int tid = LINUX_SYSCALL0(__NR_gettid);
+
+	// A signal sent to the process may be handled by any of its threads, so
+	// pass it on to the main thread, keeping its siginfo.
+	if (!is_thread_fault(linux_signum, info) && tid != pid && info != NULL)
+	{
+		if (LINUX_SYSCALL(__NR_rt_tgsigqueueinfo, pid, pid, linux_signum, info) == 0)
+			return;
+	}
+
+	// Otherwise apply the default action, as if no handler were installed.
+	// Returning from a fault handler would just fault again.
+	struct linux_sigaction sa;
+	sa.sa_sigaction = (linux_sig_handler*) NULL; // SIG_DFL
+	sa.sa_mask = 0;
+	sa.sa_flags = LINUX_SA_RESTORER | LINUX_SA_SIGINFO;
+	sa.sa_restorer = sig_restorer;
+
+	LINUX_SYSCALL(__NR_rt_sigaction, linux_signum, &sa, NULL, sizeof(sa.sa_mask));
+
+	linux_sigset_t unblock = (1ull << (linux_signum - 1));
+	LINUX_SYSCALL(__NR_rt_sigprocmask, 1 /* LINUX_SIG_UNBLOCK */,
+			&unblock, NULL, sizeof(linux_sigset_t));
+
+	LINUX_SYSCALL(__NR_tgkill, pid, tid, linux_signum);
+}
+
 void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
 	int status = dserver_rpc_interrupt_enter();
 
 	if (status != 0) {
-		__simple_printf("*** dserver_rpc_interrupt_enter failed with code %d ***\n", status);
-		__simple_abort();
+		handle_signal_without_server(linux_signum, info);
+		return;
 	}
 
 	kern_printf("sigexc_handler(%d, %p, %p)\n", linux_signum, info, ctxt);
