@@ -192,9 +192,8 @@ sysctl_handler(handle_machine)
 {
 #if defined(__aarch64__)
 	// Linux calls this architecture "aarch64"; Darwin (and thus uname -m) calls it "arm64".
-	copyout_string("arm64", (char*) old, oldlen);
+	return copyout_string("arm64", (char*) old, oldlen);
 #else
-	copyout_string(need_uname()->machine, (char*) old, oldlen);
+	return copyout_string(need_uname()->machine, (char*) old, oldlen);
 #endif
-	return 0;
 }

@@ -16,8 +16,7 @@ extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
 
 static sysctl_handler(handle_arm_stub)
 {
-	copyout_string("ARM64", (char*) old, oldlen);
-	return 0;
+	return copyout_string("ARM64", (char*) old, oldlen);
 }
 
 enum {
@@ -48,8 +47,7 @@ sysctl_handler(handle_core_count)
 {
 	int fd = sys_open("/proc/cpuinfo", LINUX_O_RDONLY, 0);
 	if (fd < 0) {
-		copyout_string("1", (char*)old, oldlen);
-		return 0;
+		return copyout_string("1", (char*)old, oldlen);
 	}
 	int count = 0;
 	char line[256];
@@ -63,8 +61,7 @@ sysctl_handler(handle_core_count)
 	if (count == 0) count = 1;
 	char tmp[64];
 	__simple_sprintf(tmp, "%d", count);
-	copyout_string(tmp, (char*)old, oldlen);
-	return 0;
+	return copyout_string(tmp, (char*)old, oldlen);
 }
 
 #else /* x86 */
@@ -162,9 +159,7 @@ sysctl_handler(handle_vendor)
     __cpuid(level, eax, v.ebx, v.ecx, v.edx);
 
 	v.name[12] = 0;
-	copyout_string(v.name, (char*) old, oldlen);
-
-	return 0;
+	return copyout_string(v.name, (char*) old, oldlen);
 }
 
 sysctl_handler(handle_max_basic)
@@ -248,9 +243,7 @@ sysctl_handler(handle_brand_string)
 		}
 
     v.name[48] = 0;
-    copyout_string(v.name, (char*) old, oldlen);
-
-    return 0;
+    return copyout_string(v.name, (char*) old, oldlen);
 }
 
 sysctl_handler(handle_features)
@@ -286,8 +279,7 @@ sysctl_handler(handle_features)
 	}
 	buf[len] = '\0';
 
-	copyout_string(buf, (char*)old, oldlen);
-	return 0;
+	return copyout_string(buf, (char*)old, oldlen);
 }
 
 

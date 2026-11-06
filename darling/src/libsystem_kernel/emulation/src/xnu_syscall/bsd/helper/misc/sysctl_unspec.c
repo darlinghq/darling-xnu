@@ -63,8 +63,7 @@ sysctl_handler(handle_oid_to_name)
 		current = next;
 	}
 
-	copyout_string(sname, old, oldlen);
-	return 0;
+	return copyout_string(sname, old, oldlen);
 }
 
 sysctl_handler(handle_name_to_oid)
