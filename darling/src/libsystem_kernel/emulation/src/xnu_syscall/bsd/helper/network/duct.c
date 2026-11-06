@@ -44,6 +44,17 @@ int sockaddr_fixup_from_linux(struct sockaddr_fixup* out, const void* linux_sock
 
 	out->bsd_family = sfamily_linux_to_bsd(out->linux_family);
 
+	// An unnamed AF_UNIX address (such as the peer of an accepted
+	// connection) ends after the family, and an abstract one starts with
+	// a NUL. Neither has a path to translate, and sun_path holds whatever
+	// the caller's buffer contained.
+	if (out->bsd_family == PF_LOCAL &&
+			(linux_sockaddr_len <= (int) __builtin_offsetof(struct sockaddr_fixup, sun_path) ||
+			 out->sun_path[0] == '\0')) {
+		out->bsd_length = ret;
+		return ret;
+	}
+
 	if (out->bsd_family == PF_LOCAL) {
 		struct vchroot_unexpand_args vc;
 		strcpy(vc.path, out->sun_path);

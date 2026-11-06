@@ -1,5 +1,6 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/network/accept.h>
 
+#include <stddef.h>
 #include <sys/fcntl.h>
 
 #include <darling/emulation/common/base.h>
@@ -12,6 +13,7 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/fcntl.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 
 long sys_accept(int fd, void* from, int* socklen)
 {
@@ -41,9 +43,12 @@ long sys_accept_nocancel(int fd, void* from, int* socklen)
 			fixed = (struct sockaddr_fixup*) from;
 			int conv = sockaddr_fixup_from_linux(fixed, from, *socklen);
 			if (conv < 0)
-				ret = conv;
-			else
-				*socklen = conv;
+			{
+				// the caller never sees the new descriptor, so don't leak it
+				close_internal(accepted_fd);
+				return conv;
+			}
+			*socklen = conv;
 		}
 
 		// on macOS (and BSD), accept-ed sockets inherit O_NONBLOCK
@@ -53,9 +58,6 @@ long sys_accept_nocancel(int fd, void* from, int* socklen)
 		if (parent_flags >= 0 && child_flags >= 0 && (parent_flags & BSD_O_NONBLOCK) != 0) {
 			sys_fcntl_nocancel(accepted_fd, F_SETFL, child_flags | BSD_O_NONBLOCK);
 		}
-
-		if (ret >= 0)
-			ret = accepted_fd;
 	}
 
 	return ret;
