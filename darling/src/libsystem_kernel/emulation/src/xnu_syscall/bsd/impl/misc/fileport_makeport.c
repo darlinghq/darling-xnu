@@ -1,22 +1,28 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/fileport_makeport.h>
 
+#include <sys/fcntl.h>
+
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
-#include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
-#include <darling/emulation/other/mach/lkm.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/fcntl/fcntl.h>
+
+#include <darlingserver/rpc.h>
 
 long sys_fileport_makeport(int fd, int* port)
 {
-	struct fileport_makeport_args args;
+	uint32_t port_name = 0;
+	int ret;
 
-	args.fd = fd;
-	args.port_out = 0;
+	// the descriptor is passed to darlingserver, and passing an invalid one
+	// fails the RPC itself, so report EBADF for it here
+	ret = sys_fcntl_nocancel(fd, F_GETFD, 0);
+	if (ret < 0)
+		return ret;
 
-	int ret = lkm_call(NR_fileport_makeport, &args);
-
+	ret = dserver_rpc_fileport_makeport(fd, &port_name);
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
-	*port = args.port_out;
+	*port = port_name;
 	return 0;
 }
