@@ -2,6 +2,7 @@
 
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/duct_errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/other/mach/lkm.h>
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
