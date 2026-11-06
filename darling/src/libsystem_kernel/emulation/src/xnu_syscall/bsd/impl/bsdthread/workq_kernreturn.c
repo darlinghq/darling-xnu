@@ -320,36 +320,35 @@ resume_thread: // we want the thread to resume, but it might be just to die
 #endif
 }
 
+// A counting semaphore: *sem is the number of tokens, and waiters sleep while it's zero.
+// Returns 0 only if the timeout really expired, as the caller then assumes nobody woke it up.
+// An interrupted wait starts the timeout over, which at worst retires an idle thread late.
 int sem_down(int* sem, int timeout)
 {
-	int result;
 	struct timespec ts = { timeout, 0 };
 
-try_again:
-	result = __sync_add_and_fetch(sem, -1);
-	if (result < 0)
+	while (true)
 	{
-		*sem = -1;
-		result = __linux_futex(sem, FUTEX_WAIT, -1, (timeout != -1) ? &ts : NULL, 0, 0);
+		int value = __atomic_load_n(sem, __ATOMIC_ACQUIRE);
 
-		if (result == -1)
+		while (value > 0)
+		{
+			if (__atomic_compare_exchange_n(sem, &value, value - 1, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+				return 1;
+		}
+
+		long result = LINUX_SYSCALL(__NR_futex, sem, FUTEX_WAIT, 0, (timeout != -1) ? &ts : NULL, NULL, 0);
+
+		// Linux's ETIMEDOUT. EAGAIN means a token just arrived, and EINTR is just a signal.
+		if (result == -110)
 			return 0;
-
-		goto try_again;
 	}
-
-	return 1;
 }
 
 void sem_up(int* sem)
 {
-	int result;
-	result = __sync_add_and_fetch(sem, 1);
-	if (result == 0)
-	{
-		*sem = 1;
-		__linux_futex(sem, FUTEX_WAKE, 1, NULL, 0, 0);
-	}
+	__atomic_fetch_add(sem, 1, __ATOMIC_RELEASE);
+	LINUX_SYSCALL(__NR_futex, sem, FUTEX_WAKE, 1, NULL, NULL, 0);
 }
 
 #define __PTHREAD_PRIORITY_CBIT_USER_INTERACTIVE 0x20

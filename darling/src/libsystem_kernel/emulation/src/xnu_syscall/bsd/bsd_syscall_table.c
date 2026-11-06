@@ -77,6 +77,8 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/process/getpriority.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/process/posix_spawn.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/process/setpriority.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/process/task_inspect_for_pid.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/process/task_read_for_pid.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/process/vfork.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/process/wait4.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/process/waitid.h>
@@ -488,6 +490,8 @@ void* __bsd_syscall_table[600] = {
 	[517] = sys_fclonefileat,
 	[521] = sys_abort_with_payload,
 	[524] = sys_setattrlistat,
+  [538] = sys_task_inspect_for_pid,
+	[539] = sys_task_read_for_pid,
 	[540] = sys_preadv,
 	[541] = sys_pwritev,
 	[542] = sys_preadv_nocancel,
