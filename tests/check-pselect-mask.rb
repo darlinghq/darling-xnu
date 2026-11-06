@@ -10,7 +10,7 @@ Dir.mktmpdir('pselect-mask-') do |dir|
     #include <stddef.h>
     typedef unsigned sigset_t;
     typedef unsigned long long linux_sigset_t;
-    struct bsd_timeval { long tv_sec; int tv_usec; };
+    struct bsd_timespec { long tv_sec; long tv_nsec; };
     #define CANCELATION_POINT() ((void)0)
     #define LINUX_SYSCALL(n, ...) probe(__VA_ARGS__)
     static linux_sigset_t expected;
@@ -27,7 +27,7 @@ Dir.mktmpdir('pselect-mask-') do |dir|
       }
       return 0;
     }
-    long sys_pselect_nocancel(int,void*,void*,void*,struct bsd_timeval*,const sigset_t*);
+    long sys_pselect_nocancel(int,void*,void*,void*,const struct bsd_timespec*,const sigset_t*);
     #{source}
     int main(void) {
       sigset_t mask=4; expected=4; expect_mask=1;
