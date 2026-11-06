@@ -45,6 +45,7 @@ extern int strncmp(const char* str1, const char* str2, __SIZE_TYPE__ num);
 // glibc bits/confname.h
 #define _SC_CLK_TCK 2
 extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
+extern char *strrchr(const char *str, int ch);
 
 int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* buflen)
 {
@@ -156,6 +157,9 @@ const char* next_stat_elem(char** buf)
 {
 	char* start;
 
+	if (!buf || !*buf)
+		return NULL;
+
 	start = *buf;
 
 	if (!*start)
@@ -165,26 +169,39 @@ const char* next_stat_elem(char** buf)
 		char* end;
 
 		start++;
-		end = start;
+		end = strrchr(start, ')');
+		if (!end)
+		{
+			*buf = start + strlen(start);
+			return NULL;
+		}
 
-		while (*end != ')' && *end)
-			end++;
 		*end = '\0';
-		*buf = end+2;
+		end++;
+		if (*end == ' ')
+			end++;
+		*buf = end;
+		return start;
 	}
 	else
 	{
 		char* end;
 
 		end = start;
-		while (*end != ' ' && *end)
+		while (*end != ' ' && *end != '\0')
 			end++;
-		*end = '\0';
-		*buf = end+1;
-	}
 
-	// __simple_printf("Next stat elem: %s\n", start);
-	return start;
+		if (*end == ' ')
+		{
+			*end = '\0';
+			*buf = end + 1;
+		}
+		else
+		{
+			*buf = end;
+		}
+		return start;
+	}
 }
 
 void skip_stat_elems(char** buf, int count)
