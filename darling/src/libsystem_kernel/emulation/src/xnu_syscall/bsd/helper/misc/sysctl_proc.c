@@ -178,7 +178,7 @@ const char* next_stat_elem(char** buf)
 
 		*end = '\0';
 		end++;
-		if (*end == ' ')
+		if (*end != '\0' && *end == ' ')
 			end++;
 		*buf = end;
 		return start;
@@ -279,7 +279,8 @@ static struct kinfo_proc_chain* load_proc(const char* name, int what, int flag)
 
 	// comm
 	READELEM();
-	strncpy(kinfo->kinfo.kp_proc.p_comm, elem, sizeof(kinfo->kinfo.kp_proc.p_comm));
+	strncpy(kinfo->kinfo.kp_proc.p_comm, elem, sizeof(kinfo->kinfo.kp_proc.p_comm) - 1);
+	kinfo->kinfo.kp_proc.p_comm[sizeof(kinfo->kinfo.kp_proc.p_comm) - 1] = '\0';
 
 	// process state
 	READELEM();
