@@ -66,9 +66,6 @@ extern int memcmp(const void* dest, const void* src, __SIZE_TYPE__ n);
 #define LINUX_S_IFMT 00170000
 #define LINUX_S_IFLNK 0120000
 
-#define __simple_printf(...)
-// #define __simple_printf __simple_kprintf // For bug hunting
-
 #endif
 
 static bool next_component(const char* from, const char** end);
@@ -157,15 +154,11 @@ static void init_vchroot_path(void)
 	uint64_t tmp_len;
 	int code = dserver_rpc_vchroot_path(prefix_path, sizeof(prefix_path), &tmp_len);
 	if (code < 0) {
-		__simple_printf("Failed to get vchroot path: %d\n", code);
+		__simple_kprintf("Failed to get vchroot path: %d\n", code);
 		__simple_abort();
 	}
 
 	prefix_path_len = (int)tmp_len;
-
-#ifndef TEST
-	__simple_printf("init_vchroot_path: %s\n", prefix_path);
-#endif
 }
 
 int vchroot_expand(struct vchroot_expand_args* args)
@@ -175,7 +168,6 @@ int vchroot_expand(struct vchroot_expand_args* args)
 #ifndef TEST
 	if (prefix_path_len == -1)
 		init_vchroot_path();
-	__simple_printf("vchroot_expand(): input %s\n", args->path);
 #endif
 
 	ctxt.unknown_component = false;
@@ -205,12 +197,7 @@ int vchroot_expand(struct vchroot_expand_args* args)
 		#endif
 
 		if (rv < 0)
-		{
-#ifndef TEST
-			__simple_printf("    dfd %d -> err %d!\n", args->dfd, rv);
-#endif
 			return rv;
-		}
 		
 		// If we got "/", then turn it into "", because our algorithm will add a trailing slash later
 		if (rv == 1 && ctxt.current_path[0] == '/')
@@ -237,10 +224,6 @@ int vchroot_expand(struct vchroot_expand_args* args)
 		strcpy(args->path, ctxt.current_path);
 	else
 		strcpy(args->path, "/");
-
-#ifndef TEST
-	__simple_printf("    vchroot_expand(): rv=%d, expanded to %s\n", rv, args->path);
-#endif
 
 	return rv;
 }
@@ -519,10 +502,6 @@ int vchroot_fdpath(struct vchroot_fdpath_args* args)
 		memcpy(args->path, EXIT_PATH, sizeof(EXIT_PATH) - 1);
 		memcpy(args->path + sizeof(EXIT_PATH) - 1, link, rv+1);
 	}
-
-#ifndef TEST
-	__simple_printf("fdpath %d -> %s\n", args->fd, args->path);
-#endif
 
 	return 0;
 }
