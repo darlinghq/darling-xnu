@@ -27,6 +27,8 @@ enum {
 	_HW_64BITCAPABLE,
 	_HW_CPUFREQUENCY,
 	_HW_OPTIONAL,
+	_HW_CACHECONFIG,
+	_HW_CACHESIZE,
 };
 
 static sysctl_handler(handle_availcpu);
@@ -44,6 +46,8 @@ static sysctl_handler(handle_machine);
 static sysctl_handler(handle_cpufrequency);
 static sysctl_handler(handle_cpufrequency_compat);
 static sysctl_handler(handle_cachelinesize);
+static sysctl_handler(handle_cacheconfig);
+static sysctl_handler(handle_cachesize);
 
 #if defined(__i386__) || defined(__x86_64__)
 static void cpuid(unsigned int leaf, unsigned int regs[4])
@@ -176,6 +180,8 @@ const struct known_sysctl sysctls_hw[] = {
 	{ .oid = _HW_CPUFREQUENCY, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "cpufrequency", .handler = handle_cpufrequency },
 	{ .oid = HW_CPU_FREQ, .type = CTLTYPE_INT, .exttype = "I", .name = "cpufrequency_compat", .handler = handle_cpufrequency_compat },
 	{ .oid = HW_CACHELINE, .type = CTLTYPE_QUAD, .exttype = "U", .name = "cachelinesize", .handler = handle_cachelinesize },
+	{ .oid = _HW_CACHECONFIG, .type = CTLTYPE_OPAQUE, .exttype = "Q", .name = "cacheconfig", .handler = handle_cacheconfig },
+	{ .oid = _HW_CACHESIZE, .type = CTLTYPE_OPAQUE, .exttype = "Q", .name = "cachesize", .handler = handle_cachesize },
 #if defined(__i386__) || defined(__x86_64__)
 	{ .oid = _HW_OPTIONAL, .type = CTLTYPE_NODE, .exttype = "", .name = "optional", .subctls = sysctls_hw_optional },
 #endif
@@ -349,5 +355,121 @@ sysctl_handler(handle_cachelinesize)
 	// the same reason (osfmk/arm/proc_reg.h).
 	sysctl_handle_size(sizeof(unsigned long long));
 	*((unsigned long long*) old) = 64;
+	return 0;
+}
+
+// hw.cacheconfig and hw.cachesize are arrays of this many 64-bit values,
+// indexed by cache level; index 0 describes memory.
+#define CACHE_LEVELS 10
+
+// The prefix has no /sys of its own; the host's is under /Volumes/SystemRoot.
+#define HOST_CACHE_DIR "/Volumes/SystemRoot/sys/devices/system/cpu/cpu0/cache/"
+
+static unsigned long long parse_number(const char* str, const char** end)
+{
+	unsigned long long value = 0;
+
+	while (*str >= '0' && *str <= '9')
+		value = value * 10 + (*str++ - '0');
+	if (end != NULL)
+		*end = str;
+	return value;
+}
+
+// Counts the CPUs in a Linux CPU list such as "0-3,8-11".
+static unsigned int count_cpu_list(const char* list)
+{
+	unsigned int count = 0;
+
+	while (*list >= '0' && *list <= '9')
+	{
+		unsigned long long first = parse_number(list, &list), last = first;
+
+		if (*list == '-')
+			last = parse_number(list + 1, &list);
+		if (last >= first)
+			count += last - first + 1;
+		if (*list != ',')
+			break;
+		list++;
+	}
+	return count;
+}
+
+// Looks up the data or unified cache of the given level (1 = L1) on the
+// host's first CPU. Instruction caches are not reported in these arrays.
+static bool host_cache_level(unsigned int level, unsigned long long* size, unsigned int* sharing)
+{
+	char path[128], buf[64];
+
+	for (int index = 0; index < CACHE_LEVELS; index++)
+	{
+		const char* end;
+
+		__simple_sprintf(path, HOST_CACHE_DIR "index%d/level", index);
+		if (!read_string(path, buf, sizeof(buf)))
+			break;
+		if (parse_number(buf, NULL) != level)
+			continue;
+
+		__simple_sprintf(path, HOST_CACHE_DIR "index%d/type", index);
+		if (!read_string(path, buf, sizeof(buf)) || strncmp(buf, "Instruction", 11) == 0)
+			continue;
+
+		__simple_sprintf(path, HOST_CACHE_DIR "index%d/size", index);
+		if (!read_string(path, buf, sizeof(buf)))
+			continue;
+		*size = parse_number(buf, &end);
+		if (*end == 'K')
+			*size <<= 10;
+		else if (*end == 'M')
+			*size <<= 20;
+
+		__simple_sprintf(path, HOST_CACHE_DIR "index%d/shared_cpu_list", index);
+		*sharing = read_string(path, buf, sizeof(buf)) ? count_cpu_list(buf) : 0;
+		if (*sharing == 0)
+			*sharing = 1;
+		return true;
+	}
+	return false;
+}
+
+// [0] is the number of CPUs sharing memory, [n] the number sharing a level n cache.
+sysctl_handler(handle_cacheconfig)
+{
+	unsigned long long* config = (unsigned long long*) old;
+
+	sysctl_handle_size(CACHE_LEVELS * sizeof(*config));
+	memset(config, 0, CACHE_LEVELS * sizeof(*config));
+	config[0] = gethostinfo()->logical_cpu_max;
+	for (unsigned int level = 1; level < CACHE_LEVELS; level++)
+	{
+		unsigned long long size;
+		unsigned int sharing;
+
+		if (!host_cache_level(level, &size, &sharing))
+			break;
+		config[level] = sharing;
+	}
+	return 0;
+}
+
+// [0] is the memory size, [n] the size of the level n cache in bytes.
+sysctl_handler(handle_cachesize)
+{
+	unsigned long long* sizes = (unsigned long long*) old;
+
+	sysctl_handle_size(CACHE_LEVELS * sizeof(*sizes));
+	memset(sizes, 0, CACHE_LEVELS * sizeof(*sizes));
+	sizes[0] = gethostinfo()->max_mem;
+	for (unsigned int level = 1; level < CACHE_LEVELS; level++)
+	{
+		unsigned long long size;
+		unsigned int sharing;
+
+		if (!host_cache_level(level, &size, &sharing))
+			break;
+		sizes[level] = size;
+	}
 	return 0;
 }
