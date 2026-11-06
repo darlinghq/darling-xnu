@@ -5,6 +5,7 @@
 #include <pthread/tsd_private.h>
 
 #include <darling/emulation/common/base.h>
+#include <darling/emulation/common/tsd.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/signal/sigexc.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
@@ -34,6 +35,18 @@ struct _pthread_registration_data {
 
 static struct _pthread_registration_data g_pth_regdata;
 
+void set_thread_handles(uintptr_t pthread_handle)
+{
+	uintptr_t tsd = pthread_handle + g_pth_regdata.tsd_offset;
+	uintptr_t dispatch_qaddr = tsd + g_pth_regdata.dispatch_queue_offset;
+	uintptr_t* cancel_marked = (uintptr_t*) tsd + __PTK_DARLING_CANCEL_MARKED;
+
+	*cancel_marked = 0;
+	if (dserver_rpc_set_thread_handles(pthread_handle, dispatch_qaddr, (uintptr_t) cancel_marked) < 0) {
+		__simple_abort();
+	}
+}
+
 long sys_bsdthread_register(void* thread_start, void* wqthread, int pthsize,
 		const struct _pthread_registration_data* pth_regdata,
 		unsigned long pth_regdata_len, unsigned long long dpq_offset)
@@ -43,11 +56,7 @@ long sys_bsdthread_register(void* thread_start, void* wqthread, int pthsize,
 	wqueue_entry_point = (bsdwqthread_entry_t) wqthread;
 	g_pth_regdata = *pth_regdata;
 
-	uintptr_t pthread_handle = _pthread_getspecific_direct(_PTHREAD_TSD_SLOT_PTHREAD_SELF);
-	uintptr_t dispatch_qaddr = pthread_handle + g_pth_regdata.tsd_offset + g_pth_regdata.dispatch_queue_offset;
-	if (dserver_rpc_set_thread_handles(pthread_handle, dispatch_qaddr) < 0) {
-		__simple_abort();
-	}
+	set_thread_handles(_pthread_getspecific_direct(_PTHREAD_TSD_SLOT_PTHREAD_SELF));
 
 	return /* WORKQ_FEATURE_KEVENT | WORKQ_FEATURE_FINEPRIO | PTHREAD_FEATURE_QOS_MAINTENANCE 
 		| PTHREAD_FEATURE_DISPATCHFUNC | PTHREAD_FEATURE_QOS_DEFAULT */ 0;
@@ -61,11 +70,7 @@ void pthread_entry_point_wrapper(void* self, int thread_port, void* funptr,
 {
 	sigexc_thread_setup();
 
-	uintptr_t pthread_handle = (unsigned long) self;
-	uintptr_t dispatch_qaddr = pthread_handle + g_pth_regdata.tsd_offset + g_pth_regdata.dispatch_queue_offset;
-	if (dserver_rpc_set_thread_handles(pthread_handle, dispatch_qaddr) < 0) {
-		__simple_abort();
-	}
+	set_thread_handles((uintptr_t) self);
 
 	// No additional function calls should occur beyond this point. Otherwise, we will risk our
 	// registers being call-clobbered. I recommend reading the following doc for more details:

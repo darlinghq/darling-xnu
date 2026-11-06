@@ -13,6 +13,8 @@
 #include <darling/emulation/other/mach/lkm.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 #include <darling/emulation/common/guarded/table.h>
+#include <darling/emulation/common/tsd.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/bsdthread_register.h>
 
 #include <darlingserver/rpc.h>
 
@@ -69,6 +71,7 @@ long sys_fork(void)
 			__simple_printf("Failed to checkin with darlingserver after fork\n");
 			__simple_abort();
 		}
+		set_thread_handles(_pthread_getspecific_direct(_PTHREAD_TSD_SLOT_PTHREAD_SELF));
 		if (wdfd >= 0)
 			sys_fchdir(wdfd);
 
