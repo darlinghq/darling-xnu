@@ -156,6 +156,11 @@ void wqueue_entry_point_asm_jump(void* self, int thread_port, void* stackaddr,
 		// `_start_wqthread` does not expect the stack to be aligned (using the 
 		// call instruction will add the return address to the stack, causing 
 		// it to be aligned).
+		// The kernel enters a workqueue thread on an empty stack, including when reusing one.
+		// self sits right above the usable stack. Without this, every reuse of a thread
+		// keeps the frames of the syscall that parked it, until the stack overflows.
+		"movq %%rdi, %%rsp\n"
+		"xorq %%rbp, %%rbp\n"
 		"jmpq *%[wqueue_entry_point]\n"
 		::
 		// Arguments follow the usual x86_64 calling conventions.
