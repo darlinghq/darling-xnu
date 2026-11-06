@@ -241,9 +241,6 @@ static long _proc_pidonfo_uniqinfo(int32_t pid, void* buffer, int32_t bufsize)
 	return 1;
 }
 
-// glibc bits/confname.h
-#define _SC_CLK_TCK 2
-
 static long _proc_pidinfo_tbsdinfo(int32_t pid, void* buffer, int32_t bufsize)
 {
 	struct proc_bsdinfo* info = (struct proc_bsdinfo*) buffer;
@@ -292,40 +289,12 @@ static long _proc_pidinfo_tbsdinfo(int32_t pid, void* buffer, int32_t bufsize)
 
 	uint64_t starttime = __simple_atoi(elem, NULL);
 
-	struct rdline_buffer rbuf;
-	int statfd = sys_open("/proc/stat", BSD_O_RDONLY, 0);
-
-	if (statfd < 0)
+	uint64_t start_sec, start_usec;
+	if (!proc_start_time(starttime, &start_sec, &start_usec))
 		return -ESRCH;
 
-	_readline_init(&rbuf);
-
-	uint64_t btime;
-	const char* line = NULL;
-
-	while ((line = _readline(statfd, &rbuf)) != NULL)
-	{
-		if (strncmp(line, "btime ", 6) == 0)
-		{
-			line += 6;
-			btime = __simple_atoi(line, NULL);
-			break;
-		}
-	}
-
-	close_internal(statfd);
-
-	// if we see `line == NULL`, we didn't break out early, so we didn't see "btime"
-	if (line == NULL) {
-		return -ESRCH;
-	}
-
-	long ticks_per_sec = native_sysconf(_SC_CLK_TCK);
-	uint64_t starttime_secs = starttime / ticks_per_sec;
-	uint64_t starttime_usecs = (starttime % ticks_per_sec) * 1000000 / ticks_per_sec;
-
-	info->pbi_start_tvsec = btime + starttime_secs;
-	info->pbi_start_tvusec = starttime_usecs;
+	info->pbi_start_tvsec = start_sec;
+	info->pbi_start_tvusec = start_usec;
 
 	memcpy(info->pbi_comm, shortinfo.pbsi_comm, sizeof(info->pbi_comm));
 

@@ -13,6 +13,8 @@
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/conversion/dirent/getdirentries.h>
 #include <darling/emulation/conversion/fcntl/open.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
+#include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
 
 #include <darlingserver/rpc.h>
 
@@ -38,6 +40,10 @@ extern __SIZE_TYPE__ strlen(const char* ptr);
 extern char* strcpy(char* dst, const char* src);
 extern void* memset(void*, int, __SIZE_TYPE__);
 extern void* memcpy(void* dest, const void*, __SIZE_TYPE__);
+extern int strncmp(const char* str1, const char* str2, __SIZE_TYPE__ num);
+
+// glibc bits/confname.h
+#define _SC_CLK_TCK 2
 extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
 
 int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* buflen)
@@ -182,6 +188,41 @@ void skip_stat_elems(char** buf, int count)
 		next_stat_elem(buf);
 }
 
+bool proc_start_time(uint64_t starttime, uint64_t* sec, uint64_t* usec)
+{
+	struct rdline_buffer rbuf;
+	int statfd = sys_open("/proc/stat", BSD_O_RDONLY, 0);
+
+	if (statfd < 0)
+		return false;
+
+	_readline_init(&rbuf);
+
+	uint64_t btime;
+	const char* line = NULL;
+
+	while ((line = _readline(statfd, &rbuf)) != NULL)
+	{
+		if (strncmp(line, "btime ", 6) == 0)
+		{
+			line += 6;
+			btime = __simple_atoi(line, NULL);
+			break;
+		}
+	}
+
+	close_internal(statfd);
+
+	// if we see `line == NULL`, we didn't break out early, so we didn't see "btime"
+	if (line == NULL)
+		return false;
+
+	long ticks_per_sec = native_sysconf(_SC_CLK_TCK);
+	*sec = btime + starttime / ticks_per_sec;
+	*usec = (starttime % ticks_per_sec) * 1000000 / ticks_per_sec;
+	return true;
+}
+
 static struct kinfo_proc_chain* load_proc(const char* name, int what, int flag)
 {
 	char path[56];
@@ -261,13 +302,23 @@ static struct kinfo_proc_chain* load_proc(const char* name, int what, int flag)
 	if (kinfo->kinfo.kp_eproc.e_tdev != 0)
 		kinfo->kinfo.kp_proc.p_flag |= P_CONTROLT;
 
-	skip_stat_elems(&statptr, NULL);
+	skip_stat_elems(&statptr, 10);
 
 	READELEM();
 	kinfo->kinfo.kp_proc.p_priority = __simple_atoi(elem, NULL);
 
 	READELEM();
-	kinfo->kinfo.kp_proc.p_nice = __simple_atoi(elem, NULL);
+	kinfo->kinfo.kp_proc.p_nice = elem[0] == '-' ? -__simple_atoi(elem + 1, NULL) : __simple_atoi(elem, NULL);
+
+	skip_stat_elems(&statptr, 2);
+
+	READELEM();
+	uint64_t start_sec, start_usec;
+	if (proc_start_time(__simple_atoi(elem, NULL), &start_sec, &start_usec))
+	{
+		kinfo->kinfo.kp_proc.p_starttime.tv_sec = start_sec;
+		kinfo->kinfo.kp_proc.p_starttime.tv_usec = start_usec;
+	}
 
 	// In the container, everything is owned by us
 	if (uid == -1 || gid == -1)
