@@ -119,8 +119,8 @@ const struct known_sysctl sysctls_machdep[] = {
 
 #ifndef setup
 #define setup(value)\
-            unsigned int level = 0;     \
-            unsigned int eax = value;   \
+            unsigned int level = value; \
+            unsigned int eax;           \
             unsigned int ebx;           \
             unsigned int edx;           \
             unsigned int ecx
@@ -234,8 +234,7 @@ sysctl_handler(handle_brand_string)
 
 		for (int i = 1; i < 4; i++)
 		{
-				eax = 0x80000000+i;
-				__cpuid(level, eax, ebx, ecx, edx);
+				__cpuid(0x80000001 + i, eax, ebx, ecx, edx);
 				v.brand[0x0+(i-1)*4] = eax;
 				v.brand[0x1+(i-1)*4] = ebx;
 				v.brand[0x2+(i-1)*4] = ecx;
