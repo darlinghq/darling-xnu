@@ -63,6 +63,26 @@ L___machdep_syscall_table$non_lazy_ptr:
 
 .subsections_via_symbols
 
+#elif defined(__aarch64__)
+
+__darling_machdep_syscall:
+	// Save fp/lr — we make a function call (blr x9) and then RET back to caller.
+	stp  x29, x30, [sp, #-16]!
+	mov  x29, sp
+	and  x16, x16, #0xff
+	adrp x9, ___machdep_syscall_table@GOTPAGE
+	ldr  x9, [x9, ___machdep_syscall_table@GOTPAGEOFF]
+	ldr  x9, [x9, x16, lsl #3]    // table[syscall_nr * 8]
+	cbz  x9, .no_sys
+	blr  x9                        // call handler, args already in x0-x7
+.std_ret:
+	ldp  x29, x30, [sp], #16
+	ret
+.no_sys:
+	mov  x0, x16
+	bl   ___unknown_syscall_machdep
+	b    .std_ret
+
 #else
 #	error Missing assembly
 #endif

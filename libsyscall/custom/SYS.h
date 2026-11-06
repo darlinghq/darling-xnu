@@ -475,6 +475,24 @@ pseudo:									;\
  * TBD
  */
 
+#ifdef DARLING
+/* See identical comment in darling/.../bsdsyscalls/SYS.h: bl clobbers LR. */
+#define DO_SYSCALL(num, cerror)                 \
+	mov   x16, #(num)                     %%\
+	stp   x29, x30, [sp, #-16]!           %%\
+	mov   x29, sp                         %%\
+	bl    __darling_bsd_syscall           %%\
+	ldp   x29, x30, [sp], #16             %%\
+	cmp   x0, #-4095                      %%\
+	b.lo  2f                              %%\
+	neg   x0, x0                          %%\
+	ARM64_STACK_PROLOG                    %%\
+	PUSH_FRAME                            %%\
+	bl    _##cerror                       %%\
+	POP_FRAME                             %%\
+	ARM64_STACK_EPILOG                    %%\
+2:
+#else
 #define DO_SYSCALL(num, cerror)                 \
 	mov   x16, #(num)                     %%\
 	svc   #SWI_SYSCALL                    %%\
@@ -485,6 +503,7 @@ pseudo:									;\
 	POP_FRAME                             %%\
 	ARM64_STACK_EPILOG                    %%\
 2:
+#endif
 
 #define MI_GET_ADDRESS(reg,var)  \
    adrp	reg, var@page      %%\

@@ -25,11 +25,14 @@ long sys_poll_nocancel(struct pollfd* fds, unsigned int nfds, int timeout)
 	#if defined(__NR_poll)
 		ret = LINUX_SYSCALL(__NR_poll, fds, nfds, timeout);
 	#else
+		// Bug fix: tv_sec / tv_nsec were swapped. Linux uses ppoll() when
+		// __NR_poll is unavailable (arm64). The poll() timeout argument is in
+		// MILLISECONDS — split into seconds and nanoseconds-within-second.
 		struct ppoll_timespec timeout_ts = {
-			.tv_sec = (timeout % 1000) * 1000000,
-			.tv_nsec = timeout / 1000
+			.tv_sec  = timeout / 1000,
+			.tv_nsec = (long)(timeout % 1000) * 1000000L
 		};
-		
+
 		ret = LINUX_SYSCALL(__NR_ppoll, fds, nfds, (timeout < 0) ? NULL : &timeout_ts, NULL);
 	#endif
 	if (ret < 0)

@@ -96,6 +96,44 @@ __darling_bsd_syscall_exit:
 
 .subsections_via_symbols
 
+#elif defined(__aarch64__)
+
+__darling_bsd_syscall:
+	// Save fp/lr around the blr; otherwise ret returns to itself.
+	stp  x29, x30, [sp, #-16]!
+	mov  x29, sp
+Lentry_hook:
+	// NOP sled for xtrace hook (ARM64 NOP = 0xd503201f)
+	nop
+	nop
+	nop
+	nop
+	adrp x9, ___bsd_syscall_table@GOTPAGE
+	ldr  x9, [x9, ___bsd_syscall_table@GOTPAGEOFF]
+	ldr  x9, [x9, x16, lsl #3]    // table[syscall_nr * 8]
+	cbz  x9, .no_sys
+	blr  x9                        // call handler, args already in x0-x7
+.std_ret:
+Lexit_hook:
+	nop
+	nop
+	nop
+	nop
+	ldp  x29, x30, [sp], #16
+	ret
+.no_sys:
+	mov  x0, x16
+	bl   ___unknown_syscall
+	b    .std_ret
+
+.section        __DATA,__data
+.globl __darling_bsd_syscall_entry
+.globl __darling_bsd_syscall_exit
+__darling_bsd_syscall_entry:
+	.quad Lentry_hook
+__darling_bsd_syscall_exit:
+	.quad Lexit_hook
+
 #else
 #	error Missing assembly
 #endif

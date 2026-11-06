@@ -1,5 +1,8 @@
 // This is needed so stat is not stat64
+// On ARM64, only 64-bit inodes are available, so this is not needed/allowed
+#if !defined(__aarch64__) && !defined(__arm64__)
 #define _DARWIN_NO_64_BIT_INODE
+#endif
 
 // NOTE: in this case, platform-include/sys/stat.h is used
 #include <sys/stat.h>
@@ -29,7 +32,12 @@ void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat)
 	stat->st_flags = 0;
 }
 
+// On ARM64, stat64 is the same as stat (only 64-bit inodes exist)
+#if defined(__aarch64__) || defined(__arm64__)
+void stat_linux_to_bsd64(const struct linux_stat* lstat, struct stat* stat)
+#else
 void stat_linux_to_bsd64(const struct linux_stat* lstat, struct stat64* stat)
+#endif
 {
 	stat->st_dev = lstat->st_dev;
 	stat->st_mode = lstat->st_mode;

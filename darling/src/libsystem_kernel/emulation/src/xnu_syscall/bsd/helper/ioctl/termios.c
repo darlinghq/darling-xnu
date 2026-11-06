@@ -30,6 +30,8 @@ static void lflag_linux_to_bsd(unsigned int l, unsigned long* b);
 static void lflag_bsd_to_linux(unsigned long b, unsigned int* l);
 static void speed_linux_to_bsd(unsigned int l, unsigned long* b);
 static void speed_bsd_to_linux(unsigned long b,	unsigned int* l);
+static void cflag_speed_linux_to_bsd(unsigned int cflag, unsigned long* ispeed, unsigned long* ospeed);
+static void cflag_speed_bsd_to_linux(unsigned long ispeed, unsigned long ospeed, unsigned int* cflag);
 static void sgflag_linux_to_bsd(const struct linux_termios* tos, short* sgflags);
 static void sgflag_bsd_to_linux(const short sgflags, struct linux_termios* tos);
 
@@ -52,17 +54,7 @@ int handle_termios(int fd, unsigned int cmd, void* arg, int* retval)
 			cflag_linux_to_bsd(in.c_cflag, &out->c_cflag);
 			lflag_linux_to_bsd(in.c_lflag, &out->c_lflag);
 
-			if (!(in.c_cflag & (LINUX_CBAUD|LINUX_CBAUDEX)))
-			{
-				speed_linux_to_bsd(in.c_ispeed, &out->c_ispeed);
-				speed_linux_to_bsd(in.c_ospeed, &out->c_ospeed);
-			}
-			else
-			{
-				speed_linux_to_bsd(in.c_cflag & (LINUX_CBAUD|LINUX_CBAUDEX),
-						&out->c_ispeed);
-				out->c_ospeed = out->c_ispeed;
-			}
+			cflag_speed_linux_to_bsd(in.c_cflag, &out->c_ispeed, &out->c_ospeed);
 
 			return IOCTL_HANDLED;
 		}
@@ -88,8 +80,7 @@ int handle_termios(int fd, unsigned int cmd, void* arg, int* retval)
 			oflag_bsd_to_linux(in->c_oflag, &out.c_oflag);
 			cflag_bsd_to_linux(in->c_cflag, &out.c_cflag);
 			lflag_bsd_to_linux(in->c_lflag, &out.c_lflag);
-			speed_bsd_to_linux(in->c_ispeed, &out.c_ispeed);
-			speed_bsd_to_linux(in->c_ospeed, &out.c_ospeed);
+			cflag_speed_bsd_to_linux(in->c_ispeed, in->c_ospeed, &out.c_cflag);
 
 			*retval = __real_ioctl(fd, op, &out);
 			
@@ -103,8 +94,7 @@ int handle_termios(int fd, unsigned int cmd, void* arg, int* retval)
 
 			*retval = __real_ioctl(fd, LINUX_TCGETS, &in);
 			
-			speed_linux_to_bsd(in.c_ispeed, &ispeed);
-			speed_linux_to_bsd(in.c_ospeed, &ospeed);
+			cflag_speed_linux_to_bsd(in.c_cflag, &ispeed, &ospeed);
 			out->sg_ispeed = ispeed;
 			out->sg_ospeed = ospeed;
 
@@ -763,4 +753,29 @@ static void sgflag_bsd_to_linux(const short sgflags, struct linux_termios* tos)
 		tos->c_cc[LINUX_VMIN] = 1;
 		tos->c_cc[LINUX_VTIME] = 0;
 	}
+}
+
+static void cflag_speed_linux_to_bsd(unsigned int cflag, unsigned long* ispeed, unsigned long* ospeed)
+{
+	unsigned int ibaud = (cflag & LINUX_CIBAUD) >> LINUX_IBSHIFT;
+
+	speed_linux_to_bsd(cflag & LINUX_CBAUD, ospeed);
+	if (ibaud == LINUX_B0)
+		*ispeed = *ospeed;
+	else
+		speed_linux_to_bsd(ibaud, ispeed);
+}
+
+static void cflag_speed_bsd_to_linux(unsigned long ispeed, unsigned long ospeed, unsigned int* cflag)
+{
+	unsigned int obaud, ibaud;
+
+	speed_bsd_to_linux(ospeed, &obaud);
+	speed_bsd_to_linux(ispeed, &ibaud);
+
+	*cflag &= ~(LINUX_CBAUD | LINUX_CIBAUD);
+	*cflag |= obaud;
+	// A zero input speed means "same as the output speed" on both systems.
+	if (ispeed != 0 && ibaud != obaud)
+		*cflag |= ibaud << LINUX_IBSHIFT;
 }

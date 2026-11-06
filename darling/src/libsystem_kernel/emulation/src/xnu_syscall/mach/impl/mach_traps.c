@@ -5,6 +5,7 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
 #include <mach/mach_init.h>
 
 #include <darling/emulation/common/base.h>
@@ -331,16 +332,29 @@ kern_return_t _kernelrpc_mach_vm_map_trap_impl(
 	if (cur_protection & VM_PROT_EXECUTE)
 		prot |= PROT_EXEC;
 
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+	// XNU fails a fixed request over existing mappings (KERN_NO_SPACE) unless
+	// VM_FLAGS_OVERWRITE is given; callers such as libmalloc's nano region probe rely on that.
+	const int fixed_no_overwrite =!(flags & VM_FLAGS_ANYWHERE) && !(flags & VM_FLAGS_OVERWRITE);
 	if (!(flags & VM_FLAGS_ANYWHERE))
-		posix_flags |= MAP_FIXED;
+		posix_flags |= fixed_no_overwrite ? MAP_FIXED_NOREPLACE : MAP_FIXED;
 	if ((flags >> 24) == VM_MEMORY_REALLOC)
 		addr = (void*)__linux_mremap(((char*)*address) - 0x1000, 0x1000, 0x1000 + size, 0, NULL);
-	else
+	else {
 		addr = mmap((void*)*address, size, prot, posix_flags, -1, 0);
-	
+	}
+
 	if (addr == MAP_FAILED)
 	{
-		return KERN_FAILURE;
+		return (fixed_no_overwrite && errno == EEXIST) ? KERN_NO_SPACE : KERN_FAILURE;
+	}
+	if (fixed_no_overwrite && (uintptr_t)addr != (uintptr_t)*address)
+	{
+		// Kernels without MAP_FIXED_NOREPLACE treat it as a hint.
+		munmap(addr, size);
+		return KERN_NO_SPACE;
 	}
 	
 	if (mask && ( ((uintptr_t)addr) & mask) != 0)

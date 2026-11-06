@@ -13,6 +13,7 @@
 #include <darling/emulation/common/guarded/table.h>
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
 #include <darling/emulation/linux_premigration/ext/sys/linux_time.h>
+#include <darling/emulation/xnu_syscall/machdep/impl/tls.h>
 
 #include <elfcalls.h>
 
@@ -53,6 +54,23 @@ void mach_driver_init(const char** applep)
 	_libkernel_functions->dyld_func_lookup("__dyld_get_elfcalls", (void**)&p2);
 
 	_elfcalls = p2();
+
+#if defined(__aarch64__)
+	if (applep) {
+		// dyld links its own static copy of the TSD table (tls.c) and registered the main thread's
+		// TSD base (its main pthread structure) only there. Register the same base in this library's
+		// table; otherwise the main thread falls back to the shared zero TSD page, and libpthread
+		// adopts a pthread structure with thread_id 0 (breaking mutex ownership checks).
+		void* (*dyld_get_tsd_base)(void) = NULL;
+		if (_libkernel_functions && _libkernel_functions->dyld_func_lookup)
+			_libkernel_functions->dyld_func_lookup("__dyld_get_tsd_base", (void**)&dyld_get_tsd_base);
+		if (dyld_get_tsd_base && !sys_thread_has_tsd_base()) {
+			void* base = dyld_get_tsd_base();
+			if (base != NULL)
+				sys_thread_set_tsd_base(base, 0);
+		}
+	}
+#endif
 
 	if (applep) {
 		// this is not a fork; guard the main thread's RPC FD we get from mldr
