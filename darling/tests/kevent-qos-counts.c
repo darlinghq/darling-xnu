@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <time.h>
 
 /* Skip the Darwin-only headers the unit includes; provide just what it uses. */
@@ -15,6 +16,7 @@
 #define _ASM_GENERAL_UNISTD_H
 #define LINUX_KQUEUE_H
 #define WORKQ_KERNRETURN_H
+#define LINUX_MMAN_H
 
 #define KEVENT_FLAG_IMMEDIATE 0x000001
 #define KEVENT_FLAG_WORKQ 0x000020
@@ -57,6 +59,8 @@ long sys_kqueue(void);
 long sys_fcntl(int fd, int cmd, long arg);
 long sys_workq_kernreturn(int options, void *item, int affinity, int prio);
 int sem_down(int *sem, int timeout);
+void *sys_mmap(void *start, unsigned long len, int prot, int flags, int fd, long pos);
+long sys_munmap(void *addr, unsigned long len);
 
 #include "../src/libsystem_kernel/emulation/src/xnu_syscall/bsd/impl/kqueue/kevent_qos.c"
 
@@ -89,6 +93,25 @@ long sys_workq_kernreturn(int options, void *item, int affinity, int prio)
 }
 int sem_down(int *sem, int timeout) { (void) sem; (void) timeout; return 0; }
 
+/* Large batches must be mapped (libsystem_kernel cannot use malloc), and every mapping released. */
+static int live_mappings, total_mappings;
+
+void *sys_mmap(void *start, unsigned long len, int prot, int flags, int fd, long pos)
+{
+	void *p = mmap(start, len, prot, flags, fd, pos);
+	if (p == MAP_FAILED)
+		return (void *) (long) -ENOMEM;
+	live_mappings++;
+	total_mappings++;
+	return p;
+}
+
+long sys_munmap(void *addr, unsigned long len)
+{
+	live_mappings--;
+	return munmap(addr, len);
+}
+
 static int failures;
 
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } } while (0)
@@ -104,8 +127,11 @@ int main(void)
 		for (int i = 0; i < n; i++)
 			changes[i].ident = i;
 
+		total_mappings = 0;
 		long rv = sys_kevent_qos(5, changes, n, events, n, NULL, NULL, 0);
 		CHECK(rv == n, "n=%d plain: rv=%ld", n, rv);
+		CHECK(live_mappings == 0, "n=%d plain: %d buffers not unmapped", n, live_mappings);
+		CHECK(total_mappings == (n > 16 ? 2 : 0), "n=%d plain: %d buffers mapped", n, total_mappings);
 		CHECK(last_nchanges == n && last_nevents == n, "n=%d plain: forwarded %d/%d", n, last_nchanges, last_nevents);
 		for (int i = 0; i < n; i++)
 			if (events[i].ident != (uint64_t) (1000 + i)) {
