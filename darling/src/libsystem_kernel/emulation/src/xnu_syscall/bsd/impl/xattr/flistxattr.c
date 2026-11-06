@@ -47,19 +47,8 @@ long sys_flistxattr(int fd, char* namebuf, unsigned long size, int options)
 		path[ret] = '\0';
 	}
 
-	int call_nr = is_link ? __NR_llistxattr : __NR_flistxattr;
-	const char* call_path = is_link ? path : NULL;
-	int call_fd = is_link ? -1 : fd;
-
-	char stack_buf[1024];
-	char* l_buf = NULL;
-	long l_size = fetch_linux_xattr_list(call_nr, call_path, call_fd, &l_buf, stack_buf, sizeof(stack_buf));
-	if (l_size <= 0)
-		return l_size;
-
-	long result = translate_linux_xattr_list(l_buf, l_size, namebuf, size);
-	if (l_buf && l_buf != stack_buf)
-		free(l_buf);
-
-	return result;
+	if (is_link)
+		return xattr_list_to_darwin(__NR_llistxattr, (long) path, namebuf, size);
+	else
+		return xattr_list_to_darwin(__NR_flistxattr, fd, namebuf, size);
 }

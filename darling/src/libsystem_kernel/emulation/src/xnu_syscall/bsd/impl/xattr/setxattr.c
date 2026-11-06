@@ -11,7 +11,7 @@ long sys_setxattr(const char* path, const char* name, const void* value,
 		unsigned long size, unsigned int pos, int options)
 {
 	int ret;
-	char l_name[XATTR_NAME_MAX_LEN];
+	char linux_name[XATTR_LINUX_NAME_BUFSIZE];
 	int l_flags;
 	struct vchroot_expand_args vc;
 
@@ -26,7 +26,9 @@ long sys_setxattr(const char* path, const char* name, const void* value,
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
-	const char* linux_name = xattr_name_to_linux(name, l_name, sizeof(l_name));
+	ret = xattr_name_to_linux(name, linux_name);
+	if (ret < 0)
+		return ret;
 	l_flags = xattr_options_to_linux_flags(options);
 
 	if (options & DARWIN_XATTR_NOFOLLOW)

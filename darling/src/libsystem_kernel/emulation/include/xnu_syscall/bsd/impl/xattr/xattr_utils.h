@@ -1,80 +1,69 @@
 #ifndef LINUX_XATTR_UTILS_H
 #define LINUX_XATTR_UTILS_H
 
+#include <stddef.h>
+#include <sys/errno.h>
+#include <sys/mman.h>
+
+#include <darling/emulation/common/base.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/duct_errno.h>
+#include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/mman/mman.h>
 
-#ifndef ENOATTR
-#define ENOATTR 93
-#endif
+#define DARWIN_XATTR_NOFOLLOW   0x0001
+#define DARWIN_XATTR_CREATE     0x0002
+#define DARWIN_XATTR_REPLACE    0x0004
+#define DARWIN_XATTR_MAXNAMELEN 127
 
-#ifndef ERANGE
-#define ERANGE 34
-#endif
+#define LINUX_XATTR_CREATE      0x1
+#define LINUX_XATTR_REPLACE     0x2
+#define LINUX_XATTR_LIST_MAX    65536
 
-#ifndef E2BIG
-#define E2BIG 7
-#endif
-
-#ifndef ENOMEM
-#define ENOMEM 12
-#endif
-
-#define LINUX_ENODATA 61
-#define LINUX_ERANGE  34
-
-extern void* malloc(__SIZE_TYPE__ size);
-extern void free(void* ptr);
+/*
+ * Darwin extended attribute names have no namespace, while Linux requires
+ * one, and only "user." is available to unprivileged processes. Every
+ * Darwin name is stored as "user.<name>" on the host, and only "user."
+ * attributes are visible to Darwin code (without the prefix). This keeps
+ * the mapping one-to-one: whatever is listed can be read back under the
+ * same name, and a Darwin name that happens to start with "user." or
+ * "security." does not reach another host namespace.
+ */
+#define XATTR_LINUX_NAMESPACE       "user."
+#define XATTR_LINUX_NAMESPACE_LEN   (sizeof(XATTR_LINUX_NAMESPACE) - 1)
+#define XATTR_LINUX_NAME_BUFSIZE    (XATTR_LINUX_NAMESPACE_LEN + DARWIN_XATTR_MAXNAMELEN + 1)
 
 static inline int errno_linux_xattr_to_bsd(int ret)
 {
+	// a missing attribute is ENOATTR on Darwin, ENODATA on Linux
 	if (ret == -LINUX_ENODATA)
 		return -ENOATTR;
 	return errno_linux_to_bsd(ret);
 }
 
-#define DARWIN_XATTR_NOFOLLOW   0x0001
-#define DARWIN_XATTR_CREATE     0x0002
-#define DARWIN_XATTR_REPLACE    0x0004
-
-#ifndef XATTR_NOFOLLOW
-#define XATTR_NOFOLLOW          DARWIN_XATTR_NOFOLLOW
-#endif
-#ifndef XATTR_CREATE
-#define XATTR_CREATE            DARWIN_XATTR_CREATE
-#endif
-#ifndef XATTR_REPLACE
-#define XATTR_REPLACE           DARWIN_XATTR_REPLACE
-#endif
-
-#define LINUX_XATTR_CREATE      0x1
-#define LINUX_XATTR_REPLACE     0x2
-
-#define XATTR_NAME_MAX_LEN      512
-
-static inline int xattr_str_has_prefix(const char* str, const char* prefix)
+// Writes the host name for the Darwin attribute name `name` into `buf`,
+// which must hold XATTR_LINUX_NAME_BUFSIZE bytes. Returns 0 or a negative
+// BSD errno.
+static inline int xattr_name_to_linux(const char* name, char* buf)
 {
-	while (*prefix)
-	{
-		if (*str++ != *prefix++)
-			return 0;
-	}
-	return 1;
-}
+	unsigned long i;
 
-static inline const char* xattr_name_to_linux(const char* name, char* buf, unsigned long bufsize)
-{
-	if (!name)
-		return NULL;
-	if (xattr_str_has_prefix(name, "user.") ||
-	    xattr_str_has_prefix(name, "system.") ||
-	    xattr_str_has_prefix(name, "security.") ||
-	    xattr_str_has_prefix(name, "trusted."))
+	if (name == NULL)
+		return -EFAULT;
+
+	for (i = 0; i < XATTR_LINUX_NAMESPACE_LEN; i++)
+		buf[i] = XATTR_LINUX_NAMESPACE[i];
+
+	for (i = 0; name[i] != '\0'; i++)
 	{
-		return name;
+		if (i >= DARWIN_XATTR_MAXNAMELEN)
+			return -ENAMETOOLONG;
+		buf[XATTR_LINUX_NAMESPACE_LEN + i] = name[i];
 	}
-	__simple_snprintf(buf, bufsize, "user.%s", name);
-	return buf;
+	buf[XATTR_LINUX_NAMESPACE_LEN + i] = '\0';
+
+	return 0;
 }
 
 static inline int xattr_options_to_linux_flags(int options)
@@ -87,119 +76,91 @@ static inline int xattr_options_to_linux_flags(int options)
 	return flags;
 }
 
-static inline long translate_linux_xattr_list(const char* l_buf, long l_size, char* namebuf, unsigned long size)
+static inline int xattr_is_darwin_visible(const char* name, unsigned long len)
 {
-	unsigned long total = 0;
-	const char* cur = l_buf;
-	const char* end = l_buf + l_size;
+	unsigned long i;
 
-	while (cur < end && *cur != '\0')
+	if (len <= XATTR_LINUX_NAMESPACE_LEN)
+		return 0;
+	for (i = 0; i < XATTR_LINUX_NAMESPACE_LEN; i++)
 	{
-		unsigned long len = __simple_strlen(cur);
-		const char* out_name = cur;
-		unsigned long out_len = len;
-
-		if (xattr_str_has_prefix(cur, "user."))
-		{
-			out_name = cur + 5;
-			out_len = len - 5;
-		}
-		else if (xattr_str_has_prefix(cur, "security.") ||
-		         xattr_str_has_prefix(cur, "system.") ||
-		         xattr_str_has_prefix(cur, "trusted."))
-		{
-			// Skip internal Linux xattr namespaces
-			cur += len + 1;
-			continue;
-		}
-
-		if (namebuf != NULL && size > 0)
-		{
-			if (total + out_len + 1 > size)
-				return -ERANGE;
-			__builtin_memcpy(namebuf + total, out_name, out_len + 1);
-		}
-		total += out_len + 1;
-		cur += len + 1;
+		if (name[i] != XATTR_LINUX_NAMESPACE[i])
+			return 0;
 	}
-
-	return (long)total;
+	return 1;
 }
 
-static inline long fetch_linux_xattr_list(int call_nr, const char* path, int fd, char** out_buf, char* stack_buf, unsigned long stack_buf_size)
+// Runs the Linux list syscall `call_nr` (listxattr, llistxattr or
+// flistxattr) on `target` (a path or a file descriptor) and returns the
+// Darwin view of the list in `namebuf`, as listxattr(2) describes it: the
+// size of the list when `namebuf` is NULL, ERANGE when `size` is too
+// small. Returns a negative BSD errno on failure.
+//
+// The host list includes the namespace prefixes and attributes from other
+// namespaces, so its size says nothing about the size of the Darwin list:
+// the whole host list is always read and filtered. It is read into a stack
+// buffer or, if it does not fit, into a buffer of the largest size Linux
+// returns (XATTR_LIST_MAX). There is no separate size query that could go
+// stale before the read, so nothing needs to be retried.
+static inline long xattr_list_to_darwin(int call_nr, long target, char* namebuf, unsigned long size)
 {
-	long l_size;
-	unsigned long buf_size = stack_buf_size;
-	char* buf = stack_buf;
-	int retries = 0;
+	char stack_buf[2048];
+	char* l_buf = stack_buf;
+	unsigned long l_bufsize = sizeof(stack_buf);
+	unsigned long pos, total = 0;
+	long ret;
 
-	if (path)
-		l_size = LINUX_SYSCALL(call_nr, path, NULL, 0);
-	else
-		l_size = LINUX_SYSCALL(call_nr, fd, NULL, 0);
-
-	if (l_size < 0)
-		return errno_linux_xattr_to_bsd(l_size);
-	if (l_size == 0)
+	ret = LINUX_SYSCALL(call_nr, target, l_buf, l_bufsize);
+	if (ret == -LINUX_ERANGE)
 	{
-		*out_buf = NULL;
-		return 0;
+		// not malloc: libsystem_kernel sits below libc
+		l_bufsize = LINUX_XATTR_LIST_MAX;
+		l_buf = (char*) sys_mmap(NULL, l_bufsize, PROT_READ | PROT_WRITE,
+				MAP_ANON | MAP_PRIVATE, -1, 0);
+		if ((unsigned long) l_buf > (unsigned long) -4096)
+			return (long) l_buf;
+
+		ret = LINUX_SYSCALL(call_nr, target, l_buf, l_bufsize);
 	}
 
-	if ((unsigned long)l_size > buf_size)
+	if (ret < 0)
 	{
-		buf_size = (unsigned long)l_size;
-		buf = (char*)malloc(buf_size);
-		if (!buf)
-			return -ENOMEM;
+		ret = errno_linux_xattr_to_bsd(ret);
+		goto out;
 	}
 
-	while (retries++ < 5)
+	for (pos = 0; pos < (unsigned long) ret; )
 	{
-		if (path)
-			l_size = LINUX_SYSCALL(call_nr, path, buf, buf_size);
-		else
-			l_size = LINUX_SYSCALL(call_nr, fd, buf, buf_size);
+		const char* name = l_buf + pos;
+		unsigned long len = 0;
 
-		if (l_size >= 0)
-		{
-			*out_buf = buf;
-			return l_size;
-		}
+		while (pos + len < (unsigned long) ret && name[len] != '\0')
+			len++;
+		pos += len + 1;
 
-		if (l_size == -LINUX_ERANGE)
-		{
-			if (buf_size >= 65536)
-			{
-				if (buf != stack_buf)
-					free(buf);
-				return -E2BIG;
-			}
-			buf_size *= 2;
-			if (buf_size > 65536)
-				buf_size = 65536;
-
-			char* new_buf = (char*)malloc(buf_size);
-			if (!new_buf)
-			{
-				if (buf != stack_buf)
-					free(buf);
-				return -ENOMEM;
-			}
-			if (buf != stack_buf)
-				free(buf);
-			buf = new_buf;
+		if (!xattr_is_darwin_visible(name, len))
 			continue;
-		}
 
-		if (buf != stack_buf)
-			free(buf);
-		return errno_linux_xattr_to_bsd(l_size);
+		name += XATTR_LINUX_NAMESPACE_LEN;
+		len -= XATTR_LINUX_NAMESPACE_LEN;
+
+		if (namebuf != NULL && total + len + 1 <= size)
+		{
+			__builtin_memcpy(namebuf + total, name, len);
+			namebuf[total + len] = '\0';
+		}
+		total += len + 1;
 	}
 
-	if (buf != stack_buf)
-		free(buf);
-	return -ERANGE;
+	if (namebuf != NULL && total > size)
+		ret = -ERANGE;
+	else
+		ret = total;
+
+out:
+	if (l_buf != stack_buf)
+		sys_munmap(l_buf, l_bufsize);
+	return ret;
 }
 
 #endif // LINUX_XATTR_UTILS_H

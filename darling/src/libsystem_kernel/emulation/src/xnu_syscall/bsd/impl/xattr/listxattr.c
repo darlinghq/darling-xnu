@@ -21,17 +21,8 @@ long sys_listxattr(const char* path, char* namebuf, unsigned long size, int opti
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
-	int call_nr = (options & DARWIN_XATTR_NOFOLLOW) ? __NR_llistxattr : __NR_listxattr;
-
-	char stack_buf[1024];
-	char* l_buf = NULL;
-	long l_size = fetch_linux_xattr_list(call_nr, vc.path, -1, &l_buf, stack_buf, sizeof(stack_buf));
-	if (l_size <= 0)
-		return l_size;
-
-	long result = translate_linux_xattr_list(l_buf, l_size, namebuf, size);
-	if (l_buf && l_buf != stack_buf)
-		free(l_buf);
-
-	return result;
+	if (options & DARWIN_XATTR_NOFOLLOW)
+		return xattr_list_to_darwin(__NR_llistxattr, (long) vc.path, namebuf, size);
+	else
+		return xattr_list_to_darwin(__NR_listxattr, (long) vc.path, namebuf, size);
 }

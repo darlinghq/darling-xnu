@@ -11,7 +11,7 @@ long sys_removexattr(const char* path, const char* name, int options)
 {
 	int ret;
 	struct vchroot_expand_args vc;
-	char l_name[XATTR_NAME_MAX_LEN];
+	char linux_name[XATTR_LINUX_NAME_BUFSIZE];
 
 	vc.flags = (options & DARWIN_XATTR_NOFOLLOW) ? 0 : VCHROOT_FOLLOW;
 	vc.dfd = get_perthread_wd();
@@ -22,7 +22,9 @@ long sys_removexattr(const char* path, const char* name, int options)
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
-	const char* linux_name = xattr_name_to_linux(name, l_name, sizeof(l_name));
+	ret = xattr_name_to_linux(name, linux_name);
+	if (ret < 0)
+		return ret;
 
 	if (options & DARWIN_XATTR_NOFOLLOW)
 		ret = LINUX_SYSCALL(__NR_lremovexattr, vc.path, linux_name);
