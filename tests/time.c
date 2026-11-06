@@ -79,9 +79,11 @@ T_DECL(futimes, "check that futimes updates file times",
 
 	amtimes[0].tv_sec -= 120;
 	amtimes[1].tv_sec -= 120;
+	amtimes[0].tv_usec = 123456;
+	amtimes[1].tv_usec = 654321;
 
 	ret = futimes(tmpfd, amtimes);
-	T_ASSERT_POSIX_SUCCESS(ret, "update file times with utimes(2)");
+	T_ASSERT_POSIX_SUCCESS(ret, "update file times with futimes(2)");
 
 	ret = fstat(tmpfd, &stbuf);
 	T_ASSERT_POSIX_SUCCESS(ret, "get file metadata after update with fstat(2)");
@@ -96,4 +98,22 @@ T_DECL(futimes, "check that futimes updates file times",
 	    "access time matches what was set");
 	T_ASSERT_EQ(amtimes[1].tv_sec, newamtimes[1].tv_sec,
 	    "modification time matches what was set");
+	T_ASSERT_EQ(amtimes[0].tv_usec, newamtimes[0].tv_usec,
+	    "access time microseconds match what was set");
+	T_ASSERT_EQ(amtimes[1].tv_usec, newamtimes[1].tv_usec,
+	    "modification time microseconds match what was set");
+
+	struct timeval before, after;
+	ret = gettimeofday(&before, NULL);
+	T_ASSERT_POSIX_SUCCESS(ret, "get time before futimes(2)");
+	ret = futimes(tmpfd, NULL);
+	T_ASSERT_POSIX_SUCCESS(ret, "update file times to the current time");
+	ret = gettimeofday(&after, NULL);
+	T_ASSERT_POSIX_SUCCESS(ret, "get time after futimes(2)");
+	ret = fstat(tmpfd, &stbuf);
+	T_ASSERT_POSIX_SUCCESS(ret, "get file metadata after null update");
+	T_ASSERT_GE(stbuf.st_atimespec.tv_sec, before.tv_sec, "access time is not before the update");
+	T_ASSERT_LE(stbuf.st_atimespec.tv_sec, after.tv_sec, "access time is not after the update");
+	T_ASSERT_GE(stbuf.st_mtimespec.tv_sec, before.tv_sec, "modification time is not before the update");
+	T_ASSERT_LE(stbuf.st_mtimespec.tv_sec, after.tv_sec, "modification time is not after the update");
 }
