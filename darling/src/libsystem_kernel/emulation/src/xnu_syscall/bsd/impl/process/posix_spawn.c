@@ -57,9 +57,12 @@ long sys_posix_spawn(int* pid, const char* path, const struct _posix_spawn_args_
 	if (ret < 0)
 		return ret;
 
-	// posix_spawn in macOS does not invoke fork handlers.
-	// Userspace atfork preparation causes deadlocks with multithreaded processes (like cmake).
-	// _libkernel_functions->posix_spawn_prepare();
+	// we don't want to call user atfork callbacks, but we *do* want to call most
+	// libsystem atfork callbacks to set up the environment for some of the calls we need
+	// to make for the setup (e.g. dup2() file actions take libkqueue's locks, which only
+	// the child callback resets)
+
+	_libkernel_functions->posix_spawn_prepare();
 
 	if ((my_pid = sys_fork()) == 0)
 	{
@@ -67,7 +70,7 @@ long sys_posix_spawn(int* pid, const char* path, const struct _posix_spawn_args_
 		// close the reading side
 		close_internal(pipe[0]);
 
-		// _libkernel_functions->posix_spawn_child();
+		_libkernel_functions->posix_spawn_child();
 
 no_fork:
 		if (desc && desc->attrp)
@@ -348,7 +351,7 @@ fail:
 		// close the writing side
 		close_internal(pipe[1]);
 
-		// _libkernel_functions->posix_spawn_parent();
+		_libkernel_functions->posix_spawn_parent();
 
 		if (my_pid < 0)
 		{
