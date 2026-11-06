@@ -67,9 +67,12 @@ long sys_fclonefileat(int src_fd, int dest_fd, const char* dest_path, uint32_t f
 
     int ret = 0;
     int real_dest_fd = -1;
-    char *filename = NULL;
+    const char *filename = NULL;
+    char *filename_owned = NULL;
+    int dest_fd_owned = 0;
 
     if (dest_fd == BSD_AT_FDCWD) {
+        dest_fd_owned = 1;
         if (!dest_path || dest_path[0] == '\0') {
             return -EINVAL;
         }
@@ -88,6 +91,7 @@ long sys_fclonefileat(int src_fd, int dest_fd, const char* dest_path, uint32_t f
 
             if (dest_fd < 0) {
                 ret = dest_fd;
+                free(path_buf);
                 goto out_close;
             }
 
@@ -118,8 +122,15 @@ long sys_fclonefileat(int src_fd, int dest_fd, const char* dest_path, uint32_t f
                     goto out_close;
                 }
 
-                filename = token;
+                filename_owned = strdup(token);
                 free(path_buf);
+
+                if (!filename_owned) {
+                    ret = -ENOMEM;
+                    goto out_close;
+                }
+
+                filename = filename_owned;
                 break;
             }
 
@@ -129,6 +140,12 @@ long sys_fclonefileat(int src_fd, int dest_fd, const char* dest_path, uint32_t f
                 goto out_close;
             }
         }
+
+        if (!filename) {
+            /* dest_path had no trailing component (e.g. "/" or "a/") */
+            ret = -EISDIR;
+            goto out_close;
+        }
     } else {
         filename = dest_path;
     }
@@ -136,25 +153,27 @@ long sys_fclonefileat(int src_fd, int dest_fd, const char* dest_path, uint32_t f
     real_dest_fd = sys_openat(dest_fd, filename, BSD_O_CREAT | BSD_O_WRONLY | BSD_O_EXCL, 0644);
 
     if (real_dest_fd < 0) {
-        if (dest_fd >= 0) sys_close(dest_fd);
-
-        return real_dest_fd;
+        ret = real_dest_fd;
+        real_dest_fd = -1;
+        goto out_close;
     }
 
     if (st.st_size > 0) {
         size_t remaining = (size_t)st.st_size;
 
         while (remaining > 0) {
-            size_t copied = LINUX_SYSCALL(__NR_copy_file_range, src_fd, NULL, real_dest_fd, NULL, remaining, 0);
+            long copy_ret = LINUX_SYSCALL(__NR_copy_file_range, src_fd, NULL, real_dest_fd, NULL, remaining, 0);
 
-            if (copied < 0) {
-                ret = copied;
+            if (copy_ret < 0) {
+                ret = errno_linux_to_bsd(copy_ret);
                 goto out_close;
             }
 
-            if (copied == 0) {
+            if (copy_ret == 0) {
                 break;
             }
+
+            size_t copied = (size_t)copy_ret;
 
             if (copied > remaining) {
                 remaining = 0;
@@ -226,7 +245,9 @@ out_close:
             }
         }
 
-        if (dest_fd >= 0) sys_close(dest_fd);
+        if (dest_fd_owned && dest_fd >= 0) sys_close(dest_fd);
+
+        free(filename_owned);
     }
 
     return ret;
