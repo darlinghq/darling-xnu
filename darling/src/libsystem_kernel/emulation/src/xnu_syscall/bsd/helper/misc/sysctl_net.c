@@ -9,6 +9,7 @@
 #include <darling/emulation/conversion/network/ifreq.h>
 #include <netinet/in.h>
 #include <net/if_var.h>
+#include <sys/mman.h>
 #include <stdint.h>
 #include <limits.h>
 #include <darling/emulation/common/simple.h>
@@ -21,6 +22,7 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/network/duct.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/ioctl/ioctl.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/mman/mman.h>
 
 extern void* memset(void* destination, int value, size_t length);
 extern void* memcpy(void* destination, const void* source, size_t n);
@@ -30,8 +32,6 @@ extern size_t strlcpy(char* destination, const char* source, size_t size);
 
 static sysctl_handler(handle_route);
 static int do_iflist(void* old, unsigned long* oldlen, int modern, unsigned int index);
-extern void* malloc(size_t size);
-extern void free(void* ptr);
 
 #define IFC_MAX_BYTES (1024 * 1024)
 #define LINUX_SIOCGIFINDEX 0x8933
@@ -244,6 +244,7 @@ static int do_iflist(void* old, unsigned long* oldlen, int modern, unsigned int 
 	// we only do IPv4 addresses for now
 	int tmp_sock;
 	char* buf = NULL;
+	int bytes = 0;
 	unsigned long capacity = *oldlen;
 	struct linux_ifconf lifc = {
 		.lifc_len = 0,
@@ -259,15 +260,16 @@ static int do_iflist(void* old, unsigned long* oldlen, int modern, unsigned int 
     // Linux first reports the required buffer size; retry if interfaces grow.
     if ((status = __real_ioctl(tmp_sock, LINUX_SIOCGIFCONF, &lifc)) < 0) goto out;
     if (lifc.lifc_len < 0 || lifc.lifc_len > IFC_MAX_BYTES - 2 * (int)sizeof(struct linux_ifreq)) { status = -EOVERFLOW; goto out; }
-    int bytes = lifc.lifc_len + 2 * sizeof(struct linux_ifreq);
+    bytes = lifc.lifc_len + 2 * sizeof(struct linux_ifreq);
     for (;;) {
         if (bytes <= 0 || bytes > IFC_MAX_BYTES) { status = -EOVERFLOW; goto out; }
-        buf = malloc(bytes);
-        if (!buf) { status = -ENOMEM; goto out; }
+        // Mapped rather than allocated: libsystem_kernel sits below malloc.
+        buf = sys_mmap(NULL, bytes, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+        if ((unsigned long) buf > -4096ul) { buf = NULL; status = -ENOMEM; goto out; }
         lifc.lifc_buf = buf; lifc.lifc_len = bytes;
         if ((status = __real_ioctl(tmp_sock, LINUX_SIOCGIFCONF, &lifc)) < 0) goto out;
         if (lifc.lifc_len <= bytes - (int)sizeof(struct linux_ifreq)) break;
-        free(buf); buf = NULL; bytes *= 2;
+        sys_munmap(buf, bytes); buf = NULL; bytes *= 2;
     }
     if (lifc.lifc_len < 0 || lifc.lifc_len % sizeof(struct linux_ifreq)) { status = -EIO; goto out; }
 
@@ -386,7 +388,8 @@ static int do_iflist(void* old, unsigned long* oldlen, int modern, unsigned int 
 	status = old && capacity < total_len ? -ENOMEM : 0;
 
 out:
-    free(buf);
+    if (buf)
+        sys_munmap(buf, bytes);
 	if (tmp_sock >= 0) {
 		// ignore errors while closing
 		close_internal(tmp_sock);
