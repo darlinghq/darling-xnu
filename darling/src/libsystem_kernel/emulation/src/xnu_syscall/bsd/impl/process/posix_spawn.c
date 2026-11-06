@@ -59,7 +59,8 @@ long sys_posix_spawn(int* pid, const char* path, const struct _posix_spawn_args_
 
 	// we don't want to call user atfork callbacks, but we *do* want to call most
 	// libsystem atfork callbacks to set up the environment for some of the calls we need
-	// to make for the setup
+	// to make for the setup (e.g. dup2() file actions take libkqueue's locks, which only
+	// the child callback resets)
 
 	_libkernel_functions->posix_spawn_prepare();
 
@@ -216,8 +217,6 @@ no_fork:
 
 				act = &desc->factp->psfa_act_acts[i];
 
-				//__simple_kprintf("act count (on iter %d): %d\n", i, desc->factp->psfa_act_count);
-
 				if (act->psfaa_filedes == pipe[1] || (act->psfaa_type == XNU_PSFA_DUP2 && act->psfaa_dup2args.psfad_newfiledes == pipe[1]))
 				{
 					ret = sys_dup(pipe[1]);
@@ -331,7 +330,6 @@ no_fork:
 
 		ret = sys_execve((char*) path, argvp, envp);
 fail:
-		//__simple_kprintf("posix_spawn is failing with %d\n", ret);
 		if (desc && desc->attrp && desc->attrp->psa_flags & POSIX_SPAWN_SETEXEC)
 		{
 			// no_fork case
