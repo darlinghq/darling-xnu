@@ -29,12 +29,16 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/sysctl_proc.h>
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
+#include <darling/emulation/conversion/common_at.h>
+#include <darling/emulation/conversion/stat/common.h>
+#include <darling/emulation/conversion/duct_errno.h>
 
 #include <darlingserver/rpc.h>
 
 #define LINUX_PR_SET_NAME 15
 
 static long _proc_pidinfo(int32_t pid, uint32_t flavor, uint64_t arg, void* buffer, int32_t bufsize);
+static long _proc_pidfdinfo(int32_t pid, uint32_t flavor, int fd, void* buffer, int32_t bufsize);
 
 extern __SIZE_TYPE__ strlen(const char *s);
 extern void *memset(void *s, int c, __SIZE_TYPE__ n);
@@ -83,6 +87,7 @@ long sys_proc_info(uint32_t callnum, int32_t pid, uint32_t flavor,
 		case 2: // proc_pidinfo
 			return _proc_pidinfo(pid, flavor, arg, buffer, bufsize);
 		case 3: // proc_pidfdinfo
+			return _proc_pidfdinfo(pid, flavor, (int) arg, buffer, bufsize);
 		case 1: // proc_listpids
 		default:
 			__simple_printf("sys_proc_info(): Unsupported callnum: %d\n",
@@ -616,6 +621,108 @@ static bool parse_smaps_firstline(
 		strcpy(vip_path, p);
 
 	return true;
+}
+
+// enum vtype in <sys/vnode.h>
+enum { VNON, VREG, VDIR, VBLK, VCHR, VLNK, VSOCK, VFIFO };
+
+// fi_type values (DTYPE_* in <sys/file_internal.h>)
+#define DTYPE_VNODE 1
+
+static int vnode_type_from_mode(unsigned int mode)
+{
+	switch (mode & S_IFMT)
+	{
+		case S_IFREG: return VREG;
+		case S_IFDIR: return VDIR;
+		case S_IFBLK: return VBLK;
+		case S_IFCHR: return VCHR;
+		case S_IFLNK: return VLNK;
+		case S_IFSOCK: return VSOCK;
+		case S_IFIFO: return VFIFO;
+		default: return VNON;
+	}
+}
+
+static long _proc_pidfdinfo_vnodepath(int32_t pid, int fd, void* buffer, int32_t bufsize)
+{
+	struct vnode_fdinfowithpath* info = (struct vnode_fdinfowithpath*) buffer;
+	struct vchroot_expand_args procpath;
+	struct vchroot_unexpand_args uargs;
+	struct linux_stat st;
+	int ret;
+
+	if (bufsize < (int32_t) sizeof(*info))
+		return -ENOMEM;
+
+	// The host's /proc belongs to another PID namespace; resolve the path in
+	// the prefix to reach its own procfs. The fd entry itself is a symlink and
+	// must not be followed here.
+	__simple_sprintf(procpath.path, "/proc/%d/fd/%d", pid, fd);
+	procpath.flags = 0;
+	procpath.dfd = LINUX_AT_FDCWD;
+	ret = vchroot_expand(&procpath);
+	if (ret < 0)
+		return errno_linux_to_bsd(ret);
+
+	ret = LINUX_SYSCALL(__NR_readlinkat, procpath.dfd, procpath.path, uargs.path, sizeof(uargs.path) - 1);
+	if (ret < 0)
+	{
+		// Tell a missing process from a descriptor that is not open
+		if (ret == -LINUX_ENOENT && LINUX_SYSCALL(__NR_kill, pid, 0) == -LINUX_ESRCH)
+			return -ESRCH;
+		return -EBADF;
+	}
+	uargs.path[ret] = '\0';
+
+	// Sockets, pipes and other descriptors without a path are not vnodes
+	if (uargs.path[0] != '/')
+		return -EBADF;
+
+#ifdef __NR_newfstatat
+	ret = LINUX_SYSCALL(__NR_newfstatat, procpath.dfd, procpath.path, &st, 0);
+#else
+	ret = LINUX_SYSCALL(__NR_fstatat64, procpath.dfd, procpath.path, &st, 0);
+#endif
+	if (ret < 0)
+		return errno_linux_to_bsd(ret);
+
+	ret = vchroot_unexpand(&uargs);
+	if (ret != 0)
+		return ret;
+
+	memset(info, 0, sizeof(*info));
+	info->pfi.fi_type = DTYPE_VNODE;
+	info->pvip.vip_vi.vi_type = vnode_type_from_mode(st.st_mode);
+	info->pvip.vip_vi.vi_stat.vst_dev = st.st_dev;
+	info->pvip.vip_vi.vi_stat.vst_ino = st.st_ino;
+	info->pvip.vip_vi.vi_stat.vst_mode = st.st_mode;
+	info->pvip.vip_vi.vi_stat.vst_nlink = st.st_nlink;
+	info->pvip.vip_vi.vi_stat.vst_uid = st.st_uid;
+	info->pvip.vip_vi.vi_stat.vst_gid = st.st_gid;
+	info->pvip.vip_vi.vi_stat.vst_size = st.st_size;
+	info->pvip.vip_vi.vi_stat.vst_blocks = st.st_blocks;
+	info->pvip.vip_vi.vi_stat.vst_blksize = st.st_blksize;
+	info->pvip.vip_vi.vi_stat.vst_rdev = st.st_rdev;
+	strncpy(info->pvip.vip_path, uargs.path, sizeof(info->pvip.vip_path) - 1);
+
+	return sizeof(*info);
+}
+
+static long _proc_pidfdinfo(int32_t pid, uint32_t flavor, int fd, void* buffer, int32_t bufsize)
+{
+	if (!buffer)
+		return -EFAULT;
+
+	switch (flavor)
+	{
+		case PROC_PIDFDVNODEPATHINFO:
+			return _proc_pidfdinfo_vnodepath(pid, fd, buffer, bufsize);
+		default:
+			__simple_printf("sys_proc_info(): Unsupported pidfdinfo flavor: %d\n",
+					flavor);
+			return -ENOTSUP;
+	}
 }
 
 static long _proc_pidinfo_pathinfo(int32_t pid, void* buffer, int32_t bufsize)

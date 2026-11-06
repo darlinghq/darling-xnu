@@ -26,8 +26,9 @@
 #define ATTR_CMN_OBJTAG 0x00000010
 #define ATTR_DIR_ENTRYCOUNT 0x00000002
 
-#define XATTR_FINDER_INFO "com.apple.FinderInfo"
-#define XATTR_RESOURCE_FORK "com.apple.ResourceFork"
+// Darwin xattr names are stored under "user." on the host (xattr_utils.h)
+#define XATTR_FINDER_INFO "user.com.apple.FinderInfo"
+#define XATTR_RESOURCE_FORK "user.com.apple.ResourceFork"
 
 #define FSOPT_NOFOLLOW 1
 #define FSOPT_REPORT_FULLSIZE 4

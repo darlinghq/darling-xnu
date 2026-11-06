@@ -113,6 +113,20 @@ long sys_fcntl_nocancel(int fd, int cmd, long arg)
 				ret = errno_linux_to_bsd(ret);
 			return 0;
 		};
+		case F_NOCACHE:
+		{
+			// Only a caching hint; Linux has no per-descriptor equivalent
+			// (O_DIRECT has alignment requirements that F_NOCACHE does
+			// not), so accept it on any valid descriptor.
+#ifdef __NR_fcntl64
+			ret = LINUX_SYSCALL(__NR_fcntl64, fd, LINUX_F_GETFD, 0);
+#else
+			ret = LINUX_SYSCALL(__NR_fcntl, fd, LINUX_F_GETFD, 0);
+#endif
+			if (ret < 0)
+				return errno_linux_to_bsd(ret);
+			return 0;
+		}
 		// TODO: implement remaining commands
 		default:
 			if (linux_cmd == -1)

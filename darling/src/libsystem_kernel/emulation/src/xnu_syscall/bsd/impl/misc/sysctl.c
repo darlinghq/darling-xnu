@@ -21,6 +21,7 @@ extern int strncmp(const char *s1, const char *s2, __SIZE_TYPE__ n);
 extern int strcmp(const char *s1, const char *s2);
 extern int strlcpy(char* dst, const char* src, __SIZE_TYPE__ n);
 extern __SIZE_TYPE__ strlen(const char* src);
+extern void* memcpy(void* dst, const void* src, __SIZE_TYPE__ n);
 extern char* strtok_r(char* str, const char* delim, char** saveptr);
 
 #define _CTL_SYSCTL	100
@@ -40,16 +41,40 @@ const struct known_sysctl sysctls_root = {
 	.oid = 0, .type = CTLTYPE_NODE, .exttype = "", .name = "", .subctls = sysctls_global
 };
 
-void copyout_string(const char* str, char* out, unsigned long* out_len)
+long copyout_string(const char* str, char* out, unsigned long* out_len)
 {
-	unsigned long len;
-	if (out != NULL)
-		len = strlcpy(out, str, *out_len);
-	else
-		len = strlen(str);
+	// as on XNU, the reported length includes the terminating NUL
+	unsigned long len = strlen(str) + 1;
+
+	if (out != NULL && out_len != NULL)
+	{
+		// sysctl(3): a buffer too small for the value is ENOMEM
+		if (*out_len < len)
+			return -ENOMEM;
+		memcpy(out, str, len);
+	}
 
 	if (out_len != NULL)
 		*out_len = len;
+	return 0;
+}
+
+long copyout_string_truncated(const char* str, char* out, unsigned long* out_len)
+{
+	// kern.hostname and kern.domainname truncate instead (as XNU does for
+	// them); gethostname() relies on that
+	unsigned long len = strlen(str) + 1;
+
+	if (out != NULL && out_len != NULL)
+	{
+		strlcpy(out, str, *out_len);
+		if (len > *out_len)
+			len = *out_len;
+	}
+
+	if (out_len != NULL)
+		*out_len = len;
+	return 0;
 }
 
 long sys_sysctl(int* name, unsigned int nlen, void* old,

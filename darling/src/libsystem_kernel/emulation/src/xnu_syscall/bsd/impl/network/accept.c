@@ -1,5 +1,6 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/network/accept.h>
 
+#include <stddef.h>
 #include <sys/fcntl.h>
 
 #include <darling/emulation/common/base.h>
@@ -12,6 +13,7 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/fcntl.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 
 long sys_accept(int fd, void* from, int* socklen)
 {
@@ -34,16 +36,27 @@ long sys_accept_nocancel(int fd, void* from, int* socklen)
 		ret = errno_linux_to_bsd(ret);
 	else
 	{
-		fixed = (struct sockaddr_fixup*) from;
-		fixed->bsd_family = sfamily_linux_to_bsd(fixed->linux_family);
-		fixed->bsd_length = *socklen;
+		int accepted_fd = ret;
+
+		if (from != NULL && socklen != NULL)
+		{
+			fixed = (struct sockaddr_fixup*) from;
+			int conv = sockaddr_fixup_from_linux(fixed, from, *socklen);
+			if (conv < 0)
+			{
+				// the caller never sees the new descriptor, so don't leak it
+				close_internal(accepted_fd);
+				return conv;
+			}
+			*socklen = conv;
+		}
 
 		// on macOS (and BSD), accept-ed sockets inherit O_NONBLOCK
 		int parent_flags = sys_fcntl_nocancel(fd, F_GETFL, 0);
-		int child_flags = sys_fcntl_nocancel(ret, F_GETFL, 0);
+		int child_flags = sys_fcntl_nocancel(accepted_fd, F_GETFL, 0);
 		// we silently ignore errors we get from fcntl (it's probably fine; fnctl shouldn't fail here)
 		if (parent_flags >= 0 && child_flags >= 0 && (parent_flags & BSD_O_NONBLOCK) != 0) {
-			sys_fcntl_nocancel(ret, F_SETFL, child_flags | BSD_O_NONBLOCK);
+			sys_fcntl_nocancel(accepted_fd, F_SETFL, child_flags | BSD_O_NONBLOCK);
 		}
 	}
 

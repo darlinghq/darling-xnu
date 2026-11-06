@@ -131,6 +131,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/fcntl/fcntl.c
 	src/xnu_syscall/bsd/impl/fcntl/open.c
 	src/xnu_syscall/bsd/impl/fcntl/openat.c
+	src/xnu_syscall/bsd/impl/guarded/change_fdguard_np.c
 	src/xnu_syscall/bsd/impl/guarded/guarded_close_np.c
 	src/xnu_syscall/bsd/impl/guarded/guarded_kqueue_np.c
 	src/xnu_syscall/bsd/impl/guarded/guarded_open_np.c

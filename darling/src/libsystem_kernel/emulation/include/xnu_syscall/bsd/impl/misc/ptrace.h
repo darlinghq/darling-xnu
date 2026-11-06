@@ -9,6 +9,7 @@
 #define XNU_PT_DETACH 11
 #define XNU_PT_SIGEXC 12
 #define XNU_PT_THUPDATE 13
+#define XNU_PT_DENY_ATTACH 31
 
 long sys_ptrace(int request, int pid, void* addr, int data);
 

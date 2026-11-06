@@ -22,7 +22,6 @@ long sys_ulock_wait2(uint32_t operation, void* addr, uint64_t value, uint64_t ti
 {
 	int ret, op;
 	struct timespec ts;
-	bool no_errno = operation & XNU_ULF_NO_ERRNO;
 
 	(void)value2;
 
@@ -55,14 +54,11 @@ long sys_ulock_wait2(uint32_t operation, void* addr, uint64_t value, uint64_t ti
 			ret = 1;
 	}
 	else
-		return no_errno ? -(EINVAL | 0x800) : -EINVAL;
+		return -EINVAL;
 
+	// Returned verbatim to ULF_NO_ERRNO callers, which switch on the exact -errno.
 	if (ret < 0)
-	{
 		ret = errno_linux_to_bsd(ret);
-		if (no_errno)
-			ret &= ~0x800;
-	}
 
 	return ret;
 }

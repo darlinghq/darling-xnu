@@ -6,7 +6,7 @@
 
 #include <darlingserver/rpc.h>
 
-long sys_psynch_cvsignal(void* cv, uint32_t cvlsgen, uint32_t cvugen, int thread_port, void* mutex, uint32_t mugen,
+long sys_psynch_cvsignal(void* cv, uint64_t cvlsgen, uint32_t cvugen, int thread_port, void* mutex, uint64_t mugen,
 		uint64_t tid, uint32_t flags)
 {
 	uint32_t retval;
@@ -17,5 +17,10 @@ long sys_psynch_cvsignal(void* cv, uint32_t cvlsgen, uint32_t cvugen, int thread
 		__simple_abort();
 	}
 
-	return (ret) ? ret : retval;
+	// A nonzero code is XNU's positive BSD errno; syscall handlers report
+	// -errno. Kept out of a ?: so uint32_t retval cannot unsign -ret.
+	if (ret > 0)
+		return -ret;
+
+	return retval;
 }

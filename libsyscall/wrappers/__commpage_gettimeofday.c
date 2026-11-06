@@ -67,6 +67,14 @@ __commpage_gettimeofday_internal(struct timeval *tp, uint64_t *tbr_out)
 	do {
 		TimeStamp_tick = *gtod_TimeStamp_tick_p;
 		/*
+		 * An unpublished timestamp means the syscall has to be used;
+		 * don't read the absolute time for nothing (it may be a syscall
+		 * itself).
+		 */
+		if (TimeStamp_tick == 0) {
+			return 1;
+		}
+		/*
 		 * This call contains an instruction barrier which will ensure that the
 		 * second read of the abs time isn't speculated above the reads of the
 		 * other values above

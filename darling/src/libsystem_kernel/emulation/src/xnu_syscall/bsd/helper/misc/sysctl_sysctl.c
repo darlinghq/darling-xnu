@@ -7,12 +7,15 @@
 
 enum {
 	_PROC_CPUTYPE = 1000,
+	_PROC_TRANSLATED,
 };
 
 static sysctl_handler(handle_proc_cputype);
+static sysctl_handler(handle_proc_translated);
 
 const struct known_sysctl sysctls_sysctl[] = {
 	{ .oid = _PROC_CPUTYPE, .type = CTLTYPE_INT, .exttype = "I", .name = "proc_cputype", .handler = handle_proc_cputype },
+	{ .oid = _PROC_TRANSLATED, .type = CTLTYPE_INT, .exttype = "I", .name = "proc_translated", .handler = handle_proc_translated },
 	{ .oid = -1 }
 };
 
@@ -42,5 +45,13 @@ sysctl_handler(handle_proc_cputype)
 		*((unsigned int*) old) |= CPU_ARCH_ABI64;
 
 
+	return 0;
+}
+
+sysctl_handler(handle_proc_translated)
+{
+	// Code runs natively on the host CPU, never under binary translation
+	sysctl_handle_size(sizeof(int));
+	*((int*) old) = 0;
 	return 0;
 }

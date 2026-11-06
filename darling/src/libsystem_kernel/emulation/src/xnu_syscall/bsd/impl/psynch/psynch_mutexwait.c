@@ -21,5 +21,10 @@ long sys_psynch_mutexwait(void* mutex, uint32_t mgen, uint32_t ugen, uint64_t ti
 		__simple_abort();
 	}
 
-	return (ret) ? ret : retval;
+	// A nonzero code is XNU's positive BSD errno; syscall handlers report
+	// -errno. Kept out of a ?: so uint32_t retval cannot unsign -ret.
+	if (ret > 0)
+		return -ret;
+
+	return retval;
 }

@@ -5,14 +5,7 @@
 #error "SYS_ulock_wake not defined. The header files libsyscall is building against do not match syscalls.master."
 #endif
 
-#if defined(__arm64__)
-MI_ENTRY_POINT(___ulock_wake)
-SYSCALL_NONAME(ulock_wake, 3, cerror_nocancel)
-ret
-#else
-#if defined(__arm64__) || defined(__i386__) || defined(__x86_64__) || defined(__ppc__)
-__SYSCALL2(___ulock_wake, ulock_wake, 3, cerror_nocancel)
+/* Hand-written so the stub can honour ULF_NO_ERRNO; see ULOCK_SYSCALL in SYS.h. */
+#if defined(__arm64__) || defined(__i386__) || defined(__x86_64__)
+ULOCK_SYSCALL(___ulock_wake, ulock_wake, 3, cerror_nocancel)
 #endif
-
-#endif
-
