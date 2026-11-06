@@ -48,6 +48,10 @@ static sysctl_handler(handle_cpufrequency_compat);
 static sysctl_handler(handle_cachelinesize);
 static sysctl_handler(handle_cacheconfig);
 static sysctl_handler(handle_cachesize);
+static sysctl_handler(handle_l1icachesize);
+static sysctl_handler(handle_l1dcachesize);
+static sysctl_handler(handle_l2cachesize);
+static sysctl_handler(handle_l3cachesize);
 
 #if defined(__i386__) || defined(__x86_64__)
 static void cpuid(unsigned int leaf, unsigned int regs[4])
@@ -182,6 +186,10 @@ const struct known_sysctl sysctls_hw[] = {
 	{ .oid = HW_CACHELINE, .type = CTLTYPE_QUAD, .exttype = "U", .name = "cachelinesize", .handler = handle_cachelinesize },
 	{ .oid = _HW_CACHECONFIG, .type = CTLTYPE_OPAQUE, .exttype = "Q", .name = "cacheconfig", .handler = handle_cacheconfig },
 	{ .oid = _HW_CACHESIZE, .type = CTLTYPE_OPAQUE, .exttype = "Q", .name = "cachesize", .handler = handle_cachesize },
+	{ .oid = HW_L1ICACHESIZE, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "l1icachesize", .handler = handle_l1icachesize },
+	{ .oid = HW_L1DCACHESIZE, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "l1dcachesize", .handler = handle_l1dcachesize },
+	{ .oid = HW_L2CACHESIZE, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "l2cachesize", .handler = handle_l2cachesize },
+	{ .oid = HW_L3CACHESIZE, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "l3cachesize", .handler = handle_l3cachesize },
 #if defined(__i386__) || defined(__x86_64__)
 	{ .oid = _HW_OPTIONAL, .type = CTLTYPE_NODE, .exttype = "", .name = "optional", .subctls = sysctls_hw_optional },
 #endif
@@ -396,9 +404,9 @@ static unsigned int count_cpu_list(const char* list)
 	return count;
 }
 
-// Looks up the data or unified cache of the given level (1 = L1) on the
-// host's first CPU. Instruction caches are not reported in these arrays.
-static bool host_cache_level(unsigned int level, unsigned long long* size, unsigned int* sharing)
+// Looks up the cache of the given level (1 = L1) on the host's first CPU: the
+// instruction cache if instruction is set, otherwise the data or unified one.
+static bool host_cache_level(unsigned int level, bool instruction, unsigned long long* size, unsigned int* sharing)
 {
 	char path[128], buf[64];
 
@@ -413,7 +421,7 @@ static bool host_cache_level(unsigned int level, unsigned long long* size, unsig
 			continue;
 
 		__simple_sprintf(path, HOST_CACHE_DIR "index%d/type", index);
-		if (!read_string(path, buf, sizeof(buf)) || strncmp(buf, "Instruction", 11) == 0)
+		if (!read_string(path, buf, sizeof(buf)) || (strncmp(buf, "Instruction", 11) == 0) != instruction)
 			continue;
 
 		__simple_sprintf(path, HOST_CACHE_DIR "index%d/size", index);
@@ -447,7 +455,7 @@ sysctl_handler(handle_cacheconfig)
 		unsigned long long size;
 		unsigned int sharing;
 
-		if (!host_cache_level(level, &size, &sharing))
+		if (!host_cache_level(level, false, &size, &sharing))
 			break;
 		config[level] = sharing;
 	}
@@ -467,9 +475,42 @@ sysctl_handler(handle_cachesize)
 		unsigned long long size;
 		unsigned int sharing;
 
-		if (!host_cache_level(level, &size, &sharing))
+		if (!host_cache_level(level, false, &size, &sharing))
 			break;
 		sizes[level] = size;
 	}
 	return 0;
+}
+
+// hw.l*cachesize are absent, as on macOS, when the host has no such cache.
+static long copyout_cache_size(unsigned int level, bool instruction, void* old, unsigned long* oldlen)
+{
+	unsigned long long size;
+	unsigned int sharing;
+
+	if (!host_cache_level(level, instruction, &size, &sharing))
+		return -ENOENT;
+	sysctl_handle_size(sizeof(size));
+	*((unsigned long long*) old) = size;
+	return 0;
+}
+
+sysctl_handler(handle_l1icachesize)
+{
+	return copyout_cache_size(1, true, old, oldlen);
+}
+
+sysctl_handler(handle_l1dcachesize)
+{
+	return copyout_cache_size(1, false, old, oldlen);
+}
+
+sysctl_handler(handle_l2cachesize)
+{
+	return copyout_cache_size(2, false, old, oldlen);
+}
+
+sysctl_handler(handle_l3cachesize)
+{
+	return copyout_cache_size(3, false, old, oldlen);
 }
