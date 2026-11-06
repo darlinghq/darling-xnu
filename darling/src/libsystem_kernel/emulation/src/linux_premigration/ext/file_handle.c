@@ -1,5 +1,9 @@
 // This is needed for struct stat64 to exist alongside struct stat
+// On ARM64, only 64-bit inodes are available, so struct stat is already the 64-bit-inode variant
+#if !defined(__aarch64__) && !defined(__arm64__)
 #define _DARWIN_NO_64_BIT_INODE
+#define FILE_HANDLE_STAT_64 1
+#endif
 
 #include <darling/emulation/linux_premigration/ext/file_handle.h>
 
@@ -26,6 +30,16 @@
 // may not provide them at all. So darlingserver remembers the last path used for each file.
 #define MOUNT_ID_FILE_REF (-100)
 
+#ifdef FILE_HANDLE_STAT_64
+typedef struct stat64 file_handle_stat_t;
+#define file_handle_stat sys_stat64
+#define file_handle_lstat sys_lstat64
+#else
+typedef struct stat file_handle_stat_t;
+#define file_handle_stat sys_stat
+#define file_handle_lstat sys_lstat
+#endif
+
 static uint64_t ref_inode(const RefData* ref)
 {
 	return ((uint64_t) ref->inode_high << 32) | ref->inode_low;
@@ -48,8 +62,8 @@ int sys_name_to_handle(const char* name, RefData* ref, int follow)
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
-	struct stat64 st;
-	ret = follow ? sys_stat64(name, &st) : sys_lstat64(name, &st);
+	file_handle_stat_t st;
+	ret = follow ? file_handle_stat(name, &st) : file_handle_lstat(name, &st);
 	if (ret < 0)
 		return ret;
 
@@ -86,8 +100,8 @@ int sys_handle_to_name(RefData* ref, char name[4096])
 		return errno_linux_to_bsd(ret);
 
 	// The file may have been moved or deleted since, and something else may be there now
-	struct stat64 st;
-	ret = sys_lstat64(uargs.path, &st);
+	file_handle_stat_t st;
+	ret = file_handle_lstat(uargs.path, &st);
 	if (ret < 0)
 		return ret;
 

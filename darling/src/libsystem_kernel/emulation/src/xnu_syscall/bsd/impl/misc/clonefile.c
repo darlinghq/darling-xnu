@@ -33,7 +33,8 @@ long sys_clonefileat(int src_fd, const char* src_path, int dest_fd, const char* 
 }
 
 long sys_fclonefileat(int src_fd, int dest_fd, const char* dest_path, uint32_t flags) {
-#ifdef __i386__
+// On arm64, struct stat already has 64-bit inodes and struct stat64 is not available
+#if defined(__i386__) || defined(__aarch64__) || defined(__arm64__)
     struct stat st;
     long fstat_ret = sys_fstat(src_fd, &st);
 #else
