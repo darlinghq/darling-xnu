@@ -180,7 +180,8 @@ static uint64_t cpu_frequency_hz(void)
 	uint64_t khz = 2400000;
 	char buf[16];
 
-	if (read_string("/sys/bus/cpu/devices/cpu0/cpufreq/cpuinfo_max_freq", buf, sizeof(buf)))
+	// The prefix has no /sys of its own; the host's is under /Volumes/SystemRoot.
+	if (read_string("/Volumes/SystemRoot/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq", buf, sizeof(buf)))
 		khz = __simple_atoi(buf, NULL);
 
 	return khz * 1000;
