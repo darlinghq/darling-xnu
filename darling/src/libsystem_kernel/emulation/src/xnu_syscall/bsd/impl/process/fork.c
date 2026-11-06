@@ -18,16 +18,24 @@
 
 extern _libkernel_functions_t _libkernel_functions;
 
+#if defined(__x86_64__) || defined(__i386__)
+// The ___fork stub reserves stack space of its own before it enters
+// __darling_bsd_syscall, so this function is not entered with the stack
+// alignment the ABI promises. The host libc's fork() may rely on it.
+__attribute__((force_align_arg_pointer))
+#endif
 long sys_fork(void)
 {
 	int ret;
 	int wdfd = get_perthread_wd();
 
-#ifdef SYS_fork
-	ret = LINUX_SYSCALL(__NR_fork);
-#else
-	ret = LINUX_SYSCALL(__NR_clone, LINUX_SIGCHLD, 0);
-#endif
+	// Fork through the host libc rather than with a raw syscall. Its fork()
+	// runs the atfork handlers of host libraries, takes the host allocator's
+	// locks so that the child does not inherit them held by threads that no
+	// longer exist, and updates the thread state the host libc keeps (such as
+	// the cached thread ID). The child code below and the RPC socket refresh
+	// in the loader both use the host allocator.
+	ret = native_fork();
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
 	else if (ret == 0)

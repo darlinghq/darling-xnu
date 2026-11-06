@@ -38,6 +38,11 @@ long native_sysconf(int name)
 	return -1;
 }
 
+int native_fork(void)
+{
+	return elfcalls()->native_fork();
+}
+
 void* __darling_thread_create(unsigned long stack_size, unsigned long pthobj_size,
 			void* entry_point, uintptr_t arg3,
 			uintptr_t arg4, uintptr_t arg5, uintptr_t arg6,

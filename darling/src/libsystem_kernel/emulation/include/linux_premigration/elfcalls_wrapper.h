@@ -16,6 +16,7 @@ int native_dlclose(void* module);
 void native_exit(int ec);
 
 long native_sysconf(int name);
+int native_fork(void);
 
 // Native thread wrapping
 void* __darling_thread_create(unsigned long stack_size, unsigned long pthobj_size,
