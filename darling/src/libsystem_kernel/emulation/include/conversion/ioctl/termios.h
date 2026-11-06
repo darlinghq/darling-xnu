@@ -371,6 +371,11 @@ enum {
 #define LINUX_B115200  0010002
 #define LINUX_B230400  0010003
 
+// TCGETS/TCSETS only carry speeds in c_cflag: the output speed in CBAUD and the
+// input speed in CIBAUD (CBAUD << IBSHIFT, B0 there meaning "same as output").
+#define LINUX_IBSHIFT  16
+#define LINUX_CIBAUD   (LINUX_CBAUD << LINUX_IBSHIFT)
+
 #define LINUX_POSIX_VDISABLE ((unsigned char)'\0')
 #define BSD_POSIX_VDISABLE ((unsigned char)'\377')
 
