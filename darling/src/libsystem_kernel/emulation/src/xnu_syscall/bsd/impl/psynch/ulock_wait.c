@@ -9,35 +9,41 @@
 #include <darling/emulation/conversion/duct_errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
+#include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
+
 struct timespec
 {
 	long tv_sec;
 	long tv_nsec;
 };
 
-// timeout is in us
-long sys_ulock_wait(uint32_t operation, void* addr, uint64_t value, uint32_t timeout)
+// timeout_ns is in ns
+long sys_ulock_wait2(uint32_t operation, void* addr, uint64_t value, uint64_t timeout_ns, uint64_t value2)
 {
 	int ret, op;
 	struct timespec ts;
 	bool no_errno = operation & XNU_ULF_NO_ERRNO;
 
+	(void)value2;
 
-	// char dbg[100];
-	// __simple_sprintf(dbg, "ulock_wait on %p for %d ns", addr, timeout / 1000);
-	// lkm_call(0x1028, dbg);
-
-	if (timeout > 0)
+	if (operation & XNU_ULF_WAIT_CANCEL_POINT)
 	{
-		ts.tv_sec = timeout / (1000*1000);
-		ts.tv_nsec = (timeout % (1000*1000)) * 1000;
+		CANCELATION_POINT();
+	}
+
+	if (timeout_ns > 0)
+	{
+		ts.tv_sec = timeout_ns / 1000000000ULL;
+		ts.tv_nsec = timeout_ns % 1000000000ULL;
 	}
 
 	op = operation & XNU_UL_OPCODE_MASK;
-	if (op == XNU_UL_COMPARE_AND_WAIT || op == XNU_UL_UNFAIR_LOCK)
+	if (op == XNU_UL_COMPARE_AND_WAIT || op == XNU_UL_UNFAIR_LOCK ||
+		op == XNU_UL_COMPARE_AND_WAIT_SHARED || op == XNU_UL_UNFAIR_LOCK64_SHARED ||
+		op == XNU_UL_COMPARE_AND_WAIT64 || op == XNU_UL_COMPARE_AND_WAIT64_SHARED)
 	{
 		ret = LINUX_SYSCALL(__NR_futex, addr, FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
-			value, (timeout != 0) ? & ts : NULL);
+			value, (timeout_ns != 0) ? &ts : NULL);
 
 		// unlike ulock_wait(), futex(FUTEX_WAIT) does not return how many
 		// other threads are now (still) waiting for the lock.
@@ -59,4 +65,11 @@ long sys_ulock_wait(uint32_t operation, void* addr, uint64_t value, uint32_t tim
 	}
 
 	return ret;
+}
+
+// timeout is in us
+long sys_ulock_wait(uint32_t operation, void* addr, uint64_t value, uint32_t timeout)
+{
+	uint64_t timeout_ns = (uint64_t)timeout * 1000ULL;
+	return sys_ulock_wait2(operation, addr, value, timeout_ns, 0);
 }

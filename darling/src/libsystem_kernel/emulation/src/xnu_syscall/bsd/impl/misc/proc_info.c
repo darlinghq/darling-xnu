@@ -827,3 +827,14 @@ bail:
 	close_internal(fd);
 	return count * sizeof(uint64_t);
 }
+
+long sys_proc_info_extended_id(uint32_t callnum, int32_t pid, uint32_t flavor,
+		uint32_t flags, uint64_t ext_id, uint64_t arg, void* buffer, int32_t bufsize)
+{
+	// NOTE: flags and ext_id (Mach identity token filtering) not yet implemented.
+	// Falling back to standard proc_info is safe for most use cases.
+	(void)flags;
+	(void)ext_id;
+	return sys_proc_info(callnum, pid, flavor, arg, buffer, bufsize);
+}
+
