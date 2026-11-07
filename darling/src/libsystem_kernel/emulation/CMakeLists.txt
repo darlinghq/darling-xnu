@@ -77,6 +77,7 @@ set(linux_premigration_sources
 	src/linux_premigration/ext/file_handle.c
 	src/linux_premigration/ext/for-libelfloader.c
 	src/linux_premigration/ext/for-libkqueue.c
+	src/linux_premigration/ext/for-platform-identity.c
 	src/linux_premigration/ext/for-sysconfig.c
 	src/linux_premigration/ext/host-pid.c
 	src/linux_premigration/ext/for-xtrace.c
@@ -114,6 +115,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/helper/misc/common_at.c
 	src/xnu_syscall/bsd/helper/misc/readline.c
 	src/xnu_syscall/bsd/helper/misc/fdpath.c
+	src/xnu_syscall/bsd/helper/misc/platform_identity.c
 	src/xnu_syscall/bsd/helper/misc/sysctl_hw.c
 	src/xnu_syscall/bsd/helper/misc/sysctl_kern.c
 	src/xnu_syscall/bsd/helper/misc/sysctl_machdep.c

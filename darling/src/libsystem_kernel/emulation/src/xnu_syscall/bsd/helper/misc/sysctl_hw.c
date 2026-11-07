@@ -8,6 +8,7 @@
 
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/sysctl_kern.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/sysctl_proc.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/platform_identity.h>
 #include <darling/emulation/linux_premigration/ext/sys/utsname.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/common/string.h>
@@ -47,9 +48,20 @@ static sysctl_handler(handle_cpusubtype);
 static sysctl_handler(handle_cputhreadtype);
 static sysctl_handler(handle_cpu64bitcapable);
 static sysctl_handler(handle_machine);
+static sysctl_handler(handle_model);
 static sysctl_handler(handle_cpufrequency);
 static sysctl_handler(handle_cpufrequency_compat);
-static sysctl_handler(handle_cachelinesize);
+static // The Mac model identifier, the same as IOPlatformExpertDevice's "model".
+sysctl_handler(handle_model)
+{
+	const dserver_platform_identity_t* identity = platform_identity();
+
+	if (!identity || identity->model[0] == '\0')
+		return -ENOENT;
+	return copyout_string(identity->model, (char*) old, oldlen);
+}
+
+sysctl_handler(handle_cachelinesize);
 static sysctl_handler(handle_cacheconfig);
 static sysctl_handler(handle_cachesize);
 static sysctl_handler(handle_l1icachesize);
@@ -187,6 +199,7 @@ const struct known_sysctl sysctls_hw[] = {
 	{ .oid = _HW_CPUTHREADTYPE, .type = CTLTYPE_INT, .exttype = "", .name = "cputhreadtype", .handler = handle_cputhreadtype },
 	{ .oid = _HW_64BITCAPABLE, .type = CTLTYPE_INT, .exttype = "", .name = "cpu64bit_capable", .handler = handle_cpu64bitcapable },
 	{ .oid = HW_MACHINE, .type = CTLTYPE_STRING, .exttype = "S", .name = "machine", .handler = handle_machine },
+	{ .oid = HW_MODEL, .type = CTLTYPE_STRING, .exttype = "S", .name = "model", .handler = handle_model },
 	{ .oid = _HW_CPUFREQUENCY, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "cpufrequency", .handler = handle_cpufrequency },
 	{ .oid = HW_CPU_FREQ, .type = CTLTYPE_INT, .exttype = "I", .name = "cpufrequency_compat", .handler = handle_cpufrequency_compat },
 	{ .oid = HW_CACHELINE, .type = CTLTYPE_QUAD, .exttype = "U", .name = "cachelinesize", .handler = handle_cachelinesize },

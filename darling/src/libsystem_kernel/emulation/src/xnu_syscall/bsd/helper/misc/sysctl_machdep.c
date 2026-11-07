@@ -8,6 +8,17 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/platform_identity.h>
+
+// The configured CPU brand string (`CPUBrandString`), if there is one.
+static const char* configured_brand_string(void)
+{
+	const dserver_platform_identity_t* identity = platform_identity();
+
+	if (!identity || identity->cpu_brand_string[0] == '\0')
+		return NULL;
+	return identity->cpu_brand_string;
+}
 
 #if defined(__aarch64__) || defined(__arm64__)
 // ARM64: provide stub sysctl tables (no CPUID on ARM)
@@ -17,6 +28,13 @@ extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
 static sysctl_handler(handle_arm_stub)
 {
 	return copyout_string("ARM64", (char*) old, oldlen);
+}
+
+static sysctl_handler(handle_arm_brand_string)
+{
+	const char* brand = configured_brand_string();
+
+	return copyout_string(brand ? brand : "ARM64", (char*) old, oldlen);
 }
 
 enum {
@@ -33,7 +51,7 @@ static sysctl_handler(handle_core_count);
 
 const struct known_sysctl sysctls_machdep_cpu[] = {
 	{ .oid = _CPU_VENDOR, .type = CTLTYPE_STRING, .exttype = "S", .name = "vendor", .handler = handle_arm_stub },
-	{ .oid = _CPU_BRAND_STRING, .type = CTLTYPE_STRING, .exttype = "S", .name = "brand_string", .handler = handle_arm_stub },
+	{ .oid = _CPU_BRAND_STRING, .type = CTLTYPE_STRING, .exttype = "S", .name = "brand_string", .handler = handle_arm_brand_string },
 	{ .oid = _CPU_CORE_COUNT, .type = CTLTYPE_INT, .exttype = "I", .name = "core_count", .handler = handle_core_count },
 	{ .oid = -1 }
 };
@@ -224,6 +242,10 @@ sysctl_handler(handle_stepping)
 
 sysctl_handler(handle_brand_string)
 {
+    const char* brand = configured_brand_string();
+    if (brand != NULL)
+        return copyout_string(brand, (char*) old, oldlen);
+
     setup(0x80000000);
 
     __cpuid(level,eax,ebx, ecx, edx);
