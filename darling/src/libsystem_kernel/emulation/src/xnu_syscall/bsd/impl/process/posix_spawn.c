@@ -27,6 +27,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/setpgid.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/sigprocmask.h>
 #include <darling/emulation/other/mach/lkm.h>
+#include <darling/emulation/common/guarded/table.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/process/fork.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/chdir.h>
@@ -138,6 +139,13 @@ no_fork:
 						// FIXME: pretty sure this should not be hardcoded
 						if (fd == 1023) {
 							// special commpage fd
+							continue;
+						}
+
+						// Darling's own descriptors (the RPC socket and the
+						// process lifetime pipe) are not the program's;
+						// leave them as they are
+						if (guard_table_check(fd, guard_flag_prevent_close)) {
 							continue;
 						}
 
