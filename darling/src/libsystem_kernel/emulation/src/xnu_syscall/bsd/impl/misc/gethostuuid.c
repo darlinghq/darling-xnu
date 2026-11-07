@@ -17,11 +17,11 @@ long sys_gethostuuid(unsigned char* uuid_buf, void* timeout)
 	int ret, fd;
 	char buf[32];
 
-	fd = sys_open("/Volumes/SystemRoot/etc/machine-id", O_RDONLY, 0);
+	fd = sys_open_nocancel("/Volumes/SystemRoot/etc/machine-id", O_RDONLY, 0);
 	if (fd < 0)
 		return fd;
 
-	ret = sys_read(fd, buf, sizeof(buf));
+	ret = sys_read_nocancel(fd, buf, sizeof(buf));
 	close_internal(fd);
 
 	if (ret < 0)

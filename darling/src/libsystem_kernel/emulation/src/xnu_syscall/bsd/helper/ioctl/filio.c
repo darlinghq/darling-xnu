@@ -144,7 +144,7 @@ int handle_filio(int fd, int cmd, void* arg, int* retval)
 			if (!iarg)
 				*retval = -EINVAL;
 			
-			*retval = sys_fcntl(fd, F_GETFL, 0);
+			*retval = sys_fcntl_nocancel(fd, F_GETFL, 0);
 			if (*retval < 0)
 				return IOCTL_HANDLED;
 			
@@ -155,7 +155,7 @@ int handle_filio(int fd, int cmd, void* arg, int* retval)
 			else
 				flags &= ~BSD_O_ASYNC;
 			
-			*retval = sys_fcntl(fd, F_SETFL, flags);
+			*retval = sys_fcntl_nocancel(fd, F_SETFL, flags);
 			
 			return IOCTL_HANDLED;
 		}

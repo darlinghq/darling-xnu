@@ -16,7 +16,7 @@
 // http://osxr.org/glibc/source/sysdeps/unix/sysv/linux/speed.c?v=glibc-2.13
 
 extern void *memset(void *s, int c, size_t n);
-extern long sys_write(int fd, const void* buf, size_t n);
+extern long sys_write_nocancel(int fd, const void* buf, size_t n);
 
 static void cc_linux_to_bsd(const unsigned char* l, unsigned char* b);
 static void cc_bsd_to_linux(const unsigned char* b, unsigned char* l);
@@ -226,7 +226,7 @@ int handle_termios(int fd, unsigned int cmd, void* arg, int* retval)
 
 			c = tos.c_cc[cmd == BSD_TIOCIXON ? LINUX_VSTART : LINUX_VSTOP];
 			if (c != LINUX_POSIX_VDISABLE)
-				*retval = sys_write(fd, &c, 1);
+				*retval = sys_write_nocancel(fd, &c, 1);
 			else
 				*retval = 0;
 

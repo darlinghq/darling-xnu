@@ -29,9 +29,9 @@ int signalfd (int __fd, const sigset_t *__mask, int __flags)
 	if (rv >= 0)
 	{
 		if (__flags & O_CLOEXEC)
-			sys_fcntl(rv, F_SETFD, BSD_FD_CLOEXEC);
+			sys_fcntl_nocancel(rv, F_SETFD, BSD_FD_CLOEXEC);
 		if (__flags & O_NONBLOCK)
-			sys_fcntl(rv, F_SETFL, BSD_O_NONBLOCK);
+			sys_fcntl_nocancel(rv, F_SETFL, BSD_O_NONBLOCK);
 	}
 #endif
 	if (rv < 0)
