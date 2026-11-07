@@ -14,4 +14,12 @@ int _dserver_rpc_kqchan_proc_open_4libkqueue(int32_t pid, uint32_t flags, int* o
 VISIBLE
 int _dup_4libkqueue(int fd);
 
+// Counts each delivery of the BSD signal on the eventfd, whichever thread
+// takes the signal and whatever its disposition. Returns 0 or a negative errno.
+VISIBLE
+int _signal_watch_4libkqueue(int signum, int eventfd);
+
+VISIBLE
+void _signal_unwatch_4libkqueue(int signum, int eventfd);
+
 #endif // _DARLING_EMULATION_FOR_LIBKQUEUE_H_

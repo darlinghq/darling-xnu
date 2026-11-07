@@ -1,7 +1,11 @@
 #include <darling/emulation/linux_premigration/ext/for-libkqueue.h>
 
+#include <sys/errno.h>
+
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/signal/duct_signals.h>
+#include <darling/emulation/linux_premigration/signal/sigexc.h>
 
 #include <darlingserver/rpc.h>
 
@@ -21,4 +25,17 @@ int _dup_4libkqueue(int fd) {
 		ret = errno_linux_to_bsd(ret);
 
 	return ret;
+};
+
+int _signal_watch_4libkqueue(int signum, int eventfd) {
+	int linux_signum = signum_bsd_to_linux(signum);
+	if (linux_signum <= 0)
+		return -EINVAL;
+	return sigexc_kqueue_watch(linux_signum, eventfd);
+};
+
+void _signal_unwatch_4libkqueue(int signum, int eventfd) {
+	int linux_signum = signum_bsd_to_linux(signum);
+	if (linux_signum > 0)
+		sigexc_kqueue_unwatch(linux_signum, eventfd);
 };

@@ -1,6 +1,8 @@
 #include <darling/emulation/linux_premigration/signal/sigexc.h>
 
 #include <stddef.h>
+#include <stdint.h>
+#include <sys/errno.h>
 #include <sys/signal.h>
 #include <sys/mman.h>
 #include <_libkernel_init.h>
@@ -304,20 +306,89 @@ static bool is_thread_fault(int linux_signum, const struct linux_siginfo* info)
 	}
 }
 
+// kqueue signal filters (EVFILT_SIGNAL) count every attempt to deliver a
+// signal to the process, whatever the signal's disposition (including
+// SIG_IGN) and whichever thread takes it. A signal that reaches a handler here
+// is gone before a signalfd could see it, so libkqueue registers an eventfd
+// for each signal filter and every such signal is counted on those eventfds.
+#define SIGEXC_KQUEUE_WATCHERS 16
+
+// A slot holds an eventfd plus one; zero means free.
+static int kqueue_watchers[32][SIGEXC_KQUEUE_WATCHERS];
+// Number of threads currently writing to the eventfds above.
+static int kqueue_notifiers;
+
+int sigexc_kqueue_watch(int linux_signum, int fd)
+{
+	if (linux_signum <= 0 || linux_signum >= 32 || fd < 0)
+		return -EINVAL;
+
+	for (int i = 0; i < SIGEXC_KQUEUE_WATCHERS; i++)
+	{
+		int expected = 0;
+		if (__atomic_compare_exchange_n(&kqueue_watchers[linux_signum][i], &expected, fd + 1,
+				false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+			return 0;
+	}
+	return -ENOSPC;
+}
+
+void sigexc_kqueue_unwatch(int linux_signum, int fd)
+{
+	if (linux_signum <= 0 || linux_signum >= 32 || fd < 0)
+		return;
+
+	for (int i = 0; i < SIGEXC_KQUEUE_WATCHERS; i++)
+	{
+		int expected = fd + 1;
+		if (__atomic_compare_exchange_n(&kqueue_watchers[linux_signum][i], &expected, 0,
+				false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+			break;
+	}
+
+	// The caller closes the eventfd next. Wait until no thread can still be
+	// writing to it, so that a reused descriptor never receives a count.
+	// The writers run with standard signals blocked and never wait, so this
+	// cannot spin on a writer interrupted on the same thread.
+	while (__atomic_load_n(&kqueue_notifiers, __ATOMIC_ACQUIRE) != 0)
+		LINUX_SYSCALL0(__NR_sched_yield);
+}
+
+static void sigexc_kqueue_notify(int linux_signum)
+{
+	static const uint64_t one = 1;
+
+	if (linux_signum <= 0 || linux_signum >= 32)
+		return;
+
+	__atomic_add_fetch(&kqueue_notifiers, 1, __ATOMIC_ACQ_REL);
+	for (int i = 0; i < SIGEXC_KQUEUE_WATCHERS; i++)
+	{
+		int slot = __atomic_load_n(&kqueue_watchers[linux_signum][i], __ATOMIC_ACQUIRE);
+		if (slot != 0)
+			LINUX_SYSCALL(__NR_write, slot - 1, &one, sizeof(one));
+	}
+	__atomic_sub_fetch(&kqueue_notifiers, 1, __ATOMIC_ACQ_REL);
+}
+
 // The signal arrived on a thread that cannot talk to darlingserver: one that
 // was not created as a Darwin thread (it never had a connection), or any
 // thread once the server is gone. The signal cannot be processed here.
-static void handle_signal_without_server(int linux_signum, struct linux_siginfo* info)
+static void handle_signal_without_server(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
 	int pid = LINUX_SYSCALL0(__NR_getpid);
 	int tid = LINUX_SYSCALL0(__NR_gettid);
 
-	// A signal sent to the process may be handled by any of its threads, so
-	// pass it on to the main thread, keeping its siginfo.
-	if (!is_thread_fault(linux_signum, info) && tid != pid && info != NULL)
+	// A signal sent to the process may be handled by any of its threads.
+	// Keep it blocked on this thread once the handler returns and send it to
+	// the process again with its siginfo, so that a thread that can process
+	// it takes it (or it stays pending until one can).
+	if (!is_thread_fault(linux_signum, info) && tid != pid && info != NULL && ctxt != NULL)
 	{
-		if (LINUX_SYSCALL(__NR_rt_tgsigqueueinfo, pid, pid, linux_signum, info) == 0)
+		ctxt->uc_sigmask |= (1ull << (linux_signum - 1));
+		if (LINUX_SYSCALL(__NR_rt_sigqueueinfo, pid, linux_signum, info) == 0)
 			return;
+		ctxt->uc_sigmask &= ~(1ull << (linux_signum - 1));
 	}
 
 	// Otherwise apply the default action, as if no handler were installed.
@@ -342,9 +413,12 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 	int status = dserver_rpc_interrupt_enter();
 
 	if (status != 0) {
-		handle_signal_without_server(linux_signum, info);
+		handle_signal_without_server(linux_signum, info, ctxt);
 		return;
 	}
+
+	if (!is_thread_fault(linux_signum, info))
+		sigexc_kqueue_notify(linux_signum);
 
 	kern_printf("sigexc_handler(%d, %p, %p)\n", linux_signum, info, ctxt);
 
