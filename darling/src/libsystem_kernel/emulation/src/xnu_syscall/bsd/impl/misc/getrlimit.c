@@ -7,8 +7,6 @@
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
-#define DARWIN_OPEN_MAX 10240
-
 long sys_getrlimit(unsigned int which, struct xnu_rlimit* rlp)
 {
 	int ret;

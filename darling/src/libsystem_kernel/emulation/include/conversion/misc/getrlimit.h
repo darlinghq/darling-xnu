@@ -44,6 +44,10 @@ enum {
 #define XNU_RLIM_INFINITY 0x7fffffffffffffffULL
 #define LINUX_RLIM_INFINITY (~0ULL)
 
+// Darwin's OPEN_MAX (sys/syslimits.h). getrlimit and getdtablesize never
+// report an RLIMIT_NOFILE value above it.
+#define DARWIN_OPEN_MAX 10240
+
 unsigned int rlimit_bsd_to_linux(unsigned int which);
 
 static inline unsigned long long rlim_linux_to_bsd(unsigned long long value)
