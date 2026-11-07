@@ -64,6 +64,14 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 			}
 			ret = errno_linux_to_bsd(-ret);
 
+			// darlingserver refused the attach (e.g. EBUSY after
+			// PT_DENY_ATTACH, when the target's policy enforces it):
+			// leave the target alone
+			if (ret != 0) {
+				cmd = "PT_ATTACHEXC";
+				break;
+			}
+
 			sys_kill(pid, SIGSTOP, 1);
 
 			ret = dserver_rpc_ptrace_sigexc(pid, true);
@@ -173,8 +181,15 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 		}
 		case XNU_PT_DENY_ATTACH:
 		{
-			// TODO: refuse later attach requests. The request itself
-			// succeeds; callers treat any other result as a failure.
+			// Recorded by darlingserver, which refuses later attach
+			// requests when the process's code signing policy enforces
+			// it. The request itself succeeds; callers treat any other
+			// result as a failure.
+			ret = dserver_rpc_cs_deny_attach();
+			if (ret < 0) {
+				__simple_printf("dserver_rpc_cs_deny_attach failed internally: %d", ret);
+				__simple_abort();
+			}
 			ret = 0;
 			cmd = "PT_DENY_ATTACH"; break;
 		}
