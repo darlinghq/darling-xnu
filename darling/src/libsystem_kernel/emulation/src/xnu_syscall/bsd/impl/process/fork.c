@@ -13,6 +13,7 @@
 #include <darling/emulation/other/mach/lkm.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 #include <darling/emulation/common/guarded/table.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 #include <darling/emulation/common/tsd.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/bsdthread_register.h>
 
@@ -48,6 +49,7 @@ long sys_fork(void)
 		// we don't need to close it ourselves.
 		// that should also take care of closing descriptors for any other threads.
 		guard_table_postfork_child();
+		nofile_limit_postfork_child();
 
 		// create a new dserver RPC socket
 		__dserver_per_thread_socket_refresh();

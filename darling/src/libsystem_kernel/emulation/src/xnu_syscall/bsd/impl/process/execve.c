@@ -23,6 +23,7 @@
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/write.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 
 #include <darlingserver/rpc.h>
 
@@ -45,6 +46,10 @@ long sys_execve(const char* fname, const char** argvp, const char** envp)
 	char mldr_path[4096];
 	uint64_t mldr_path_length;
 	const char* path_to_exec = vc.path;
+	// referenced from the new environment until the execve below, so they
+	// must not be scoped to the block that fills them in
+	char mldr_lifetime_pipe_env[32] = { '\0' };
+	char mldr_nofile_env[48] = { '\0' };
 
 	ret = dserver_rpc_mldr_path(mldr_path, sizeof(mldr_path), &mldr_path_length);
 	if (ret < 0) {
@@ -186,13 +191,15 @@ long sys_execve(const char* fname, const char** argvp, const char** envp)
 		struct linux_sockaddr_un* server_socket_address = dserver_rpc_hooks_get_server_address();
 		const char* server_socket_path = server_socket_address->sun_path;
 
-		char mldr_lifetime_pipe_env[32] = { '\0' };
 		__simple_snprintf(mldr_lifetime_pipe_env, sizeof(mldr_lifetime_pipe_env) - 1, "__mldr_lifetime_pipe=%d", __dserver_get_process_lifetime_pipe());
+
+		// RLIMIT_NOFILE survives execve; mldr hands it to the new image
+		int have_nofile_env = nofile_limit_exec_env(mldr_nofile_env, sizeof(mldr_nofile_env) - 1);
 
 		// count original env vars
 		while (envp[len++]);
 
-		const int new_env_count = 2;
+		const int new_env_count = have_nofile_env ? 3 : 2;
 
 		// allocate a new envp and env0, env1
 		modenvp = (const char**)__builtin_alloca(sizeof(void*) * (len + new_env_count));
@@ -203,6 +210,8 @@ long sys_execve(const char* fname, const char** argvp, const char** envp)
 		strcat(buf, server_socket_path);
 		modenvp[0] = buf;
 		modenvp[1] = mldr_lifetime_pipe_env;
+		if (have_nofile_env)
+			modenvp[2] = mldr_nofile_env;
 
 		// append original env vars
 		for (int i = new_env_count; i < len + new_env_count; i++)

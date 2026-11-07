@@ -6,6 +6,7 @@
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 
 long sys_getrlimit(unsigned int which, struct xnu_rlimit* rlp)
 {
@@ -19,23 +20,18 @@ long sys_getrlimit(unsigned int which, struct xnu_rlimit* rlp)
 	if (rlp == NULL)
 		return -EFAULT;
 
+	// Kept apart from the Linux limit, see nofile_limit.c. It is never
+	// reported above OPEN_MAX: Darwin programs size descriptor loops and
+	// tables by it.
+	if (lwhich == LINUX_RLIMIT_NOFILE)
+		return nofile_limit_get(rlp);
+
 	ret = LINUX_SYSCALL(__NR_prlimit64, 0, (unsigned int)lwhich, 0, rlp);
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
 	rlp->rlim_cur = rlim_linux_to_bsd(rlp->rlim_cur);
 	rlp->rlim_max = rlim_linux_to_bsd(rlp->rlim_max);
-
-	// BSD_RLIMIT_POSIX (0x1000) is the SUSv3 conformance bit flag in macOS libc.
-	// In macOS, RLIMIT_NOFILE is always capped at OPEN_MAX (10240) and never returns
-	// unbounded Linux host limits or RLIM_INFINITY.
-	if ((which & ~BSD_RLIMIT_POSIX) == BSD_RLIMIT_NOFILE)
-	{
-		if (rlp->rlim_cur > DARWIN_OPEN_MAX)
-			rlp->rlim_cur = DARWIN_OPEN_MAX;
-		if (rlp->rlim_max > DARWIN_OPEN_MAX)
-			rlp->rlim_max = DARWIN_OPEN_MAX;
-	}
 
 	return ret;
 }

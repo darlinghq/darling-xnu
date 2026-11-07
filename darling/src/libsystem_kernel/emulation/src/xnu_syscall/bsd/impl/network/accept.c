@@ -14,6 +14,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/fcntl.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 
 long sys_accept(int fd, void* from, int* socklen)
 {
@@ -34,7 +35,7 @@ long sys_accept_nocancel(int fd, void* from, int* socklen)
 
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
-	else
+	else if ((ret = nofile_limit_check_new(ret)) >= 0)
 	{
 		int accepted_fd = ret;
 

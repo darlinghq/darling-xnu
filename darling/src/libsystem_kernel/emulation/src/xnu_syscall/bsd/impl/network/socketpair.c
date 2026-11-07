@@ -8,6 +8,8 @@
 #include <darling/emulation/conversion/network/duct.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/duct.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 
 long sys_socketpair(int domain, int type, int protocol, int sv[2])
 {
@@ -37,6 +39,11 @@ long sys_socketpair(int domain, int type, int protocol, int sv[2])
 
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
+	else if (nofile_limit_exceeded(sv[0]) || nofile_limit_exceeded(sv[1])) {
+		close_internal(sv[0]);
+		close_internal(sv[1]);
+		ret = -EMFILE;
+	}
 
 	return ret;
 }
