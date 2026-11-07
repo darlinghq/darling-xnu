@@ -1,62 +1,28 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/gethostuuid.h>
 
-#include <sys/fcntl.h>
 #include <sys/errno.h>
 
-#include <darling/emulation/common/base.h>
-#include <darling/emulation/conversion/errno.h>
-#include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
-#include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
-#include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
-#include <darling/emulation/xnu_syscall/bsd/impl/unistd/read.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/platform_identity.h>
 
-static int hex2bin(const char* str, unsigned char* uuid_buf);
-
+// The host UUID is the platform UUID (IOPlatformUUID), which darlingserver
+// derives from the Linux machine ID or takes from the configuration.
 long sys_gethostuuid(unsigned char* uuid_buf, void* timeout)
 {
-	int ret, fd;
-	char buf[32];
-
-	fd = sys_open("/Volumes/SystemRoot/etc/machine-id", O_RDONLY, 0);
-	if (fd < 0)
-		return fd;
-
-	ret = sys_read(fd, buf, sizeof(buf));
-	close_internal(fd);
-
-	if (ret < 0)
-		return ret;
-	if (ret != sizeof(buf))
-		return -ENOSYS;
-
-	return hex2bin(buf, uuid_buf);
-}
-
-static inline unsigned char hvalue(char c)
-{
-	if (c >= '0' && c <= '9')
-		return c - '0';
-	else if (c >= 'A' && c <= 'F')
-		return 10 + (c - 'A');
-	else if (c >= 'a' && c <= 'f')
-		return 10 + (c - 'a');
-	else
-		return 0;
-}
-
-static int hex2bin(const char* str, unsigned char* uuid_buf)
-{
+	const dserver_platform_identity_t* identity = platform_identity();
 	int i;
 
-	for (i = 0; i < 16; i++)
+	if (!identity)
+		return -EIO;
+
+	// all zero: the host has no machine ID and none was configured
+	for (i = 0; i < sizeof(identity->platform_uuid); i++)
 	{
-		unsigned char v;
-
-		v = hvalue(str[i*2]) << 4;
-		v |= hvalue(str[i*2+1]);
-
-		uuid_buf[i] = v;
+		if (identity->platform_uuid[i] != 0)
+			break;
 	}
+	if (i == sizeof(identity->platform_uuid))
+		return -ENOENT;
 
+	__builtin_memcpy(uuid_buf, identity->platform_uuid, sizeof(identity->platform_uuid));
 	return 0;
 }
