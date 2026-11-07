@@ -71,7 +71,8 @@ long sys_fork(void)
 			__simple_printf("Failed to checkin with darlingserver after fork\n");
 			__simple_abort();
 		}
-		set_thread_handles(_pthread_getspecific_direct(_PTHREAD_TSD_SLOT_PTHREAD_SELF));
+		if (bsdthread_registered())
+			set_thread_handles(_pthread_getspecific_direct(_PTHREAD_TSD_SLOT_PTHREAD_SELF));
 		if (wdfd >= 0)
 			sys_fchdir(wdfd);
 

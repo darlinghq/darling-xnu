@@ -34,6 +34,12 @@ struct _pthread_registration_data {
 } __attribute__ ((packed));
 
 static struct _pthread_registration_data g_pth_regdata;
+static bool g_registered = false;
+
+bool bsdthread_registered(void)
+{
+	return g_registered;
+}
 
 void set_thread_handles(uintptr_t pthread_handle)
 {
@@ -57,6 +63,9 @@ long sys_bsdthread_register(void* thread_start, void* wqthread, int pthsize,
 	g_pth_regdata = *pth_regdata;
 
 	set_thread_handles(_pthread_getspecific_direct(_PTHREAD_TSD_SLOT_PTHREAD_SELF));
+
+	// libpthread has set up the TSD of this thread, and it does so for every thread it creates later
+	g_registered = true;
 
 	return /* WORKQ_FEATURE_KEVENT | WORKQ_FEATURE_FINEPRIO | PTHREAD_FEATURE_QOS_MAINTENANCE 
 		| PTHREAD_FEATURE_DISPATCHFUNC | PTHREAD_FEATURE_QOS_DEFAULT */ 0;
