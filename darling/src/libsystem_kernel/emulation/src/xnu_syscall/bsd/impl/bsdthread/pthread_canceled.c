@@ -26,6 +26,12 @@ long sys_pthread_canceled(int action)
 	int ret = dserver_rpc_pthread_canceled(action);
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
+	else if (action == 0)
+	{
+		// the mark has been acted on and darlingserver won't mark this thread again,
+		// so the cancellation points in its cleanup handlers can skip the call
+		_pthread_setspecific_direct(__PTK_DARLING_CANCEL_MARKED, 0);
+	}
 
 	return ret;
 }
