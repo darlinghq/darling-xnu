@@ -134,11 +134,11 @@ bool read_string(const char* path, char* dst, int maxlen)
 {
 	int fd, rd;
 
-	fd = sys_open(path, BSD_O_RDONLY, 0);
+	fd = sys_open_nocancel(path, BSD_O_RDONLY, 0);
 	if (fd < 0)
 		return false;
 
-	rd = sys_read(fd, dst, maxlen-1);
+	rd = sys_read_nocancel(fd, dst, maxlen-1);
 	if (rd >= 0)
 		dst[rd] = '\0';
 
@@ -191,7 +191,7 @@ void skip_stat_elems(char** buf, int count)
 bool proc_start_time(uint64_t starttime, uint64_t* sec, uint64_t* usec)
 {
 	struct rdline_buffer rbuf;
-	int statfd = sys_open("/proc/stat", BSD_O_RDONLY, 0);
+	int statfd = sys_open_nocancel("/proc/stat", BSD_O_RDONLY, 0);
 
 	if (statfd < 0)
 		return false;

@@ -123,7 +123,7 @@ int sys_open_by_handle(RefData* ref, int flags)
 		if (ret < 0)
 			return ret;
 
-		return sys_open(name, flags, 0);
+		return sys_open_nocancel(name, flags, 0);
 	}
 
 	int linux_flags = oflags_bsd_to_linux(flags);
@@ -135,7 +135,7 @@ int sys_open_by_handle(RefData* ref, int flags)
 	struct simple_readline_buf rbuf;
 	char line[1024];
 
-	int fd_m = sys_open("/proc/self/mountinfo", BSD_O_RDONLY, 0);
+	int fd_m = sys_open_nocancel("/proc/self/mountinfo", BSD_O_RDONLY, 0);
 	if (fd_m < 0)
 		return fd_m;
 	const char* mount_path = NULL;
@@ -174,7 +174,7 @@ int sys_open_by_handle(RefData* ref, int flags)
 		return -ENOENT;
 	
 	// We have the path of the mount, lets get a file descriptor
-	fd_m = sys_open(mount_path, BSD_O_RDONLY, 0);
+	fd_m = sys_open_nocancel(mount_path, BSD_O_RDONLY, 0);
 	if (fd_m < 0)
 		return fd_m;
 	

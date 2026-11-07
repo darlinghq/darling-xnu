@@ -13,5 +13,5 @@ long sys_guarded_close_np(int fd, const uint64_t* guardid)
 	if (!guardid)
 		return -EFAULT;
 
-	return sys_close(fd);
+	return sys_close_nocancel(fd);
 }

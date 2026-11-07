@@ -138,7 +138,7 @@ static long mount_table_update_locked(void)
 
 	if (mount_table_fd < 0)
 	{
-		int fd = sys_open("/proc/self/mounts", BSD_O_RDONLY | BSD_O_CLOEXEC, 0);
+		int fd = sys_open_nocancel("/proc/self/mounts", BSD_O_RDONLY | BSD_O_CLOEXEC, 0);
 		if (fd < 0)
 			return fd;
 

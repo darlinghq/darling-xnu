@@ -147,7 +147,7 @@ static unsigned long boottime_cache;
 
 static int read_proc_boottime(unsigned long* seconds)
 {
-	int fd = sys_open("/proc/stat", BSD_O_RDONLY, 0);
+	int fd = sys_open_nocancel("/proc/stat", BSD_O_RDONLY, 0);
 	if (fd < 0)
 		return fd;
 	struct rdline_buffer buffer;
@@ -297,7 +297,7 @@ sysctl_handler(handle_domainname)
 sysctl_handler(handle_maxproc)
 {
 	char buf[16];
-	int fd = sys_open("/proc/sys/kernel/pid_max", BSD_O_RDONLY, 0);
+	int fd = sys_open_nocancel("/proc/sys/kernel/pid_max", BSD_O_RDONLY, 0);
 	int value = 1024;
 	int* ovalue = (int*) old;
 	
@@ -306,7 +306,7 @@ sysctl_handler(handle_maxproc)
 	
 	if (fd >= 0)
 	{
-		int rd = sys_read(fd, buf, sizeof(buf) - 1);
+		int rd = sys_read_nocancel(fd, buf, sizeof(buf) - 1);
 		close_internal(fd);
 		
 		if (rd > 0)

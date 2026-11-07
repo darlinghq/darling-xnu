@@ -26,7 +26,7 @@ long sys_pthread_fchdir(int newfd)
 		newfd = sys_dup(newfd);
 		if (newfd < 0)
 			return newfd;
-		sys_fcntl(newfd, F_SETFD, FD_CLOEXEC);
+		sys_fcntl_nocancel(newfd, F_SETFD, FD_CLOEXEC);
 	}
 
 	set_perthread_wd(newfd);

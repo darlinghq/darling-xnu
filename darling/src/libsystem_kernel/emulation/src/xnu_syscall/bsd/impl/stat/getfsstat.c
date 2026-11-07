@@ -31,7 +31,7 @@ long sys_getfsstat64(struct bsd_statfs64* buf, int bufsize, int flags)
 	char line[512];
 	int count = 0;
 
-	fd = sys_open("/proc/self/mounts", O_RDONLY, 0);
+	fd = sys_open_nocancel("/proc/self/mounts", O_RDONLY, 0);
 	if (fd < 0)
 		return errno_linux_to_bsd(fd);
 	
