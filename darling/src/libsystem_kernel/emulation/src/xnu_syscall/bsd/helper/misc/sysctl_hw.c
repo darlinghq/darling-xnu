@@ -11,6 +11,8 @@
 #include <darling/emulation/linux_premigration/ext/sys/utsname.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/common/string.h>
+#include <darling/emulation/common/base.h>
+#include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
 extern kern_return_t mach_port_deallocate(ipc_space_t task, mach_port_name_t name);
 extern kern_return_t host_info(mach_port_name_t host, int itype, void* hinfo, mach_msg_type_number_t* count);
@@ -29,9 +31,11 @@ enum {
 	_HW_OPTIONAL,
 	_HW_CACHECONFIG,
 	_HW_CACHESIZE,
+	_HW_AVAILCPU_COMPAT,
 };
 
-static sysctl_handler(handle_availcpu);
+static sysctl_handler(handle_ncpu);
+static sysctl_handler(handle_activecpu);
 static sysctl_handler(handle_physicalcpu);
 static sysctl_handler(handle_physicalcpu_max);
 static sysctl_handler(handle_logicalcpu);
@@ -168,8 +172,10 @@ static const struct known_sysctl sysctls_hw_optional[] = {
 #endif
 
 const struct known_sysctl sysctls_hw[] = {
-	{ .oid = HW_AVAILCPU, .type = CTLTYPE_INT, .exttype = "", .name = "availcpu", .handler = handle_availcpu },
-	{ .oid = HW_NCPU, .type = CTLTYPE_INT, .exttype = "", .name = "ncpu", .handler = handle_availcpu },
+	{ .oid = HW_NCPU, .type = CTLTYPE_INT, .exttype = "", .name = "ncpu", .handler = handle_ncpu },
+	{ .oid = HW_AVAILCPU, .type = CTLTYPE_INT, .exttype = "", .name = "activecpu", .handler = handle_activecpu },
+	// XNU registers HW_AVAILCPU only as "activecpu"; this older Darling name is still queried by Darling's Foundation
+	{ .oid = _HW_AVAILCPU_COMPAT, .type = CTLTYPE_INT, .exttype = "", .name = "availcpu", .handler = handle_activecpu },
 	{ .oid = _HW_PHYSICAL_CPU, .type = CTLTYPE_INT, .exttype = "", .name = "physicalcpu", .handler = handle_physicalcpu },
 	{ .oid = _HW_PHYSICAL_CPU_MAX, .type = CTLTYPE_INT, .exttype = "", .name = "physicalcpu_max", .handler = handle_physicalcpu_max },
 	{ .oid = _HW_LOGICAL_CPU, .type = CTLTYPE_INT, .exttype = "", .name = "logicalcpu", .handler = handle_logicalcpu },
@@ -213,10 +219,45 @@ static const struct host_basic_info* gethostinfo(void)
 	return &hinfo;
 }
 
-sysctl_handler(handle_availcpu)
+// the maximum number of CPUs that could be available this boot
+sysctl_handler(handle_ncpu)
 {
 	sysctl_handle_size(sizeof(int));
-	*((int*) old) = gethostinfo()->avail_cpus;
+	*((int*) old) = gethostinfo()->max_cpus;
+	return 0;
+}
+
+// The number of CPUs in this process's Linux affinity mask, or 0 if it can't be read.
+// Unlike the host-wide counts, this changes with sched_setaffinity, taskset and cpusets.
+static int affinity_cpu_count(void)
+{
+	unsigned char mask[128]; // enough for 1024 CPUs
+	long size = LINUX_SYSCALL(__NR_sched_getaffinity, 0, sizeof(mask), mask);
+	int count = 0;
+
+	if (size <= 0)
+		return 0;
+
+	for (long i = 0; i < size && i < (long) sizeof(mask); i++) {
+		for (unsigned char bits = mask[i]; bits != 0; bits &= bits - 1)
+			count++;
+	}
+
+	return count;
+}
+
+// the number of CPUs currently available for executing this process's threads
+sysctl_handler(handle_activecpu)
+{
+	sysctl_handle_size(sizeof(int));
+
+	int count = gethostinfo()->avail_cpus;
+	int allowed = affinity_cpu_count();
+
+	if (allowed > 0 && allowed < count)
+		count = allowed;
+
+	*((int*) old) = count;
 	return 0;
 }
 
