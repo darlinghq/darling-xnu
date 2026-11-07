@@ -1,4 +1,4 @@
-# sys_getrlimit/sys_setrlimit translate RLIM_INFINITY; host build with a fake prlimit64.
+# sys_getrlimit/sys_setrlimit translate RLIM_INFINITY and reject NULL limits; host build with a fake prlimit64.
 require 'tmpdir'
 require 'open3'
 root=File.realpath(ARGV.fetch(0))
@@ -45,6 +45,11 @@ Dir.mktmpdir('rlimit-infinity-') do |dir|
       assert(host_cur==~0ULL && host_max==~0ULL);
       assert(sys_getrlimit(BSD_RLIMIT_CORE,&lim)==0);
       assert(lim.rlim_cur==DARWIN_INF && lim.rlim_max==DARWIN_INF);
+
+      assert(sys_getrlimit(BSD_RLIMIT_CORE,NULL)==-EFAULT);
+      assert(sys_setrlimit(BSD_RLIMIT_CORE,NULL)==-EFAULT);
+      assert(sys_getrlimit(100,NULL)==-EINVAL);
+
     }
   C
   %w[-O0 -O2].each do |opt|
@@ -53,5 +58,5 @@ Dir.mktmpdir('rlimit-infinity-') do |dir|
     out,status=Open3.capture2e("#{dir}/probe")
     abort out unless status.success?
   end
-  puts 'PASS Darwin and Linux RLIM_INFINITY round-trip through getrlimit/setrlimit at O0/O2'
+  puts 'PASS RLIM_INFINITY round-trip and NULL limits through getrlimit/setrlimit at O0/O2'
 end
