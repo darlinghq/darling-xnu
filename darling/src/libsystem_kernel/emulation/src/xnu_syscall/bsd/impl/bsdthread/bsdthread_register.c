@@ -204,13 +204,25 @@ void wqueue_entry_point_asm_jump(void* self, int thread_port, void* stackaddr,
 	);
 #elif __i386__
 	__asm__ __volatile__ (
-		// `_start_wqthread` does not expect the stack to be aligned.
-		"jmpl *%[wqueue_entry_point]\n"
+		// As on x86_64, the kernel enters a workqueue thread on an empty stack whose top
+		// is self, which is 16-byte aligned. `_start_wqthread` relies on that alignment
+		// to keep every frame below it aligned. The frame of this function is not
+		// aligned when it is called from `workq_kernreturn` on a reused thread, and SSE
+		// spills to the stack then fault with SIGSEGV. Staying on this stack would also
+		// leak the frames of the syscall that parked the thread.
+		// All general purpose registers but ebp carry arguments, and the entry point may
+		// be addressed relative to esp or ebp, so it is copied to the top of the new
+		// stack while the old one is still current, and entered with ret.
+		"pushl %[wqueue_entry_point]\n"
+		"popl -4(%[self])\n"
+		"leal -4(%[self]), %%esp\n"
+		"xorl %%ebp, %%ebp\n"
+		"ret\n"
 		::
 		// `_start_wqthread` does not follow the i386 calling conventions
 		// for arguments. Instead of storing the arguments into the stack,
 		// the arguments are stored in the registers.
-		"r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
+		[self] "r"(arg1),"r"(arg2),"r"(arg3),"r"(arg4),"r"(arg5),"r"(arg6),
 		[wqueue_entry_point] "rmi"(wqueue_entry_point)
 	);
 #elif defined(__aarch64__) || defined(__arm64__)
