@@ -1,9 +1,11 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/fcntl.h>
+#include <darling/emulation/common/dc_image_snapshot.h>
 
 #include <sys/errno.h>
 #include <sys/fcntl.h>
 #include <limits.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/common/base.h>
@@ -15,6 +17,10 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/fdpath.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/csops.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/fstat.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/pread.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/write.h>
 
 #include <darlingserver/rpc.h>
 
@@ -138,6 +144,75 @@ static long check_library_validation(int fd, fchecklv_t* check)
 	return -EPERM;
 }
 
+// DC_F_SNAPSHOT_IMAGE (see dc_image_snapshot.h)
+static long snapshot_image(int fd)
+{
+	static const char name[] = "darling-image-snapshot";
+	char buffer[16384];
+	struct stat st;
+	long snapshot, ret;
+	unsigned long long offset = 0;
+
+	ret = sys_fstat(fd, &st);
+	if (ret < 0)
+		return ret;
+	if ((st.st_mode & S_IFMT) != S_IFREG || st.st_size <= 0)
+		return -EINVAL;
+	if ((unsigned long long)st.st_size > DC_SNAPSHOT_IMAGE_MAX)
+		return -EFBIG;
+
+	snapshot = LINUX_SYSCALL(__NR_memfd_create, name, LINUX_MFD_CLOEXEC | LINUX_MFD_ALLOW_SEALING);
+	if (snapshot < 0)
+		return errno_linux_to_bsd(snapshot);
+	snapshot = nofile_limit_check_new(snapshot);
+	if (snapshot < 0)
+		return snapshot;
+
+	while (offset < (unsigned long long)st.st_size) {
+		unsigned long long left = (unsigned long long)st.st_size - offset;
+		long got, written = 0;
+
+		got = sys_pread_nocancel(fd, buffer, left < sizeof(buffer) ? (int)left : (int)sizeof(buffer), (long long)offset);
+		if (got == -EINTR)
+			continue;
+		if (got <= 0) {
+			// the file became shorter while it was copied
+			ret = (got < 0) ? got : -EIO;
+			goto fail;
+		}
+
+		while (written < got) {
+			long put = sys_write_nocancel(snapshot, buffer + written, (int)(got - written));
+			if (put == -EINTR)
+				continue;
+			if (put <= 0) {
+				ret = (put < 0) ? put : -EIO;
+				goto fail;
+			}
+			written += put;
+		}
+
+		offset += (unsigned long long)got;
+	}
+
+#ifdef __NR_fcntl64
+	ret = LINUX_SYSCALL(__NR_fcntl64, snapshot, LINUX_F_ADD_SEALS,
+#else
+	ret = LINUX_SYSCALL(__NR_fcntl, snapshot, LINUX_F_ADD_SEALS,
+#endif
+		LINUX_F_SEAL_SEAL | LINUX_F_SEAL_SHRINK | LINUX_F_SEAL_GROW | LINUX_F_SEAL_WRITE);
+	if (ret < 0) {
+		ret = errno_linux_to_bsd(ret);
+		goto fail;
+	}
+
+	return snapshot;
+
+fail:
+	sys_close_nocancel(snapshot);
+	return ret;
+}
+
 long sys_fcntl(int fd, int cmd, long arg)
 {
 	CANCELATION_POINT();
@@ -156,6 +231,8 @@ long sys_fcntl_nocancel(int fd, int cmd, long arg)
 			return add_file_signatures(fd, cmd, (fsignatures_t*)arg);
 		case F_CHECK_LV:
 			return check_library_validation(fd, (fchecklv_t*)arg);
+		case DC_F_SNAPSHOT_IMAGE:
+			return snapshot_image(fd);
 		case F_SETFD:
 			if (arg & ~FD_CLOEXEC)
 				return -EINVAL;
