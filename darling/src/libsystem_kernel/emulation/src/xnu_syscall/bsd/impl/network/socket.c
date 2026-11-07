@@ -5,6 +5,7 @@
 
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/misc/getrlimit.h>
 #include <darling/emulation/conversion/network/duct.h>
 #include <darling/emulation/conversion/network/socket.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
@@ -42,10 +43,14 @@ long sys_socket(int domain, int type, int protocol)
 		// process already has all 1024 of its soft-limited fd slots taken,
 		// so the very first user socket() call hits EMFILE. Raise the soft
 		// limit to the hard limit (~512k in our container) and retry.
-		struct { unsigned long cur; unsigned long max; } rlim = {0, 0};
-		LINUX_SYSCALL(__NR_prlimit64, 0, 7 /*RLIMIT_NOFILE*/, 0, &rlim);
-		struct { unsigned long cur; unsigned long max; } newrlim = { rlim.max, rlim.max };
-		LINUX_SYSCALL(__NR_prlimit64, 0, 7, &newrlim, 0);
+		// prlimit64 always takes 64-bit limits, also on i386.
+		struct xnu_rlimit rlim;
+		if (LINUX_SYSCALL(__NR_prlimit64, 0, LINUX_RLIMIT_NOFILE, 0, &rlim) == 0
+			&& rlim.rlim_cur < rlim.rlim_max)
+		{
+			rlim.rlim_cur = rlim.rlim_max;
+			LINUX_SYSCALL(__NR_prlimit64, 0, LINUX_RLIMIT_NOFILE, &rlim, 0);
+		}
 
 #ifdef __NR_socketcall
 		ret = LINUX_SYSCALL(__NR_socketcall, LINUX_SYS_SOCKET, ((long[6]){ linux_domain, type, protocol }));
