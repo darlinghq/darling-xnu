@@ -77,6 +77,7 @@ set(linux_premigration_sources
 	src/linux_premigration/ext/file_handle.c
 	src/linux_premigration/ext/for-libelfloader.c
 	src/linux_premigration/ext/for-libkqueue.c
+	src/linux_premigration/ext/for-sysconfig.c
 	src/linux_premigration/ext/for-xtrace.c
 	src/linux_premigration/ext/futex.c
 	src/linux_premigration/ext/inotify_add_watch.c
