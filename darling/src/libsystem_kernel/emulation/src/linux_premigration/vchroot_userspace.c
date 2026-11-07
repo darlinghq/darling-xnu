@@ -306,7 +306,12 @@ static int vchroot_run(const char* input_path, struct context* ctxt)
 				if (!ctxt->unknown_component)
 				{
 					stat_t st;
-					#if defined(__NR_lstat)
+					// struct linux_stat has the stat64 layout on i386, so
+					// prefer lstat64 there; the older lstat fills a smaller
+					// struct and st_mode would be read from the wrong offset.
+					#if defined(__NR_lstat64)
+						int status = LINUX_SYSCALL(__NR_lstat64, ctxt->current_path, &st);
+					#elif defined(__NR_lstat)
 						int status = LINUX_SYSCALL(__NR_lstat, ctxt->current_path, &st);
 					#else
 						#if __NR_newfstatat

@@ -409,13 +409,13 @@ set(syscall_sources
 	bsdsyscalls/_getdirentriesattr.S
 	bsdsyscalls/_getdirentries.S
 	bsdsyscalls/_getdtablesize.S
-	bsdsyscalls/_getegid.S
+	bsdsyscalls/___getegid.S
 	bsdsyscalls/_getentropy.S
-	bsdsyscalls/_geteuid.S
+	bsdsyscalls/___geteuid.S
 	bsdsyscalls/_getfh.S
 	bsdsyscalls/_getfsstat64.S
 	bsdsyscalls/_getfsstat.S
-	bsdsyscalls/_getgid.S
+	bsdsyscalls/___getgid.S
 	bsdsyscalls/_getgroups.S
 	bsdsyscalls/___gethostuuid.S
 	bsdsyscalls/_getitimer.S
@@ -434,7 +434,7 @@ set(syscall_sources
 	bsdsyscalls/_getsockopt.S
 	bsdsyscalls/___gettid.S
 	bsdsyscalls/___gettimeofday.S
-	bsdsyscalls/_getuid.S
+	bsdsyscalls/___getuid.S
 	bsdsyscalls/___getwgroups.S
 	bsdsyscalls/_getxattr.S
 	bsdsyscalls/_grab_pgo_data.S

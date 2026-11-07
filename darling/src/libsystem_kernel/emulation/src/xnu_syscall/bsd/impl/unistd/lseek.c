@@ -8,9 +8,11 @@ long long sys_lseek(int fd, long long offset, int whence)
 {
 	long long ret;
 
-#ifdef SYS__llseek
+#ifdef __NR__llseek
+	// The plain lseek takes and returns a 32-bit off_t on 32-bit Linux;
+	// _llseek takes the offset as two halves and stores the 64-bit result.
 	long long roff;
-	ret = LINUX_SYSCALL(__NR__llseek, fd, (unsigned int)offset >> 32,
+	ret = LINUX_SYSCALL(__NR__llseek, fd, (unsigned int)((unsigned long long)offset >> 32),
 			(unsigned int)offset, &roff, whence);
 
 	if (ret >= 0)
