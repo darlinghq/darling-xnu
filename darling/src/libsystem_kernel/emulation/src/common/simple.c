@@ -513,7 +513,7 @@ unsigned long long __simple_atoi16(const char* str, const char** endp)
 
 extern void *memmove(void *dest, const void *src, __SIZE_TYPE__ n);
 extern void *memcpy(void *dest, const void *src, __SIZE_TYPE__ n);
-extern long sys_read(int fd, void* buf, __SIZE_TYPE__ n);
+extern long sys_read_nocancel(int fd, void* buf, __SIZE_TYPE__ n);
 
 #ifndef min
 #	define min(a,b) ((a) < (b) ? (a) : (b))
@@ -543,7 +543,7 @@ find_nl:
 			goto have_nl;
 		}
 
-		rd = sys_read(fd, buf->buf + buf->used, sizeof(buf->buf) - buf->used);
+		rd = sys_read_nocancel(fd, buf->buf + buf->used, sizeof(buf->buf) - buf->used);
 		if (rd == 0)
 		{
 			if (!buf->used)

@@ -14,7 +14,7 @@ long sys_pthread_chdir(const char* path)
 {
 	int rv, newfd, oldfd;
 
-	newfd = sys_open(path, BSD_O_RDONLY | BSD_O_DIRECTORY | BSD_O_CLOEXEC, 0);
+	newfd = sys_open_nocancel(path, BSD_O_RDONLY | BSD_O_DIRECTORY | BSD_O_CLOEXEC, 0);
 	if (newfd < 0)
 		return newfd;
 

@@ -88,7 +88,7 @@ long sys_fclonefileat(int src_fd, int dest_fd, const char* dest_path, uint32_t f
         char *path = path_buf;
 
         if (path[0] == '/') {
-            dest_fd = sys_open("/", BSD_O_RDONLY | BSD_O_DIRECTORY | BSD_O_CLOEXEC, 0);
+            dest_fd = sys_open_nocancel("/", BSD_O_RDONLY | BSD_O_DIRECTORY | BSD_O_CLOEXEC, 0);
 
             if (dest_fd < 0) {
                 ret = dest_fd;
@@ -107,10 +107,10 @@ long sys_fclonefileat(int src_fd, int dest_fd, const char* dest_path, uint32_t f
         while ((token = strsep(&path, "/")) != NULL) {
             if (*token == '\0') continue;
 
-            int next_fd = sys_openat(dest_fd, token, BSD_O_RDONLY | BSD_O_DIRECTORY | BSD_O_CLOEXEC, st.st_mode & 0777);
+            int next_fd = sys_openat_nocancel(dest_fd, token, BSD_O_RDONLY | BSD_O_DIRECTORY | BSD_O_CLOEXEC, st.st_mode & 0777);
 
             if (next_fd >= 0) {
-                if (dest_fd != LINUX_AT_FDCWD) sys_close(dest_fd);
+                if (dest_fd != LINUX_AT_FDCWD) sys_close_nocancel(dest_fd);
 
                 dest_fd = next_fd;
                 continue;
@@ -151,7 +151,7 @@ long sys_fclonefileat(int src_fd, int dest_fd, const char* dest_path, uint32_t f
         filename = dest_path;
     }
 
-    real_dest_fd = sys_openat(dest_fd, filename, BSD_O_CREAT | BSD_O_WRONLY | BSD_O_EXCL, 0644);
+    real_dest_fd = sys_openat_nocancel(dest_fd, filename, BSD_O_CREAT | BSD_O_WRONLY | BSD_O_EXCL, 0644);
 
     if (real_dest_fd < 0) {
         ret = real_dest_fd;
@@ -232,7 +232,7 @@ out_close:
     {
         if (real_dest_fd >= 0) {
             if (ret == 0) {
-                long close_ret = sys_close(real_dest_fd);
+                long close_ret = sys_close_nocancel(real_dest_fd);
 
                 if (close_ret < 0) {
                     ret = close_ret;
@@ -246,7 +246,7 @@ out_close:
             }
         }
 
-        if (dest_fd_owned && dest_fd >= 0) sys_close(dest_fd);
+        if (dest_fd_owned && dest_fd >= 0) sys_close_nocancel(dest_fd);
 
         free(filename_owned);
     }

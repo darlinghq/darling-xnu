@@ -6,7 +6,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/pthread_canceled.h>
 
 #define CANCELATION_POINT() \
-	if (sys_pthread_canceled(0) == 0) \
+	if (pthread_testcancel_presyscall()) \
 		return -EINTR;
 
 #endif // _BSDTHREAD_CANCELLABLE_H

@@ -112,7 +112,7 @@ no_fork:
 
 			if (desc->attrp->psa_flags & POSIX_SPAWN_CLOEXEC_DEFAULT) {
 				// set O_CLOEXEC on everything
-				int dir = sys_open("/proc/self/fd", BSD_O_RDONLY, 0);
+				int dir = sys_open_nocancel("/proc/self/fd", BSD_O_RDONLY, 0);
 				char buf[4096];
 				int len = 0;
 
@@ -179,13 +179,13 @@ no_fork:
 
 						//__simple_kprintf("setting cloexec on %d\n", fd);
 
-						ret = sys_fcntl(fd, F_GETFD, 0);
+						ret = sys_fcntl_nocancel(fd, F_GETFD, 0);
 						if (ret < 0) {
 							close_internal(dir);
 							goto fail;
 						}
 
-						ret = sys_fcntl(fd, F_SETFD, ret | FD_CLOEXEC);
+						ret = sys_fcntl_nocancel(fd, F_SETFD, ret | FD_CLOEXEC);
 						if (ret < 0) {
 							close_internal(dir);
 							goto fail;
@@ -246,7 +246,7 @@ no_fork:
 					case XNU_PSFA_OPEN:
 					{
 						//__simple_kprintf("opening %s to %d\n", act->psfaa_openargs.psfao_path, act->psfaa_filedes);
-						ret = sys_open(act->psfaa_openargs.psfao_path,
+						ret = sys_open_nocancel(act->psfaa_openargs.psfao_path,
 								act->psfaa_openargs.psfao_oflag, act->psfaa_openargs.psfao_mode);
 						if (ret < 0)
 							goto fail;
@@ -284,11 +284,11 @@ no_fork:
 					// unset CLOEXEC on this fd
 					case XNU_PSFA_INHERIT: {
 						//__simple_kprintf("inheriting %d\n", act->psfaa_filedes);
-						ret = sys_fcntl(act->psfaa_filedes, F_GETFD, 0);
+						ret = sys_fcntl_nocancel(act->psfaa_filedes, F_GETFD, 0);
 						if (ret < 0) {
 							goto fail;
 						}
-						ret = sys_fcntl(act->psfaa_filedes, F_SETFD, ret & ~FD_CLOEXEC);
+						ret = sys_fcntl_nocancel(act->psfaa_filedes, F_SETFD, ret & ~FD_CLOEXEC);
 						if (ret < 0) {
 							goto fail;
 						}
@@ -338,7 +338,7 @@ fail:
 		}
 		else
 		{
-			sys_write(pipe[1], &ret, sizeof(ret));
+			sys_write_nocancel(pipe[1], &ret, sizeof(ret));
 			sys_exit(127);
 			__builtin_unreachable();
 		}
@@ -362,7 +362,7 @@ fail:
 		if (pid != NULL)
 			*pid = my_pid;
 
-		if (sys_read(pipe[0], &ret, sizeof(ret)) != sizeof(ret))
+		if (sys_read_nocancel(pipe[0], &ret, sizeof(ret)) != sizeof(ret))
 			ret = 0;
 		close_internal(pipe[0]);
 	}

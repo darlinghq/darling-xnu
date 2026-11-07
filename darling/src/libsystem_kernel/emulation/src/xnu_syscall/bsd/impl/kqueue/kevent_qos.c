@@ -71,7 +71,7 @@ long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 	if (default_kq == -1)
 	{
 		default_kq = sys_kqueue();
-		sys_fcntl(default_kq, F_SETFD, FD_CLOEXEC);
+		sys_fcntl_nocancel(default_kq, F_SETFD, FD_CLOEXEC);
 	}
 
 	// Counts come from the caller: keep small batches on the stack, map larger ones

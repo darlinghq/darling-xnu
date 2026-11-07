@@ -50,7 +50,7 @@ sysctl_handler(handle_core_count)
 	sysctl_handle_size(sizeof(int));
 
 	int count = 1;
-	int fd = sys_open("/proc/cpuinfo", LINUX_O_RDONLY, 0);
+	int fd = sys_open_nocancel("/proc/cpuinfo", LINUX_O_RDONLY, 0);
 	if (fd < 0)
 		goto out;
 	count = 0;
@@ -61,7 +61,7 @@ sysctl_handler(handle_core_count)
 		if (strncmp(line, "processor", 9) == 0)
 			count++;
 	}
-	sys_close(fd);
+	sys_close_nocancel(fd);
 	if (count == 0) count = 1;
 out:
 	__builtin_memcpy(old, &count, sizeof(count));
