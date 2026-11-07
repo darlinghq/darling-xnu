@@ -12,6 +12,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/readlink.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/fdpath.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/mount_table.h>
 
 extern char *strtok_r(char *str, const char *delim, char **saveptr);
 extern __SIZE_TYPE__ strlcpy(char* dst, const char* src, __SIZE_TYPE__ size);
@@ -31,12 +32,9 @@ long sys_fstatfs(int fd, struct bsd_statfs* buf)
 
 long sys_fstatfs64(int fd, struct bsd_statfs64* buf)
 {
-	int fd_m, ret;
-	struct simple_readline_buf rbuf;
+	int ret;
 	struct linux_statfs64 lbuf;
-	char line[512];
 	char path[1024];
-	int max_len = 0;
 
 #ifdef __NR_fstatfs64
 	ret = LINUX_SYSCALL3(__NR_fstatfs64, fd, sizeof(lbuf), &lbuf);
@@ -54,48 +52,10 @@ long sys_fstatfs64(int fd, struct bsd_statfs64* buf)
 	if (ret < 0)
 		return ret;
 
-	fd_m = sys_open("/proc/self/mounts", O_RDONLY, 0);
-	if (fd_m < 0)
-		return fd_m;
-	
-	__simple_readline_init(&rbuf);
-
-	buf->f_mntonname[0] = 0;
-	buf->f_fstypename[0] = 0;
-	buf->f_mntfromname[0] = 0;
 	buf->f_iosize = 512;
 
-	while (__simple_readline(fd_m, &rbuf, line, sizeof(line)))
-	{
-		char* p;
-		char* saveptr;
-		char* mntfrom;
-		int len;
-
-		p = strtok_r(line, " ", &saveptr);
-		if (p == NULL)
-			continue;
-
-		mntfrom = p;
-		p = strtok_r(NULL, " ", &saveptr);
-		if (p == NULL)
-			continue;
-		
-		len = strlen(p);
-		if (strncmp(p, path, len) != 0 || len < max_len)
-			continue;
-
-		max_len = len;
-		strlcpy(buf->f_mntonname, p, sizeof(buf->f_mntonname));
-
-		p = strtok_r(NULL, " ", &saveptr);
-		if (p == NULL)
-			continue;
-
-		strlcpy(buf->f_fstypename, p, sizeof(buf->f_fstypename));
-		strlcpy(buf->f_mntfromname, mntfrom, sizeof(buf->f_mntfromname));
-	}
-
-	close_internal(fd_m);
-	return 0;
+	return mount_table_lookup(path,
+		buf->f_mntonname, sizeof(buf->f_mntonname),
+		buf->f_fstypename, sizeof(buf->f_fstypename),
+		buf->f_mntfromname, sizeof(buf->f_mntfromname));
 }

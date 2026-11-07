@@ -115,6 +115,10 @@ void mach_driver_init(const char** applep)
 		// we're being called in the child after a fork; let xtrace know about it
 		_xtrace_postfork_child();
 	}
+
+	// look up the vDSO clock now, while the host's dynamic loader can be used safely;
+	// the vDSO stays mapped at the same address in a forked child
+	__darling_vdso_clock_init();
 }
 
 __attribute__((visibility("default")))
