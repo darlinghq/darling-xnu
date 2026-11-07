@@ -7,12 +7,17 @@
 #include <darling/emulation/other/mach/lkm.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/common/guarded/table.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 
 extern void kqueue_dup(int oldfd, int newfd);
 
 long sys_dup2(int fd_from, int fd_to)
 {
 	int ret;
+
+	// dup2(2): EBADF for a target beyond the descriptor limit
+	if (nofile_limit_exceeded(fd_to))
+		return -EBADF;
 
 	if (guard_table_check(fd_to, guard_flag_prevent_close)) {
 		__simple_kprintf("*** Someone tried to close a guarded FD (%d) via dup2! ***", fd_to);

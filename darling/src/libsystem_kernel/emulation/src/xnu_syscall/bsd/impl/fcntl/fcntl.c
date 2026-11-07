@@ -2,6 +2,7 @@
 
 #include <sys/errno.h>
 #include <sys/fcntl.h>
+#include <limits.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/common/base.h>
@@ -11,6 +12,7 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/fdpath.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 
 #ifndef O_NOFOLLOW
 #   define O_NOFOLLOW 0x0100
@@ -87,6 +89,12 @@ long sys_fcntl_nocancel(int fd, int cmd, long arg)
 		case F_SETFL:
 			arg = oflags_bsd_to_linux(arg);
 			break;
+		case F_DUPFD:
+		case F_DUPFD_CLOEXEC:
+			// fcntl(2): EINVAL for a minimum beyond the descriptor limit
+			if (arg >= 0 && arg <= INT_MAX && nofile_limit_exceeded((int)arg))
+				return -EINVAL;
+			break;
 		case F_GETPATH:
 		{
 			ret = fdpath(fd, arg, MAXPATHLEN);
@@ -162,7 +170,9 @@ long sys_fcntl_nocancel(int fd, int cmd, long arg)
 		} break;
 		case F_DUPFD:
 		case F_DUPFD_CLOEXEC:
-			kqueue_dup(fd, ret);
+			ret = nofile_limit_check_new(ret);
+			if (ret >= 0)
+				kqueue_dup(fd, ret);
 			break;
 	}
 

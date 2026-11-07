@@ -11,6 +11,7 @@
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 
 #include <darlingserver/rpc.h>
 
@@ -62,7 +63,7 @@ long sys_openat_nocancel(int fd, const char* filename, int flags, unsigned int m
 		if (err > 0) {
 			ret = errno_linux_to_bsd(-err);
 		}
-		return ret;
+		return nofile_limit_check_new(ret);
 	}
 
 	struct vchroot_expand_args vc;
@@ -87,5 +88,5 @@ long sys_openat_nocancel(int fd, const char* filename, int flags, unsigned int m
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
 
-	return ret;
+	return nofile_limit_check_new(ret);
 }
