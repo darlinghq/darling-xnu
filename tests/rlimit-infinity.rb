@@ -1,4 +1,4 @@
-# sys_getrlimit/sys_setrlimit translate RLIM_INFINITY; host build with a fake prlimit64.
+# sys_getrlimit/sys_setrlimit translate RLIM_INFINITY and reject NULL limits; host build with a fake prlimit64.
 require 'tmpdir'
 require 'open3'
 root=File.realpath(ARGV.fetch(0))
@@ -45,6 +45,37 @@ Dir.mktmpdir('rlimit-infinity-') do |dir|
       assert(host_cur==~0ULL && host_max==~0ULL);
       assert(sys_getrlimit(BSD_RLIMIT_CORE,&lim)==0);
       assert(lim.rlim_cur==DARWIN_INF && lim.rlim_max==DARWIN_INF);
+
+      assert(sys_getrlimit(BSD_RLIMIT_CORE,NULL)==-EFAULT);
+      assert(sys_setrlimit(BSD_RLIMIT_CORE,NULL)==-EFAULT);
+      assert(sys_getrlimit(100,NULL)==-EINVAL);
+
+      /* RLIMIT_NOFILE: a host hard limit of at least OPEN_MAX stands for RLIM_INFINITY */
+      host_cur=256; host_max=524288;
+      lim.rlim_cur=lim.rlim_max=DARWIN_INF;
+      assert(sys_setrlimit(BSD_RLIMIT_NOFILE,&lim)==0);
+      assert(host_cur==524288 && host_max==524288);
+      host_cur=256;
+      lim.rlim_cur=DARWIN_INF; lim.rlim_max=10240;
+      assert(sys_setrlimit(BSD_RLIMIT_NOFILE,&lim)==-EINVAL);
+      assert(host_cur==256);
+      /* {OPEN_MAX, RLIM_INFINITY} and {OPEN_MAX, OPEN_MAX} must not lower the host soft limit */
+      host_cur=host_max=524288;
+      lim.rlim_cur=10240; lim.rlim_max=DARWIN_INF;
+      assert(sys_setrlimit(BSD_RLIMIT_NOFILE,&lim)==0);
+      assert(host_cur==524288 && host_max==524288);
+      lim.rlim_cur=lim.rlim_max=10240;
+      assert(sys_setrlimit(BSD_RLIMIT_NOFILE,&lim)==0);
+      assert(host_cur==524288 && host_max==524288);
+      /* below OPEN_MAX the limit is set as given */
+      lim.rlim_cur=256; lim.rlim_max=DARWIN_INF;
+      assert(sys_setrlimit(BSD_RLIMIT_NOFILE,&lim)==0);
+      assert(host_cur==256 && host_max==524288);
+      /* a lowered hard limit: RLIM_INFINITY stays a raise for Linux to refuse */
+      host_cur=host_max=64;
+      lim.rlim_cur=64; lim.rlim_max=DARWIN_INF;
+      assert(sys_setrlimit(BSD_RLIMIT_NOFILE,&lim)==0);
+      assert(host_cur==64 && host_max==~0ULL);
     }
   C
   %w[-O0 -O2].each do |opt|
@@ -53,5 +84,5 @@ Dir.mktmpdir('rlimit-infinity-') do |dir|
     out,status=Open3.capture2e("#{dir}/probe")
     abort out unless status.success?
   end
-  puts 'PASS Darwin and Linux RLIM_INFINITY round-trip through getrlimit/setrlimit at O0/O2'
+  puts 'PASS RLIM_INFINITY round-trip, NULL limits and RLIMIT_NOFILE above OPEN_MAX through getrlimit/setrlimit at O0/O2'
 end

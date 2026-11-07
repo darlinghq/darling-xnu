@@ -8,7 +8,6 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
 #define min(a,b) (((a) < (b)) ? (a) : (b))
-#define DARWIN_OPEN_MAX 10240
 
 long sys_getdtablesize(void)
 {

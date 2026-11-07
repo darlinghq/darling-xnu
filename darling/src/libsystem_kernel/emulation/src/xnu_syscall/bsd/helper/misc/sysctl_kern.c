@@ -1,6 +1,7 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/sysctl_kern.h>
 
 #include <sys/errno.h>
+#include <sys/syslimits.h>
 
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/sysctl_proc.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/getrlimit.h>
@@ -125,6 +126,7 @@ sysctl_handler(handle_procargs32)
 sysctl_handler(handle_argmax)
 {
 	struct xnu_rlimit lim;
+	unsigned long long argmax;
 	int r;
 	int* ovalue = (int*) old;
 
@@ -132,8 +134,15 @@ sysctl_handler(handle_argmax)
 	if (r < 0)
 		return r;
 
+	// macOS reports the fixed ARG_MAX whatever the stack limit is. Linux
+	// lets exec() take a quarter of the stack limit, so report that when it
+	// is lower; an unlimited stack must not overflow the int.
+	argmax = lim.rlim_cur / 4;
+	if (argmax > ARG_MAX)
+		argmax = ARG_MAX;
+
 	if (ovalue != NULL)
-		*ovalue = lim.rlim_cur / 4;
+		*ovalue = (int) argmax;
 	*oldlen = sizeof(int);
 	return 0;
 }
