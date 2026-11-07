@@ -220,6 +220,33 @@ Lparent:
 	MI_ENTRY_POINT(___vfork)
 	ARM64_STACK_PROLOG
 
+#ifdef DARLING
+	// Darling: sys_vfork is implemented as a full fork (the child gets its own
+	// address space), so the vfork bookkeeping of the cached pid is not needed
+	// and this mirrors ___fork. The syscall goes through __darling_bsd_syscall
+	// because svc would enter the Linux kernel, which does not know XNU syscalls.
+	// Returns: x0 > 0 parent (child PID), x0 == 0 child, x0 < 0 is -errno.
+	PUSH_FRAME
+	mov		x16, #SYS_vfork
+	bl		__darling_bsd_syscall
+	tbnz	x0, #63, Lbotch_neg			// negative => error
+	cbnz	x0, Lparent					// positive => parent (child PID in x0)
+
+	// Child (x0 == 0)
+	MI_GET_ADDRESS(x9, __current_pid)
+	mov		w0, #0
+	str		w0, [x9]					// Clear cached current pid
+	POP_FRAME
+	ARM64_STACK_EPILOG
+
+Lbotch_neg:
+	neg		x0, x0						// -errno -> errno
+	MI_CALL_EXTERNAL(_cerror)
+	mov		w0, #-1
+Lparent:
+	POP_FRAME
+	ARM64_STACK_EPILOG
+#else
 	MI_GET_ADDRESS(x9, __current_pid)
 Ltry_set_vfork:
 	ldxr	w10, [x9]			// Get old current pid value (exclusive)
@@ -229,37 +256,6 @@ Ltry_set_vfork:
 	stxr	w13, w12, [x9]		// Attempt exclusive store to current pid
 	cbnz	w13, Ltry_set_vfork	// If store failed, retry
 
-#ifdef DARLING
-	// Darling: route through __darling_bsd_syscall instead of svc.
-	// Like the fork fix in ___fork.S, the macOS asm assumes XNU kernel
-	// semantics (svc returns child PID in x0, 0/1 in x1, errors via carry).
-	// On Linux that doesn't apply. Route through __darling_bsd_syscall and
-	// dispatch by x0 sign/value.
-	PUSH_FRAME
-	mov		x16, #SYS_vfork
-	bl		__darling_bsd_syscall
-	POP_FRAME
-	tbnz	x0, #63, Lbotch_neg			// x0 < 0 => error
-	cbnz	x0, Lparent					// x0 > 0 => parent (child PID)
-	// Child (x0 == 0): just return 0 with current_pid bookkeeping deferred
-	ARM64_STACK_EPILOG
-
-Lbotch_neg:
-	neg		x0, x0						// -errno -> errno
-	PUSH_FRAME
-	bl		_cerror
-	mov		w0, #-1
-	MI_GET_ADDRESS(x9, __current_pid)
-	POP_FRAME
-	// fall through to Lparent for bookkeeping
-
-Lparent:
-	ldxr	w10, [x9]
-	add		w10, w10, #1
-	stxr	w11, w10, [x9]
-	cbnz	w11, Lparent
-	ARM64_STACK_EPILOG
-#else
 	// ARM sets r1 to 1 here.  I don't see why.
 	mov		w16, #SYS_vfork		// Set syscall code
 	svc		#SWI_SYSCALL

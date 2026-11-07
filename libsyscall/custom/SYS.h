@@ -71,9 +71,25 @@
  */
 
 #ifdef DARLING
-	#define UNIX_SYSCALL_SYSENTER		call __darling_bsd_syscall
+	/*
+	 * __darling_bsd_syscall does not set the carry flag; like the x86_64
+	 * entry, it returns -errno in %eax on failure. Turn that into the
+	 * trap convention that the stubs test with jnb: carry set and a
+	 * positive errno in %eax on failure, carry clear on success.
+	 * cmpl leaves carry set for a success value and cmc inverts it; on
+	 * the failure path negl of the non-zero value sets it again.
+	 */
+	#define DARLING_SYSCALL_RESULT_TO_CF	\
+		cmpl	$-4095, %eax			;\
+		cmc					;\
+		jnc	9f				;\
+		negl	%eax				;\
+	9:
+	#define UNIX_SYSCALL_SYSENTER		call __darling_bsd_syscall ; DARLING_SYSCALL_RESULT_TO_CF
+	#define UNIX_SYSCALL_INT_TRAP		UNIX_SYSCALL_TRAP ; DARLING_SYSCALL_RESULT_TO_CF
 #else
 	#define UNIX_SYSCALL_SYSENTER		call __sysenter_trap
+	#define UNIX_SYSCALL_INT_TRAP		UNIX_SYSCALL_TRAP
 #endif
 #define UNIX_SYSCALL(name, nargs)			\
 	.globl	tramp_cerror				;\
@@ -88,7 +104,7 @@ LEAF(_##name, 0)					;\
 	.globl	tramp_cerror				;\
 LEAF(_##name, 0)					;\
 	movl	$ SYS_##name, %eax			;\
-	UNIX_SYSCALL_TRAP				;\
+	UNIX_SYSCALL_INT_TRAP			;\
 	jnb	2f					;\
 	BRANCH_EXTERN(tramp_cerror)  			;\
 2:
@@ -112,7 +128,7 @@ LEAF(_##name, 0)					;\
 #define UNIX_SYSCALL_INT_NONAME(name, nargs)		\
 	.globl	tramp_cerror_nocancel			;\
 	movl	$ SYS_##name, %eax			;\
-	UNIX_SYSCALL_TRAP				;\
+	UNIX_SYSCALL_INT_TRAP			;\
 	jnb	2f					;\
 	BRANCH_EXTERN(tramp_cerror_nocancel) 		;\
 2:
@@ -137,7 +153,12 @@ LEAF(pseudo, 0)					;\
 	PSEUDO_INT(pseudo, name, nargs)			;\
 	ret
 
-#if defined(__SYSCALL_32BIT_ARG_BYTES) && ((__SYSCALL_32BIT_ARG_BYTES >= 4) && (__SYSCALL_32BIT_ARG_BYTES <= 20))
+#ifdef DARLING
+/* Return the raw -errno value, without the carry flag conversion. */
+#define ULOCK_RAW_SYSCALL(name)				\
+	movl	$ SYS_##name, %eax			;\
+	call	__darling_bsd_syscall
+#elif defined(__SYSCALL_32BIT_ARG_BYTES) && ((__SYSCALL_32BIT_ARG_BYTES >= 4) && (__SYSCALL_32BIT_ARG_BYTES <= 20))
 #define ULOCK_RAW_SYSCALL(name)				\
 	movl	$(SYS_##name | (__SYSCALL_32BIT_ARG_BYTES << I386_SYSCALL_ARG_BYTES_SHIFT)), %eax	;\
 	UNIX_SYSCALL_SYSENTER
@@ -145,6 +166,19 @@ LEAF(pseudo, 0)					;\
 #define ULOCK_RAW_SYSCALL(name)				\
 	movl	$ SYS_##name, %eax			;\
 	UNIX_SYSCALL_SYSENTER
+#endif
+
+#ifdef DARLING
+/*
+ * For calls that cannot fail, such as getuid. On i386 every 32-bit value
+ * is a valid result for them, including those in -4095..-1 (uid -2 is
+ * nobody), so the result is returned without any error test.
+ */
+#define __SYSCALL_NOERROR(pseudo, name, nargs)		\
+LEAF(pseudo, 0)						;\
+	movl	$ SYS_##name, %eax			;\
+	call	__darling_bsd_syscall			;\
+	ret
 #endif
 
 /* ulock stubs: the operation word is the first argument, on the stack. */

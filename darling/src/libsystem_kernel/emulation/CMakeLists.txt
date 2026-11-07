@@ -6,12 +6,25 @@ enable_language(ASM)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99 -fvisibility=hidden -fPIC -fno-builtin -ggdb -Wno-int-conversion -Wno-compare-distinct-pointer-types")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -nostdlib")
 
+# The release this kernel emulates: macOS 26.4, build 25E246, Darwin 25.4.0.
+# kern.osrelease, kern.version, kern.osversion and kern.osproductversion are
+# answered from these values. They are also published as global properties so
+# that the superproject generates SystemVersion.plist from the same release
+# instead of repeating it.
+set(EMULATED_RELEASE "25.4.0")
+set(EMULATED_OSVERSION "25E246")
+set(EMULATED_OSPRODUCTVERSION "26.4")
+
+set_property(GLOBAL PROPERTY DARLING_KERNEL_RELEASE "${EMULATED_RELEASE}")
+set_property(GLOBAL PROPERTY DARLING_OS_BUILD_VERSION "${EMULATED_OSVERSION}")
+set_property(GLOBAL PROPERTY DARLING_OS_PRODUCT_VERSION "${EMULATED_OSPRODUCTVERSION}")
+
 add_definitions(-DBSDTHREAD_WRAP_LINUX_PTHREAD
 	-DEMULATED_SYSNAME="Darwin"
-	-DEMULATED_RELEASE="20.6.0"
-	-DEMULATED_VERSION="Darwin Kernel Version 20.6.0"
-	-DEMULATED_OSVERSION="20G1120"
-	-DEMULATED_OSPRODUCTVERSION="11.7.4"
+	-DEMULATED_RELEASE="${EMULATED_RELEASE}"
+	-DEMULATED_VERSION="Darwin Kernel Version ${EMULATED_RELEASE}"
+	-DEMULATED_OSVERSION="${EMULATED_OSVERSION}"
+	-DEMULATED_OSPRODUCTVERSION="${EMULATED_OSPRODUCTVERSION}"
 )
 
 # include src/startup for rtsig.h
@@ -64,6 +77,7 @@ set(linux_premigration_sources
 	src/linux_premigration/ext/file_handle.c
 	src/linux_premigration/ext/for-libelfloader.c
 	src/linux_premigration/ext/for-libkqueue.c
+	src/linux_premigration/ext/for-sysconfig.c
 	src/linux_premigration/ext/for-xtrace.c
 	src/linux_premigration/ext/futex.c
 	src/linux_premigration/ext/inotify_add_watch.c
@@ -225,6 +239,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/stat/mkdir.c
 	src/xnu_syscall/bsd/impl/stat/mkdirat.c
 	src/xnu_syscall/bsd/impl/stat/mkfifo.c
+	src/xnu_syscall/bsd/impl/stat/mount_table.c
 	src/xnu_syscall/bsd/impl/stat/rmdir.c
 	src/xnu_syscall/bsd/impl/stat/stat.c
 	src/xnu_syscall/bsd/impl/stat/stat64_extended.c

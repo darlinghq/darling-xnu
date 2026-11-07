@@ -65,6 +65,42 @@ _os_cpu_number(void)
 #ifdef DARLING
 	extern int __linux_syscall(int nr, ...);
 
+#if defined(__x86_64__)
+	// Linux stores (node << 12) | cpu in IA32_TSC_AUX, which RDTSCP returns
+	// without entering the kernel; the vDSO's getcpu() reads it the same way.
+	// It is used once a read agrees with getcpu() (a host kernel that does not
+	// use RDTSCP leaves IA32_TSC_AUX unset even when the CPU has it).
+	static int __darling_has_rdtscp = -1;
+	if (__builtin_expect(__darling_has_rdtscp < 0, 0)) {
+		unsigned int a, b, c, d;
+		int usable = 0;
+		int attempt;
+		__asm__ volatile ("cpuid" : "=a" (a), "=b" (b), "=c" (c), "=d" (d) : "a" (0x80000001), "c" (0));
+		(void) a; (void) b; (void) c;
+		if ((d >> 27) & 1) {
+			// a migration between the reads makes them disagree; try a few times
+			for (attempt = 0; attempt < 3; attempt++) {
+				unsigned int before = 0, after = 0, lo, hi, aux;
+				__linux_syscall(__NR_getcpu, &before, 0, 0, 0, 0, 0);
+				__asm__ volatile ("rdtscp" : "=a" (lo), "=d" (hi), "=c" (aux));
+				__linux_syscall(__NR_getcpu, &after, 0, 0, 0, 0, 0);
+				(void) lo; (void) hi;
+				if (before == after) {
+					usable = (aux & 0xfff) == before;
+					break;
+				}
+			}
+		}
+		__darling_has_rdtscp = usable;
+	}
+	if (__builtin_expect(__darling_has_rdtscp, 1)) {
+		unsigned int lo, hi, aux;
+		__asm__ volatile ("rdtscp" : "=a" (lo), "=d" (hi), "=c" (aux));
+		(void) lo; (void) hi;
+		return aux & 0xfff;
+	}
+#endif
+
 	unsigned int cpu_num = 0;
 	int status = __linux_syscall(__NR_getcpu, &cpu_num, 0, 0, 0, 0, 0);
 	// should we even check? i don't think it's possible for it to fail with these arguments

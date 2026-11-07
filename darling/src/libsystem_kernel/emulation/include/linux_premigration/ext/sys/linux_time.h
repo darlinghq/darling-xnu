@@ -19,4 +19,11 @@ extern int clock_gettime(int __clockid, struct timespec* __res);
 extern int clock_nanosleep(int __clockid, int __flags,
 		const struct timespec* __req, struct timespec* __rem);
 
+// Reads a clock through the host kernel's vDSO (x86_64 only).
+// Returns 0 on success, -1 if the caller has to make the system call instead.
+int __darling_vdso_clock_gettime(int __clockid, struct timespec* __res);
+
+// Looks up the vDSO entry point; called from mach_driver_init()
+void __darling_vdso_clock_init(void);
+
 #endif // EXT_TIME_H

@@ -34,7 +34,27 @@ __SYSCALL(___lseek, lseek, 3)
 
 #elif defined(__i386__)
 
+#ifdef DARLING
+/*
+ * The 64-bit offset comes back in %edx:%eax, so the 32-bit -errno test
+ * of the generic stub could mistake an offset for an error. A failure
+ * is -errno sign-extended to 64 bits: %edx is -1 and %eax is in
+ * -4095..-1.
+ */
+LEAF(___lseek, 0)
+	movl	$ SYS_lseek, %eax
+	call	__darling_bsd_syscall
+	cmpl	$-1, %edx
+	jne	2f
+	cmpl	$-4095, %eax
+	jb	2f
+	negl	%eax
+	BRANCH_EXTERN(tramp_cerror)
+2:
+	ret
+#else
 __SYSCALL_INT(___lseek, lseek, 3)
+#endif
 
 #elif defined(__arm__)
 
