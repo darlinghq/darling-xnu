@@ -9,6 +9,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/fchdir.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/common/simple.h>
+#include <darling/emulation/conversion/duct_errno.h>
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
 #include <darling/emulation/other/mach/lkm.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
@@ -79,6 +80,15 @@ long sys_fork(void)
 			sys_fchdir(wdfd);
 
 		__dserver_close_process_lifetime_pipe(newReadFd);
+	}
+	else
+	{
+		// The child inherits our special ports (e.g. the bootstrap port) when it
+		// checks in with darlingserver, so we must not return before that.
+		// Only a fork that created a child waits: no child checks in after a
+		// failed one.
+		while (dserver_rpc_fork_wait_for_child() == -LINUX_EINTR)
+			;
 	}
 
 	return ret;
