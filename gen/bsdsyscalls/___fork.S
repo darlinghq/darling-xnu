@@ -67,8 +67,14 @@ LEAF(___fork, 0)
 	ret
 	
 L1:
+#ifdef DARLING
+	// __darling_bsd_syscall returns 0 in the child and leaves %edx alone
+	testl	%eax, %eax
+	jnz	L2
+#else
 	orl	%edx,%edx	// CF=OF=0,  ZF set if zero result	
 	jz	L2		// parent, since r1 == 0 in parent, 1 in child
+#endif
 	
 	//child here...
 	xorl	%eax,%eax	// zero eax
