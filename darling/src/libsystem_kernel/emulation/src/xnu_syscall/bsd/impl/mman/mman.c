@@ -1,7 +1,10 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/mman/mman.h>
+#include <darling/emulation/common/dc_mseal.h>
 
 #include <stdint.h>
 #include <unistd.h>
+#include <string.h>
+#include <mach/vm_page_size.h>
 #include <darling/emulation/conversion/mman/duct_mman.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/conversion/duct_errno.h>
@@ -166,4 +169,42 @@ long sys_munlock(void* addr, unsigned long len)
 		ret = errno_linux_to_bsd(ret);
 
 	return ret;
+}
+
+int __darling_mseal_range(void* addr, unsigned long len, int prot)
+{
+	unsigned long page_mask = vm_page_size - 1;
+	void* copy;
+	long ret;
+
+	if (vm_page_size == 0 || len == 0 || ((uintptr_t)addr & page_mask) != 0 ||
+			len > ~0ul - page_mask || !(prot & PROT_READ) || (prot & PROT_WRITE))
+		return -EINVAL;
+	len = (len + page_mask) & ~page_mask;
+
+	copy = sys_mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+	if ((uintptr_t)copy >= (uintptr_t)-4095)
+		return (int)(intptr_t)copy;
+
+	memcpy(copy, addr, len);
+
+	ret = sys_mprotect(copy, len, prot);
+	if (ret < 0)
+		goto fail;
+
+	// move the copy over the original mapping
+	ret = LINUX_SYSCALL(__NR_mremap, copy, len, len, LINUX_MREMAP_MAYMOVE | LINUX_MREMAP_FIXED, addr);
+	if (ret < 0 && ret >= -4095) {
+		ret = errno_linux_to_bsd(ret);
+		goto fail;
+	}
+
+	ret = LINUX_SYSCALL(__NR_mseal, addr, len, 0);
+	if (ret < 0)
+		return errno_linux_to_bsd(ret);
+	return 0;
+
+fail:
+	sys_munmap(copy, len);
+	return (int)ret;
 }

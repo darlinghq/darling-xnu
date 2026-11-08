@@ -173,6 +173,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/misc/getrlimit.c
 	src/xnu_syscall/bsd/impl/misc/getrusage.c
 	src/xnu_syscall/bsd/impl/misc/iopolicysys.c
+	src/xnu_syscall/bsd/impl/misc/mac_syscall.c
 	src/xnu_syscall/bsd/impl/misc/proc_info.c
 	src/xnu_syscall/bsd/impl/misc/ptrace.c
 	src/xnu_syscall/bsd/impl/misc/reboot.c

@@ -1,8 +1,11 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/fcntl.h>
+#include <darling/emulation/common/dc_image_snapshot.h>
 
 #include <sys/errno.h>
 #include <sys/fcntl.h>
 #include <limits.h>
+#include <string.h>
+#include <sys/stat.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/common/base.h>
@@ -13,6 +16,13 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/fdpath.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/misc/csops.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/fstat.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/pread.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/write.h>
+
+#include <darlingserver/rpc.h>
 
 #ifndef O_NOFOLLOW
 #   define O_NOFOLLOW 0x0100
@@ -67,6 +77,144 @@ static int cmd_bsd_to_linux(int bsd) {
 	};
 };
 
+// F_ADDFILESIGS, F_ADDFILESIGS_RETURN: darlingserver reads the signature of
+// the Mach-O image at `fs_file_start` itself. Only a policy that enforces
+// code signing refuses an image whose signature is not valid; otherwise
+// nothing is refused, and an image without a valid signature covers nothing.
+static long add_file_signatures(int fd, int cmd, fsignatures_t* signatures)
+{
+	uint32_t status = 0, flags = 0, page_size_log2 = 0;
+	uint64_t code_limit = 0;
+	bool library_validation_ok = false;
+	off_t end = 0;
+	int ret;
+
+	if (signatures == NULL)
+		return -EFAULT;
+
+	ret = dserver_rpc_cs_verify_image(fd, (uint64_t)signatures->fs_file_start,
+		&status, &flags, &code_limit, &page_size_log2, &library_validation_ok);
+	if (ret < 0)
+		return errno_linux_to_bsd(ret);
+
+	if (status == dserver_cs_status_valid) {
+		// the signed range ends at the code limit, rounded up to a hash page
+		uint64_t page_mask = (page_size_log2 > 0 && page_size_log2 < 32) ? (1ull << page_size_log2) - 1 : 0;
+		end = (off_t)((code_limit + page_mask) & ~page_mask);
+	} else if (cs_own_policy() == dserver_code_signing_policy_enforce) {
+		return -EBADEXEC;
+	}
+
+	if (cmd == F_ADDFILESIGS_RETURN)
+		signatures->fs_file_start = end;
+
+	return 0;
+}
+
+// F_CHECK_LV: whether the calling process's library validation accepts the
+// image. Library validation refuses nothing unless the policy enforces code
+// signing, so only then is darlingserver asked.
+static long check_library_validation(int fd, fchecklv_t* check)
+{
+	static const char message[] = "library validation refused the image: it is neither a platform binary nor signed by the same team";
+	uint32_t status = 0, flags = 0, page_size_log2 = 0;
+	uint64_t code_limit = 0;
+	bool library_validation_ok = false;
+	int ret;
+
+	if (check == NULL)
+		return -EFAULT;
+	if (cs_own_policy() != dserver_code_signing_policy_enforce)
+		return 0;
+
+	ret = dserver_rpc_cs_verify_image(fd, (uint64_t)check->lv_file_start,
+		&status, &flags, &code_limit, &page_size_log2, &library_validation_ok);
+	if (ret < 0)
+		return errno_linux_to_bsd(ret);
+	if (library_validation_ok)
+		return 0;
+
+	if (check->lv_error_message != NULL && check->lv_error_message_size > 0) {
+		size_t length = sizeof(message) - 1;
+		if (length >= check->lv_error_message_size)
+			length = check->lv_error_message_size - 1;
+		memcpy(check->lv_error_message, message, length);
+		((char*)check->lv_error_message)[length] = '\0';
+	}
+	return -EPERM;
+}
+
+// DC_F_SNAPSHOT_IMAGE (see dc_image_snapshot.h)
+static long snapshot_image(int fd)
+{
+	static const char name[] = "darling-image-snapshot";
+	char buffer[16384];
+	// sys_fstat fills the legacy (32-bit inode) layout of the fstat system call,
+	// which is not the struct stat this file is compiled with; stat64 is unambiguous
+	struct stat64 st;
+	long snapshot, ret;
+	unsigned long long offset = 0;
+
+	ret = sys_fstat64(fd, &st);
+	if (ret < 0)
+		return ret;
+	if ((st.st_mode & S_IFMT) != S_IFREG || st.st_size <= 0)
+		return -EINVAL;
+	if ((unsigned long long)st.st_size > DC_SNAPSHOT_IMAGE_MAX)
+		return -EFBIG;
+
+	snapshot = LINUX_SYSCALL(__NR_memfd_create, name, LINUX_MFD_CLOEXEC | LINUX_MFD_ALLOW_SEALING);
+	if (snapshot < 0)
+		return errno_linux_to_bsd(snapshot);
+	snapshot = nofile_limit_check_new(snapshot);
+	if (snapshot < 0)
+		return snapshot;
+
+	while (offset < (unsigned long long)st.st_size) {
+		unsigned long long left = (unsigned long long)st.st_size - offset;
+		long got, written = 0;
+
+		got = sys_pread_nocancel(fd, buffer, left < sizeof(buffer) ? (int)left : (int)sizeof(buffer), (long long)offset);
+		if (got == -EINTR)
+			continue;
+		if (got <= 0) {
+			// the file became shorter while it was copied
+			ret = (got < 0) ? got : -EIO;
+			goto fail;
+		}
+
+		while (written < got) {
+			long put = sys_write_nocancel(snapshot, buffer + written, (int)(got - written));
+			if (put == -EINTR)
+				continue;
+			if (put <= 0) {
+				ret = (put < 0) ? put : -EIO;
+				goto fail;
+			}
+			written += put;
+		}
+
+		offset += (unsigned long long)got;
+	}
+
+#ifdef __NR_fcntl64
+	ret = LINUX_SYSCALL(__NR_fcntl64, snapshot, LINUX_F_ADD_SEALS,
+#else
+	ret = LINUX_SYSCALL(__NR_fcntl, snapshot, LINUX_F_ADD_SEALS,
+#endif
+		LINUX_F_SEAL_SEAL | LINUX_F_SEAL_SHRINK | LINUX_F_SEAL_GROW | LINUX_F_SEAL_WRITE);
+	if (ret < 0) {
+		ret = errno_linux_to_bsd(ret);
+		goto fail;
+	}
+
+	return snapshot;
+
+fail:
+	sys_close_nocancel(snapshot);
+	return ret;
+}
+
 long sys_fcntl(int fd, int cmd, long arg)
 {
 	CANCELATION_POINT();
@@ -80,8 +228,13 @@ long sys_fcntl_nocancel(int fd, int cmd, long arg)
 
 	switch (cmd)
 	{
+		case F_ADDFILESIGS:
+		case F_ADDFILESIGS_RETURN:
+			return add_file_signatures(fd, cmd, (fsignatures_t*)arg);
 		case F_CHECK_LV:
-			return 0;
+			return check_library_validation(fd, (fchecklv_t*)arg);
+		case DC_F_SNAPSHOT_IMAGE:
+			return snapshot_image(fd);
 		case F_SETFD:
 			if (arg & ~FD_CLOEXEC)
 				return -EINVAL;
