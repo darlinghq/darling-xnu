@@ -145,16 +145,8 @@ _mach_fork_child(void)
 
 #ifdef DARLING
 int _mach_fork_parent(void) {
-	int result;
-
-retry:
-	result = dserver_rpc_fork_wait_for_child();
-	if (result < 0) {
-		if (result == -LINUX_EINTR) {
-			goto retry;
-		}
-		__builtin_unreachable();
-	}
+	// fork() itself waits for the child to check in with darlingserver,
+	// and only if it created one (see sys_fork())
 	return 0;
 };
 #endif
