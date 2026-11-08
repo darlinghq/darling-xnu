@@ -104,7 +104,7 @@ long sys_execve(const char* fname, const char** argvp, const char** envp)
 	{
 		char *nl, *interp, *arg;
 		const char** modargvp;
-		int i, j, len = 0;
+		int i, j;
 
 		nl = memchr(shebang, '\n', ret);
 		if (!nl)
@@ -139,8 +139,10 @@ long sys_execve(const char* fname, const char** argvp, const char** envp)
 		while (argvp[orig_argc])
 			orig_argc++;
 
-		// Allocate a new argvp: mldr_path, interp (vc.path), [arg], fname, argvp[1..orig_argc-1], NULL
-		modargvp = (const char**) __builtin_alloca(sizeof(void*) * (orig_argc + 4));
+		// Allocate a new argvp: mldr_path, interp (vc.path), [arg], fname,
+		// argvp[1..orig_argc-1], NULL. That is at most orig_argc + 4 entries,
+		// or 5 when the caller passed an empty argv.
+		modargvp = (const char**) __builtin_alloca(sizeof(void*) * (orig_argc + 5));
 
 		i = 0;
 		modargvp[i++] = mldr_path;
