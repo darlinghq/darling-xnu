@@ -53,9 +53,11 @@ LEAF(___fork, 0)
 
 	movl 	$ SYS_fork,%eax; 	// code for fork -> eax
 #ifdef DARLING
+	// a failure comes back as -errno
 	call	__darling_bsd_syscall
-	cmpl	$0, %eax
-	jnb L1
+	cmpl	$-4095, %eax
+	jb	L1
+	negl	%eax
 #else
 	UNIX_SYSCALL_TRAP		// do the system call
 	jnc	L1			// jump if CF==0
@@ -67,8 +69,14 @@ LEAF(___fork, 0)
 	ret
 	
 L1:
+#ifdef DARLING
+	// __darling_bsd_syscall returns 0 in the child and leaves %edx alone
+	testl	%eax, %eax
+	jnz	L2
+#else
 	orl	%edx,%edx	// CF=OF=0,  ZF set if zero result	
 	jz	L2		// parent, since r1 == 0 in parent, 1 in child
+#endif
 	
 	//child here...
 	xorl	%eax,%eax	// zero eax
@@ -84,10 +92,12 @@ LEAF(___fork, 0)
 	subq  $24, %rsp   // Align the stack, plus room for local storage
 
 #ifdef DARLING
+	// a failure comes back as -errno
 	movl	$ SYS_fork, %eax
 	call	__darling_bsd_syscall
-	cmpq	$0, %rax
-	jnb L1
+	cmpq	$-4095, %rax
+	jb	L1
+	negq	%rax
 #else
 	movl 	$ SYSCALL_CONSTRUCT_UNIX(SYS_fork),%eax; // code for fork -> rax
 	UNIX_SYSCALL_TRAP		// do the system call

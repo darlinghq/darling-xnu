@@ -64,6 +64,36 @@ LEAF(___vfork, 0)
 	lock
 	cmpxchgl	%ecx, __current_pid
 	jne		0b
+#ifdef DARLING
+	/*
+	 * Darling's vfork is a fork: the child has its own copy of the
+	 * memory, so the return address stays on the stack. The call clobbers
+	 * %ecx and %edx and does not set the carry flag; it returns -errno on
+	 * failure, 0 in the child and the child's pid in the parent. The child
+	 * leaves __current_pid negative, so its getpid() asks the system.
+	 */
+	movl		$(SYS_vfork), %eax
+	UNIX_SYSCALL_TRAP
+	testl		%eax, %eax
+	jz		L1			// child
+	js		L2			// failure
+	pushl		%eax
+	GET_CURRENT_PID
+	lock
+	incl		__current_pid
+	popl		%eax
+L1:
+	ret
+
+L2:
+	negl		%eax
+	pushl		%eax
+	GET_CURRENT_PID
+	lock
+	incl		__current_pid
+	popl		%eax
+	BRANCH_EXTERN(tramp_cerror)
+#else
 	popl		%ecx
 	movl		$(SYS_vfork), %eax	// code for vfork -> eax
 	UNIX_SYSCALL_TRAP			// do the system call
@@ -85,6 +115,7 @@ L2:
 	lock
 	incl		__current_pid
 	jmp		*%ecx
+#endif
 
 #elif defined(__x86_64__)
 
@@ -106,10 +137,12 @@ LEAF(___vfork, 0)
 	cmpxchgl	%ecx, (%rdx)
 	jne		0b
 #ifdef DARLING
+	// a failure comes back as -errno
 	movl	$ SYS_vfork, %eax
 	call	__darling_bsd_syscall
-	cmpq	$0, %rax
-	jnb L1
+	cmpq	$-4095, %rax
+	jb	L1
+	negq	%rax
 #else
 	popq		%rdi			// return address in %rdi
 	movq		$ SYSCALL_CONSTRUCT_UNIX(SYS_vfork), %rax	// code for vfork -> rax
