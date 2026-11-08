@@ -137,10 +137,12 @@ LEAF(___vfork, 0)
 	cmpxchgl	%ecx, (%rdx)
 	jne		0b
 #ifdef DARLING
+	// a failure comes back as -errno
 	movl	$ SYS_vfork, %eax
 	call	__darling_bsd_syscall
-	cmpq	$0, %rax
-	jnb L1
+	cmpq	$-4095, %rax
+	jb	L1
+	negq	%rax
 #else
 	popq		%rdi			// return address in %rdi
 	movq		$ SYSCALL_CONSTRUCT_UNIX(SYS_vfork), %rax	// code for vfork -> rax
