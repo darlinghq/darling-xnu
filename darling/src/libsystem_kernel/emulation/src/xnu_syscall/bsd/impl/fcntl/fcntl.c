@@ -149,11 +149,13 @@ static long snapshot_image(int fd)
 {
 	static const char name[] = "darling-image-snapshot";
 	char buffer[16384];
-	struct stat st;
+	// sys_fstat fills the legacy (32-bit inode) layout of the fstat system call,
+	// which is not the struct stat this file is compiled with; stat64 is unambiguous
+	struct stat64 st;
 	long snapshot, ret;
 	unsigned long long offset = 0;
 
-	ret = sys_fstat(fd, &st);
+	ret = sys_fstat64(fd, &st);
 	if (ret < 0)
 		return ret;
 	if ((st.st_mode & S_IFMT) != S_IFREG || st.st_size <= 0)
