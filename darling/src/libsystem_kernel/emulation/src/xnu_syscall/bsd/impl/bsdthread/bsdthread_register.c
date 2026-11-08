@@ -41,11 +41,22 @@ bool bsdthread_registered(void)
 	return g_registered;
 }
 
+static uintptr_t* cancel_marked_slot(uintptr_t pthread_handle)
+{
+	uintptr_t tsd = pthread_handle + g_pth_regdata.tsd_offset;
+	return (uintptr_t*) tsd + __PTK_DARLING_CANCEL_MARKED;
+}
+
+uintptr_t* bsdthread_cancel_marked_slot(void)
+{
+	return cancel_marked_slot(_pthread_getspecific_direct(_PTHREAD_TSD_SLOT_PTHREAD_SELF));
+}
+
 void set_thread_handles(uintptr_t pthread_handle)
 {
 	uintptr_t tsd = pthread_handle + g_pth_regdata.tsd_offset;
 	uintptr_t dispatch_qaddr = tsd + g_pth_regdata.dispatch_queue_offset;
-	uintptr_t* cancel_marked = (uintptr_t*) tsd + __PTK_DARLING_CANCEL_MARKED;
+	uintptr_t* cancel_marked = cancel_marked_slot(pthread_handle);
 
 	*cancel_marked = 0;
 	if (dserver_rpc_set_thread_handles(pthread_handle, dispatch_qaddr, (uintptr_t) cancel_marked) < 0) {

@@ -16,6 +16,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/mman/mman.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/kill.h>
 #include <darling/emulation/common/simple.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/pthread_canceled.h>
 
 #include <darlingserver/rpc.h>
 
@@ -155,6 +156,17 @@ void sigexc_setup(void)
 #endif
 }
 
+static void cancel_interrupted_syscall(struct linux_ucontext* ctxt)
+{
+#if defined(__x86_64__)
+	ctxt->uc_mcontext.gregs.rip = pthread_cancelable_syscall_interrupted(ctxt->uc_mcontext.gregs.rip);
+#elif defined(__i386__)
+	ctxt->uc_mcontext.gregs.eip = pthread_cancelable_syscall_interrupted(ctxt->uc_mcontext.gregs.eip);
+#elif defined(__aarch64__) || defined(__arm64__)
+	ctxt->uc_mcontext.gregs.pc = pthread_cancelable_syscall_interrupted(ctxt->uc_mcontext.gregs.pc);
+#endif
+}
+
 void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
 	int status = dserver_rpc_interrupt_enter();
@@ -188,6 +200,10 @@ void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext
 	}
 
 	state_from_kernel(ctxt, &tstate, &fstate);
+
+	// darlingserver also sends this signal to interrupt a cancelable syscall
+	// when it marks the thread for cancellation
+	cancel_interrupted_syscall(ctxt);
 	} else if (signum == SIGNAL_S2C) {
 		__simple_kprintf("sigexc: sigrt_handler S2C");
 

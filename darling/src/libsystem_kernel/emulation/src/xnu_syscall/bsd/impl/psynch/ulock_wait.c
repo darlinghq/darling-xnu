@@ -9,7 +9,7 @@
 #include <darling/emulation/conversion/duct_errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
-#include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/pthread_canceled.h>
 
 struct timespec
 {
@@ -25,11 +25,6 @@ long sys_ulock_wait2(uint32_t operation, void* addr, uint64_t value, uint64_t ti
 
 	(void)value2;
 
-	if (operation & XNU_ULF_WAIT_CANCEL_POINT)
-	{
-		CANCELATION_POINT();
-	}
-
 	if (timeout_ns > 0)
 	{
 		ts.tv_sec = timeout_ns / 1000000000ULL;
@@ -41,8 +36,16 @@ long sys_ulock_wait2(uint32_t operation, void* addr, uint64_t value, uint64_t ti
 		op == XNU_UL_COMPARE_AND_WAIT_SHARED || op == XNU_UL_UNFAIR_LOCK64_SHARED ||
 		op == XNU_UL_COMPARE_AND_WAIT64 || op == XNU_UL_COMPARE_AND_WAIT64_SHARED)
 	{
-		ret = LINUX_SYSCALL(__NR_futex, addr, FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
-			value, (timeout_ns != 0) ? &ts : NULL);
+		struct timespec* timeout = (timeout_ns != 0) ? &ts : NULL;
+
+		// like xnu's ulock_wait, a cancellation point wait acts on a pending cancel first,
+		// and is interrupted (with EINTR) when the thread is marked for cancellation while it waits
+		if (operation & XNU_ULF_WAIT_CANCEL_POINT)
+			ret = pthread_cancelable_syscall((long) addr, FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
+				(long) value, (long) timeout, 0, 0, __NR_futex);
+		else
+			ret = LINUX_SYSCALL(__NR_futex, addr, FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
+				value, timeout);
 
 		// unlike ulock_wait(), futex(FUTEX_WAIT) does not return how many
 		// other threads are now (still) waiting for the lock.

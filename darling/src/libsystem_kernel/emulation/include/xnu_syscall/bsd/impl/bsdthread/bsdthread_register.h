@@ -20,6 +20,10 @@ void set_thread_handles(uintptr_t pthread_handle);
 // true once libpthread has registered with us, i.e. every Darwin thread has a TSD we can read
 bool bsdthread_registered(void);
 
+// the calling thread's TSD slot that it shares with darlingserver for cancellation (see pthread_canceled.c);
+// only valid once bsdthread_registered()
+uintptr_t* bsdthread_cancel_marked_slot(void);
+
 long sys_bsdthread_register(void* thread_start, void* wqthread, int pthsize,
 		const struct _pthread_registration_data* pth_regdata,
 		unsigned long pth_regdata_len, unsigned long long dpq_offset);
