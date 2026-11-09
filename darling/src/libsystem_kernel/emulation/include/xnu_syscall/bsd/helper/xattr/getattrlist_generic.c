@@ -480,10 +480,18 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 	packedVolume = packInvalidAttributes ? alist->volattr : (alist->volattr & VOLUME_SUPPORTED);
 
 	if (packInvalidAttributes || returnSupportedAttributes) {
-		spaceNeeded += packed_width(packedCommon, common_attr_widths);
-		spaceNeeded += packed_width(packedDir, dir_attr_widths);
-		spaceNeeded += packed_width(packedFile, file_attr_widths);
-		spaceNeeded += packed_width(packedExtended, extended_attr_widths);
+		// The fixed-size part has room for every requested attribute of the
+		// object's kind, also for one that is not returned; returned ones
+		// are packed from the start and the unused room stays at the end.
+		// (The attribute group that does not apply to the object, file or
+		// directory, gets no room.)
+		uint32_t reservedCommon = alist->volattr ? packedCommon : alist->commonattr;
+		uint32_t reservedDir = S_ISDIR(fileStat.st_mode) ? alist->dirattr : 0;
+		uint32_t reservedFile = S_ISDIR(fileStat.st_mode) ? 0 : alist->fileattr;
+		spaceNeeded += packed_width(reservedCommon, common_attr_widths);
+		spaceNeeded += packed_width(reservedDir, dir_attr_widths);
+		spaceNeeded += packed_width(reservedFile, file_attr_widths);
+		spaceNeeded += packed_width(alist->forkattr, extended_attr_widths);
 		if (packedCommon & 0x00000001)
 			variableSize += (itemNameLength + 3) & ~((__SIZE_TYPE__)3);
 		if (packedCommon & 0x08000000) {
