@@ -70,6 +70,7 @@ long sys_connect_nocancel(int fd, const void* name, int socklen)
 #include <darling/emulation/xnu_syscall/bsd/impl/network/bind.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/writev.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/network/shutdown.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/network/getsockopt.h>
 
 struct darling_sa_endpoints {
 	unsigned int            sae_srcif;
@@ -124,13 +125,23 @@ long sys_connectx(int fd, const void* endpoints_arg, unsigned int associd, unsig
 
 long sys_disconnectx(int fd, unsigned int associd, unsigned int connid)
 {
+	int type = 0, typelen = sizeof(type);
+	long ret = sys_getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &typelen);
+	if (ret < 0)
+		return ret;
+
+	// A stream connection is closed gracefully (FIN), as on macOS. Linux
+	// aborts it with a reset when a TCP socket is connected to AF_UNSPEC.
+	if (type == SOCK_STREAM)
+	{
+		ret = sys_shutdown(fd, SHUT_RDWR);
+		return (ret < 0) ? ret : 0;
+	}
+
+	// Other sockets drop their peer address.
 	struct sockaddr sa;
 	__builtin_memset(&sa, 0, sizeof(sa));
 	sa.sa_family = AF_UNSPEC;
-	long ret = sys_connect_nocancel(fd, &sa, sizeof(sa));
-	if (ret < 0)
-	{
-		ret = sys_shutdown(fd, 2 /* SHUT_RDWR */);
-	}
+	ret = sys_connect_nocancel(fd, &sa, sizeof(sa));
 	return (ret < 0) ? ret : 0;
 }
