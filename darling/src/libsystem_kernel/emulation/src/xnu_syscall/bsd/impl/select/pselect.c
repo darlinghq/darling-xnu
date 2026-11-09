@@ -9,11 +9,11 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 #include <darling/emulation/linux_premigration/misc/ioctl.h>
+#include <darling/emulation/conversion/ioctl/termios.h>
 
 #define DARLING_SELECT_FD_SETSIZE 1024
 #define LINUX_POLLHUP 0x0010
 #define LINUX_POLLPRI 0x0002
-#define LINUX_TCGETA 0x5405
 
 struct linux_timespec {
 	long tv_sec;
@@ -137,14 +137,30 @@ cleanup:
 	return result < 0 ? errno_linux_to_bsd(result) : result;
 }
 
+// Whether fd is the master side of a pseudo-terminal: only the master
+// answers TIOCGPTN.
+static int is_pty_master(int fd)
+{
+	unsigned int number;
+	return __real_ioctl(fd, LINUX_TIOCGPTN, &number) == 0;
+}
+
 long sys_pselect_nocancel(int nfds, void* rfds, void* wfds, void* efds, const struct bsd_timespec* timeout, const sigset_t* mask)
 {
+	// QUIRK: a pseudo-terminal master is reported in exceptfds once its
+	// slave side has been closed (also when it is readable with read()
+	// returning 0), and in packet mode when a status byte is pending. A
+	// slave whose master was closed, and a pipe whose other end was closed,
+	// are only readable and writable. Linux select never reports these as
+	// exceptional, so watch the masters through epoll as well.
+	// Evidence: black-box observation on macOS 27 (tier 2); the packet-mode
+	// case is also described in pty(4).
+	// Test: pselect-pty-hangup (master, slave and pipe cases).
 	if (efds && nfds > 0 && nfds <= DARLING_SELECT_FD_SETSIZE) {
 		unsigned char tty[DARLING_SELECT_FD_SETSIZE] = {0};
 		int has_tty = 0;
 		for (int fd = 0; fd < nfds; ++fd) {
-			char termios[18];
-			if (fd_is_set(fd, efds) && __real_ioctl(fd, LINUX_TCGETA, termios) == 0)
+			if (fd_is_set(fd, efds) && is_pty_master(fd))
 				has_tty = tty[fd] = 1;
 		}
 		if (has_tty) return pselect_pty_wait(nfds, rfds, wfds, efds, timeout, mask, tty);
