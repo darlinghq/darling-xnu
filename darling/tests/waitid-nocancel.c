@@ -26,7 +26,9 @@ int main(void) {
   }
   close(gate[0]);
   siginfo_t info;
-  memset(&info, 0x5a, sizeof(info));
+  // macOS leaves infop untouched when WNOHANG finds no child, while POSIX
+  // says si_pid is 0; clear it first, as portable callers do.
+  memset(&info, 0, sizeof(info));
   long result = syscall(SYS_waitid_nocancel, P_PID, child, &info,
                         WEXITED | WNOHANG | WNOWAIT);
   if (result != 0) {
