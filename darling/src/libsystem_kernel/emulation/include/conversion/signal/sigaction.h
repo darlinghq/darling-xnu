@@ -294,7 +294,10 @@ struct bsd_thread_state
 
 struct bsd_float_state
 {
-	unsigned char fpu_bytes[512];
+	// Same size as Darwin's i386 float state (524 bytes), so that
+	// uc_mcsize and the mcontext match what i386 code expects.
+	// The contents are not filled in yet.
+	unsigned char fpu_bytes[524];
 };
 #endif
 
