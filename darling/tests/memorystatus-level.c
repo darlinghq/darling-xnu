@@ -24,7 +24,7 @@ int main(void) {
     if (sysctl(mib, count, &via_mib, &size, NULL, 0) != 0 || via_mib < 0 || via_mib > 100)
         return 4;
     size = 1;
-    if (sysctlbyname("kern.memorystatus_level", &level, &size, NULL, 0) != -1 || errno != EINVAL)
+    if (sysctlbyname("kern.memorystatus_level", &level, &size, NULL, 0) != -1 || errno != ENOMEM)
         return 5;
     size = sizeof(int);
     if (sysctlbyname("kern.memorystatus_level", &level, &size, &level, sizeof(level)) != -1 || errno != EPERM)
