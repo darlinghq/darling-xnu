@@ -41,6 +41,10 @@
 
 #define LINUX_PR_SET_NAME 15
 
+// glibc bits/confname.h, for native_sysconf()
+#define LINUX_SC_CLK_TCK 2
+#define LINUX_SC_PAGESIZE 30
+
 static long _proc_pidinfo(int32_t pid, uint32_t flavor, uint64_t arg, void* buffer, int32_t bufsize);
 static long _proc_pidinfo_pidrusage(int32_t pid, uint32_t flavor, void* buffer, int32_t bufsize);
 static long _proc_pidinfo_vnodepathinfo(int32_t pid, void* buffer, int32_t bufsize);
@@ -998,21 +1002,25 @@ static long _proc_pidinfo_pidrusage(int32_t pid, uint32_t flavor, void* buffer, 
 	if (!elem) return -EINVAL;
 	uint64_t stime = __simple_atoi(elem, NULL);
 
-	skip_stat_elems(&statptr, 6); // skip until vsize (priority=1, nice=2, num_threads=3, itrealvalue=4, starttime=5, vsize=6)
+	// cutime, cstime, priority, nice, num_threads, itrealvalue, starttime
+	skip_stat_elems(&statptr, 7);
 	elem = next_stat_elem(&statptr); // vsize
-	elem = next_stat_elem(&statptr); // rss
+	elem = next_stat_elem(&statptr); // rss, in pages
 	if (!elem) return -EINVAL;
 	uint64_t rss = __simple_atoi(elem, NULL);
 
-	long ticks_per_sec = native_sysconf(_SC_CLK_TCK);
+	long ticks_per_sec = native_sysconf(LINUX_SC_CLK_TCK);
 	if (ticks_per_sec <= 0)
 		ticks_per_sec = 100;
+	long page_size = native_sysconf(LINUX_SC_PAGESIZE);
+	if (page_size <= 0)
+		page_size = 4096;
 
 	ri->ri_user_time = (utime * 1000000000ULL) / ticks_per_sec;
 	ri->ri_system_time = (stime * 1000000000ULL) / ticks_per_sec;
 	ri->ri_pageins = majflt;
-	ri->ri_resident_size = rss * 4096;
-	ri->ri_phys_footprint = rss * 4096;
+	ri->ri_resident_size = rss * page_size;
+	ri->ri_phys_footprint = rss * page_size;
 
 	return 0;
 }
