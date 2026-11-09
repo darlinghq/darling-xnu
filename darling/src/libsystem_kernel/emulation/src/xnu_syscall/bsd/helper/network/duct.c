@@ -81,10 +81,22 @@ int sockaddr_fixup_from_bsd(struct sockaddr_fixup* out, const void* bsd_sockaddr
 	return ret;
 }
 
-int sockaddr_fixup_from_linux(struct sockaddr_fixup* out, const void* linux_sockaddr, int linux_sockaddr_len) {
-	int ret = linux_sockaddr_len;
+int sockaddr_fixup_from_linux(struct sockaddr_fixup* out, const void* linux_sockaddr, int linux_sockaddr_len, int out_capacity) {
+	struct sockaddr_fixup bsd;
+	int in_len, ret;
 
-	memcpy(out, linux_sockaddr, linux_sockaddr_len);
+	if (out_capacity < 0)
+		out_capacity = 0;
+
+	/* The kernel reports the full address length but stores no more than
+	 * the caller's buffer holds, so only that much of the input is there. */
+	in_len = linux_sockaddr_len < out_capacity ? linux_sockaddr_len : out_capacity;
+	ret = linux_sockaddr_len;
+
+	if (out != linux_sockaddr)
+		memmove(out, linux_sockaddr, in_len);
+	if (in_len < (int) offsetof(struct sockaddr_fixup, sun_path))
+		return ret;
 
 	out->bsd_family = sfamily_linux_to_bsd(out->linux_family);
 
@@ -93,7 +105,7 @@ int sockaddr_fixup_from_linux(struct sockaddr_fixup* out, const void* linux_sock
 	// a NUL. Neither has a path to translate, and sun_path holds whatever
 	// the caller's buffer contained.
 	if (out->bsd_family == PF_LOCAL &&
-			(linux_sockaddr_len <= (int) __builtin_offsetof(struct sockaddr_fixup, sun_path) ||
+			(in_len <= (int) __builtin_offsetof(struct sockaddr_fixup, sun_path) ||
 			 out->sun_path[0] == '\0')) {
 		out->bsd_length = ret;
 		return ret;
@@ -102,23 +114,27 @@ int sockaddr_fixup_from_linux(struct sockaddr_fixup* out, const void* linux_sock
 	if (out->bsd_family == PF_LOCAL) {
 		struct vchroot_unexpand_args vc;
 
-		copy_path(vc.path, sizeof(vc.path), out, linux_sockaddr_len);
+		copy_path(vc.path, sizeof(vc.path), out, in_len);
 
 		ret = vchroot_unexpand(&vc);
 		if (ret < 0)
 			return errno_linux_to_bsd(ret);
 
-		/* out is the guest's own buffer here, which is a Darwin
-		 * struct sockaddr_un, so the write is bounded by the Darwin path
-		 * capacity and not by the wider Linux one. */
-		strncpy(out->bsd_sun_path, vc.path, sizeof(out->bsd_sun_path) - 1);
-		out->bsd_sun_path[sizeof(out->bsd_sun_path) - 1] = '\0';
-		ret = (int) (offsetof(struct sockaddr_fixup, bsd_sun_path) + strlen(out->bsd_sun_path) + 1);
+		/* Build the Darwin struct sockaddr_un aside and copy out only what
+		 * the caller's buffer holds: the translated path can be longer than
+		 * the host one, and the buffer can be shorter than a full
+		 * sockaddr_un. As on macOS, the returned length is still the full
+		 * address length. */
+		bsd.bsd_family = PF_LOCAL;
+		strncpy(bsd.bsd_sun_path, vc.path, sizeof(bsd.bsd_sun_path) - 1);
+		bsd.bsd_sun_path[sizeof(bsd.bsd_sun_path) - 1] = '\0';
+		ret = (int) (offsetof(struct sockaddr_fixup, bsd_sun_path) + strlen(bsd.bsd_sun_path) + 1);
+		bsd.bsd_length = ret;
+
+		memcpy(out, &bsd, ret < out_capacity ? ret : out_capacity);
+		return ret;
 	}
 
-	if (ret >= 0) {
-		out->bsd_length = ret;
-	}
-
+	out->bsd_length = ret;
 	return ret;
 }

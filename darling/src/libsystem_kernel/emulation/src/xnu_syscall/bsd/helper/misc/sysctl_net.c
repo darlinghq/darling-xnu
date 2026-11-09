@@ -365,19 +365,19 @@ static int do_iflist(void* old, unsigned long* oldlen, int modern, unsigned int 
 			ifam->ifam_version = RTM_VERSION;
 			ifam->ifam_addrs = RTA_NETMASK | RTA_IFA | RTA_BRD;
 
-			sockaddr_fixup_from_linux((struct sockaddr_fixup*)ip_addr, &curr->lifr_addr, sizeof(struct linux_sockaddr));
+			sockaddr_fixup_from_linux((struct sockaddr_fixup*)ip_addr, &curr->lifr_addr, sizeof(struct linux_sockaddr), sizeof(struct linux_sockaddr));
 
 			memcpy(tmp.lifr_name, curr->lifr_name, sizeof(curr->lifr_name));
 
 			// get the netmask
 			if ((status = __real_ioctl(tmp_sock, LINUX_SIOCGIFNETMASK, &tmp)) < 0)
 				goto out;
-			sockaddr_fixup_from_linux((struct sockaddr_fixup*)netmask, &tmp.lifr_netmask, sizeof(struct linux_sockaddr));
+			sockaddr_fixup_from_linux((struct sockaddr_fixup*)netmask, &tmp.lifr_netmask, sizeof(struct linux_sockaddr), sizeof(struct linux_sockaddr));
 
 			// get the broadcast address
 			if ((status = __real_ioctl(tmp_sock, LINUX_SIOCGIFBRDADDR, &tmp)) < 0)
 				goto out;
-			sockaddr_fixup_from_linux((struct sockaddr_fixup*)broad_addr, &tmp.lifr_broadaddr, sizeof(struct linux_sockaddr));
+			sockaddr_fixup_from_linux((struct sockaddr_fixup*)broad_addr, &tmp.lifr_broadaddr, sizeof(struct linux_sockaddr), sizeof(struct linux_sockaddr));
 
 			old_ptr += ifam_length;
 		}

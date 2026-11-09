@@ -52,6 +52,8 @@ _Static_assert(sizeof(struct sockaddr_fixup) == SOCKADDR_FIXUP_LINUX_PATH_MAX + 
 
 unsigned long sockaddr_fixup_size_from_bsd(const void* bsd_sockaddr, int bsd_sockaddr_len);
 int sockaddr_fixup_from_bsd(struct sockaddr_fixup* out, const void* bsd_sockaddr, int bsd_sockaddr_len);
-int sockaddr_fixup_from_linux(struct sockaddr_fixup* out, const void* linux_sockaddr, int linux_sockaddr_len);
+// out_capacity is the size of the caller's buffer at out; nothing is
+// written past it.
+int sockaddr_fixup_from_linux(struct sockaddr_fixup* out, const void* linux_sockaddr, int linux_sockaddr_len, int out_capacity);
 
 #endif // NETWORK_DUCT_H
