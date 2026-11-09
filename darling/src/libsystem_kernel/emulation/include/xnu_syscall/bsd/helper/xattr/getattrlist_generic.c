@@ -148,8 +148,11 @@ struct xnu_attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, uns
 		spaceNeeded += sizeof(uint32_t);
 	fixedSize = spaceNeeded;
 	spaceNeeded += paddedNameLength;
-	if (!attributeBuffer || bufferSize < 4 ||
-		(bufferSize < spaceNeeded && !(options & FSOPT_REPORT_FULLSIZE)))
+	// Only a buffer too small for the length field is an error. A larger
+	// buffer that cannot hold everything gets the leading part of the
+	// result, and the length field always holds the full size, with or
+	// without FSOPT_REPORT_FULLSIZE (as observed on macOS).
+	if (!attributeBuffer || bufferSize < 4)
 		return -ERANGE;
 
 	ourBuffer = (char*) __builtin_alloca(spaceNeeded);
