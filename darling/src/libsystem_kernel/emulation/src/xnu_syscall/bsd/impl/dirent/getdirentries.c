@@ -20,8 +20,14 @@ extern int strcmp(const char* str1, const char* str2);
 
 #define ALIGN(x, alignment) (((x) + (alignment - 1)) & ~(alignment - 1))
 #define BSD_DIRENT_MIN_SIZE ALIGN(sizeof(struct bsd_dirent) + 2, 4)
-#define BSD_DIRENT64_MIN_SIZE ALIGN(sizeof(struct bsd_dirent64) + 2, 4)
 #define LINUX_DIRENT64_MIN_SIZE ALIGN(sizeof(struct linux_dirent64) + 2, 8)
+
+// getdirentries64 records are 8-byte aligned and their name starts at offset
+// 21, so a record is ALIGN(22 + namelen, 8) bytes, at most 8 bytes more than
+// the Linux record (ALIGN(20 + namelen, 8), at least 24 bytes) it comes from.
+// Reading at most len / 32 * 24 bytes of Linux records therefore always fits
+// in len bytes, and no entry read from the kernel is dropped.
+#define BSD_DIRENT64_MAX_SIZE_PER_LINUX_MIN 32
 
 static inline void round_to_4(unsigned short* reclen)
 {
@@ -87,7 +93,7 @@ long sys_getdirentries64(int fd, char* ibuf, unsigned int len, long* basep)
 {
 	int ret, bpos = 0, opos = 0;
 
-	unsigned int max_entry_count = len / BSD_DIRENT64_MIN_SIZE;
+	unsigned int max_entry_count = len / BSD_DIRENT64_MAX_SIZE_PER_LINUX_MIN;
 
 	// don't want to blow up the stack
 	if (max_entry_count > 20)
