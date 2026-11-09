@@ -6,6 +6,9 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/write.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/fsync.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mkdir.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
+#include <darling/emulation/common/guarded/table.h>
+#include <libsimple/lock.h>
 
 #include <stdint.h>
 #include <bsm/audit.h>
@@ -38,43 +41,79 @@
 
 #define AUDIT_TRAIL_PATH "/var/audit/trail"
 
+// The trail descriptor lives in the program's descriptor table, so keep it
+// out of the program's way: it is close-on-exec, the program cannot close it
+// (a program that closes every descriptor and opens something else in its
+// place must not get audit records written into that file), and a forked
+// child opens its own.
 static int trail_fd = -1;
+static libsimple_lock_t trail_lock = LIBSIMPLE_LOCK_INITIALIZER;
+
+#ifndef VARIANT_DYLD
+static void trail_forget(int fd)
+{
+	close_internal(fd);
+	trail_fd = -1;
+	libsimple_lock_init(&trail_lock);
+}
+#endif
+
+static int trail_open(void)
+{
+	// O_APPEND keeps concurrent writers from overwriting each other, and
+	// 0600 keeps the trail readable only by the user that owns the
+	// container.
+	int fd = sys_open(AUDIT_TRAIL_PATH,
+					  BSD_O_WRONLY | BSD_O_APPEND | BSD_O_CREAT | BSD_O_CLOEXEC,
+					  0600);
+	if (fd < 0) {
+		sys_mkdir("/var/audit", 0700);
+		fd = sys_open(AUDIT_TRAIL_PATH,
+					  BSD_O_WRONLY | BSD_O_APPEND | BSD_O_CREAT | BSD_O_CLOEXEC,
+					  0600);
+	}
+	return fd;
+}
 
 long sys_audit(void* record, int length) {
+	long ret = 0;
+	int fd;
+
 	if (record == NULL || length <= 0) {
 		return -EINVAL;
 	}
 
-	if (trail_fd < 0) {
-		// O_APPEND keeps concurrent writers from overwriting each other, and
-		// 0600 keeps the trail readable only by the user that owns the
-		// container.
-		trail_fd = sys_open(AUDIT_TRAIL_PATH,
-							BSD_O_WRONLY | BSD_O_APPEND | BSD_O_CREAT,
-							0600);
-		if (trail_fd < 0) {
-			sys_mkdir("/var/audit", 0700);
-			trail_fd = sys_open(AUDIT_TRAIL_PATH,
-								BSD_O_WRONLY | BSD_O_APPEND | BSD_O_CREAT,
-								0600);
-		}
-		if (trail_fd < 0) {
+	libsimple_lock_lock(&trail_lock);
+
+	fd = trail_fd;
+	if (fd < 0) {
+		fd = trail_open();
+		if (fd < 0) {
 			// No usable trail. Report this the way XNU does for a kernel
 			// built without audit support rather than claiming success.
+			libsimple_lock_unlock(&trail_lock);
 			return -ENOSYS;
 		}
+#ifndef VARIANT_DYLD
+		guard_entry_options_t options = { .close = trail_forget };
+		if (guard_table_add(fd, guard_flag_prevent_close | guard_flag_close_on_fork, &options) == 0)
+			trail_fd = fd;
+#endif
 	}
 
-	long written = sys_write(trail_fd, record, (size_t) length);
+	long written = sys_write(fd, record, (size_t) length);
 	if (written != (long) length) {
-		return -EIO;
-	}
-
-	if (sys_fsync(trail_fd) < 0) {
+		ret = -EIO;
+	} else if (sys_fsync(fd) < 0) {
 		// The bytes are in the page cache but not durable, so the record is
 		// not committed and the caller must be told so.
-		return -EIO;
+		ret = -EIO;
 	}
 
-	return 0;
+	// Without a guard entry, don't leave the descriptor behind.
+	if (fd != trail_fd)
+		close_internal(fd);
+
+	libsimple_lock_unlock(&trail_lock);
+	return ret;
 }
