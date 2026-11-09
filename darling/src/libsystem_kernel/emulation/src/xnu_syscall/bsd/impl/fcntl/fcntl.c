@@ -144,6 +144,46 @@ static long check_library_validation(int fd, fchecklv_t* check)
 	return -EPERM;
 }
 
+// QUIRK: F_GETPROTECTIONCLASS and F_SETPROTECTIONCLASS. Linux files have
+// no data protection class, so report what macOS reports for a file whose
+// class was never set: class C (3) for a regular file
+// and 0 for a directory; ENOTSUP for a device and EBADF for a descriptor
+// that is not a vnode (pipe, socket). F_SETPROTECTIONCLASS accepts classes
+// 1 to 4 and fails with EPERM for 6 and 7 and EINVAL for anything else;
+// the class is not stored. Not documented. Evidence: black-box observation
+// on macOS 27.0.1, arm64 and x86_64 under Rosetta (tier 2). Test:
+// the protection class checks in syscall-small-fixes.c (guest test).
+static long protection_class(int fd, int cmd, int pclass)
+{
+	struct stat64 st;
+	long ret;
+
+	ret = sys_fstat64(fd, &st);
+	if (ret < 0)
+		return ret;
+
+	switch (st.st_mode & S_IFMT)
+	{
+		case S_IFREG:
+		case S_IFDIR:
+			break;
+		case S_IFCHR:
+		case S_IFBLK:
+			return -ENOTSUP;
+		default:
+			return -EBADF;
+	}
+
+	if (cmd == F_GETPROTECTIONCLASS)
+		return ((st.st_mode & S_IFMT) == S_IFDIR) ? 0 : 3;
+
+	if (pclass >= 1 && pclass <= 4)
+		return 0;
+	if (pclass == 6 || pclass == 7)
+		return -EPERM;
+	return -EINVAL;
+}
+
 // DC_F_SNAPSHOT_IMAGE (see dc_image_snapshot.h)
 static long snapshot_image(int fd)
 {
@@ -288,12 +328,9 @@ long sys_fcntl_nocancel(int fd, int cmd, long arg)
 				return errno_linux_to_bsd(ret);
 			return 0;
 		}
-		// Linux files have no per-file data protection, which is iOS's
-		// class D. iOS apps (Cydia's setnsfpn) query and set it.
 		case F_GETPROTECTIONCLASS:
-			return 4;
 		case F_SETPROTECTIONCLASS:
-			return 0;
+			return protection_class(fd, cmd, (int) arg);
 		// TODO: implement remaining commands
 		default:
 			if (linux_cmd == -1)
