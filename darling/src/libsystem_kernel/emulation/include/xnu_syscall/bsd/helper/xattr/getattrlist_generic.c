@@ -499,8 +499,11 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 			spaceNeeded += sizeof(int64_t);
 	}
 
-	if (!attributeBuffer || bufferSize < 4 ||
-		(bufferSize < spaceNeeded && !(options & FSOPT_REPORT_FULLSIZE)))
+	// Only a buffer too small for the length field is an error. A larger
+	// buffer that cannot hold everything gets the leading part of the
+	// result, and the length field always holds the full size, with or
+	// without FSOPT_REPORT_FULLSIZE (as observed on macOS).
+	if (!attributeBuffer || bufferSize < 4)
 		return -ERANGE;
 	fixedSize = spaceNeeded - variableSize;
 	ourBuffer = (char*) __builtin_alloca(spaceNeeded);
@@ -738,8 +741,7 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 
 attributes_packed:
 
-	*((uint32_t*)ourBuffer) = (options & FSOPT_REPORT_FULLSIZE) ?
-		spaceNeeded : min(bufferSize, spaceNeeded);
+	*((uint32_t*)ourBuffer) = spaceNeeded;
 
 	memcpy(attributeBuffer, ourBuffer, min(bufferSize, spaceNeeded));
 	
