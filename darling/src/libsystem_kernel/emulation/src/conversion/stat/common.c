@@ -8,17 +8,9 @@
 #include <sys/stat.h>
 
 #include <darling/emulation/conversion/stat/common.h>
+#include <darling/emulation/conversion/stat/dev.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/getuid.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/getgid.h>
-
-static inline unsigned int dev_linux_to_bsd(unsigned long long ldev)
-{
-	// Darwin dev_t packs major in bits [31:24] (8 bits) and minor in bits [23:0].
-	// Linux majors > 255 are truncated to 8 bits to fit Darwin dev_t ABI.
-	unsigned int maj = ((ldev >> 8) & 0xfff) | ((unsigned int)(ldev >> 32) & ~0xfff);
-	unsigned int min = (ldev & 0xff) | ((unsigned int)(ldev >> 12) & 0xfff00);
-	return (maj << 24) | (min & 0xffffff);
-}
 
 void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat)
 {
