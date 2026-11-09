@@ -102,7 +102,7 @@ read_next_batch:
 			return bulk_restore_position(fd, entry_offset, count, -ERANGE);
 		}
 
-		result = sys_getattrlistat(fd, entry->d_name, alist, output, remaining,
+		result = darling_getattrlist_bulk_entry(fd, entry->d_name, alist, output, remaining,
 			options | FSOPT_REPORT_FULLSIZE | FSOPT_NOFOLLOW | FSOPT_ATTR_CMN_EXTENDED);
 		if (result == -ERANGE) {
 			return bulk_restore_position(fd, entry_offset, count, result);

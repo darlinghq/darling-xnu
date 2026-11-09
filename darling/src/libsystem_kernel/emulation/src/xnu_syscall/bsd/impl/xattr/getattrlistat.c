@@ -5,6 +5,18 @@
 
 #include <darling/emulation/xnu_syscall/bsd/helper/xattr/getattrlist_generic.c>
 
+// One getattrlistbulk() record for the entry "name" of directory "fd". The
+// request has no volume attributes (getattrlistbulk() checks that). Unlike
+// getattrlistat(), a record always returns and packs ATTR_CMN_FNDRINFO.
+long darling_getattrlist_bulk_entry(int fd, const char* name, struct xnu_attrlist* alist,
+	void* buffer, __SIZE_TYPE__ size, unsigned long options)
+{
+	int validation = attribute_validate_request(alist, options);
+	if (validation < 0)
+		return validation;
+	return attribute_get_object(fd, name, alist, buffer, size, options, 1);
+}
+
 // Shared with bulk enumeration; use the same width tables as normal records.
 int darling_attribute_is_directory(int fd, const char* name)
 {

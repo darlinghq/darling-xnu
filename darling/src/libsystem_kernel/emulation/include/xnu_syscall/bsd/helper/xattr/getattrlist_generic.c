@@ -280,6 +280,14 @@ static int attribute_validate_request(struct xnu_attrlist* alist, unsigned long 
 
 static int attribute_directory_mount_status(int fd, const char* path, uint32_t* status);
 
+static int attribute_is_zero(const char* bytes, __SIZE_TYPE__ length)
+{
+	for (__SIZE_TYPE__ i = 0; i < length; ++i)
+		if (bytes[i])
+			return 0;
+	return 1;
+}
+
 static long
 attribute_get_object(int fd,
 
@@ -287,7 +295,8 @@ attribute_get_object(int fd,
 const char* path,
 #endif
 
-struct xnu_attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, unsigned long options)
+struct xnu_attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, unsigned long options,
+int bulk)
 {
 	int rv;
 	char *ourBuffer, *next;
@@ -580,6 +589,16 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 #endif
 				if (rv < 0)
 					memset(next, 0, 32);
+				// getattrlist() leaves an all-zero (or missing) FinderInfo out
+				// of the returned attributes and packs the attributes after it
+				// in its place; its 32 bytes stay reserved, unused, at the end
+				// of the fixed-size part. getattrlistbulk() and
+				// FSOPT_PACK_INVAL_ATTRS always return and pack it in place.
+				if (!bulk && !packInvalidAttributes && attribute_is_zero(next, 32)) {
+					memset(next, 0, 32);
+					returned[0] &= ~ATTR_CMN_FNDRINFO;
+					continue;
+				}
 			} else if (width->bit == 0x00008000) {
 				*((uint32_t*)next) = fileStat.st_uid;
 			} else if (width->bit == 0x00010000) {
@@ -804,7 +823,7 @@ long FUNC_NAME(int fd,
 #if HAS_PATH
 			path,
 #endif
-			alist, buffer, size, options);
+			alist, buffer, size, options, 0);
 
 	int object = fd, result;
 #if HAS_PATH
@@ -844,7 +863,7 @@ long FUNC_NAME(int fd,
 #if HAS_PATH
 		".",
 #endif
-		alist, buffer, size, options);
+		alist, buffer, size, options, 0);
 	close_internal(root_fd);
 	return packed;
 }
