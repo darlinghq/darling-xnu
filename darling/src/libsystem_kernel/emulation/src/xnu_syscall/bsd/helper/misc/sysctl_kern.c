@@ -410,20 +410,28 @@ static sysctl_handler(handle_osrevision) {
 	return 0;
 }
 
+// Linux's fs.file-max does not fit in an int and is no useful limit for
+// a guest; report macOS's value for a machine with little memory.
 static sysctl_handler(handle_maxfiles) {
 	sysctl_handle_size(sizeof(int));
 	*((int*) old) = 49152;
 	return 0;
 }
 
+// The most a guest's RLIMIT_NOFILE can be raised to (see nofile_limit.c).
 static sysctl_handler(handle_maxfilesperproc) {
 	sysctl_handle_size(sizeof(int));
-	*((int*) old) = 10240;
+	*((int*) old) = DARWIN_OPEN_MAX;
 	return 0;
 }
 
+// Open files in the system: the first field of /proc/sys/fs/file-nr.
 static sysctl_handler(handle_num_files) {
+	char buf[64];
+
 	sysctl_handle_size(sizeof(int));
-	*((int*) old) = 1024;
+	if (!read_string("/proc/sys/fs/file-nr", buf, sizeof(buf)))
+		return -ENOENT;
+	*((int*) old) = (int) __simple_atoi(buf, NULL);
 	return 0;
 }
