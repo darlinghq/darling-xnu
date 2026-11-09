@@ -787,8 +787,7 @@ static int attribute_directory_mount_status(int fd, const char* path, uint32_t* 
 		result = guest_fd < 0 ? errno_linux_to_bsd(guest_fd) : 0;
 	}
 	if (result >= 0) {
-		char record[16384];
-		root_fd = attribute_open_volume_root(object, guest_fd, record, sizeof(record));
+		root_fd = attribute_open_volume_root(object, guest_fd);
 		result = root_fd < 0 ? root_fd : 0;
 	}
 	if (result >= 0) {
@@ -847,8 +846,7 @@ long FUNC_NAME(int fd,
 		result = guest_fd < 0 ? errno_linux_to_bsd(guest_fd) : 0;
 	}
 	if (result >= 0) {
-		char record[16384];
-		root_fd = attribute_open_volume_root(object, guest_fd, record, sizeof(record));
+		root_fd = attribute_open_volume_root(object, guest_fd);
 		result = root_fd < 0 ? root_fd : 0;
 	}
 	if (guest_fd >= 0)

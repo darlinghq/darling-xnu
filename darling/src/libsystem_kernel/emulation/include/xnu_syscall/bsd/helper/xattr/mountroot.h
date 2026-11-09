@@ -1,6 +1,6 @@
 #ifndef DARLING_ATTRIBUTE_MOUNTROOT_H
 #define DARLING_ATTRIBUTE_MOUNTROOT_H
-#include "mountpoint.h"
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/mount_table.h>
 
 // Linux statx has a fixed 256-byte ABI, with mount ID at byte 144.
 struct attribute_mount_statx {
@@ -30,35 +30,33 @@ static int attribute_fd_mount_id(int fd, uint64_t* mount_id)
 #endif
 }
 
-static long attribute_read_mountinfo(void* context, char* bytes, __SIZE_TYPE__ capacity)
-{
-	long result = LINUX_SYSCALL(__NR_read, *(int*)context, bytes, capacity);
-	return result < 0 ? errno_linux_to_bsd(result) : result;
-}
+// Obtain the kernel namespace spelling, not the /Volumes/SystemRoot guest alias.
+static int attribute_host_fdpath(int fd, char* output, __SIZE_TYPE__ capacity);
 
 // Return an owned CLOEXEC O_PATH descriptor, or a negative BSD errno.
-// The input descriptor remains borrowed. Caller supplies bounded record storage.
+// The input descriptor remains borrowed. The mount point comes from the
+// mount table that statfs() uses.
 // This finds the host mount root; guest namespace clamping belongs to the caller.
-static int attribute_open_mount_root(int fd, char* record, __SIZE_TYPE__ record_capacity)
+static int attribute_open_mount_root(int fd)
 {
 	uint64_t wanted, actual;
 	int result = attribute_fd_mount_id(fd, &wanted);
 	if (result < 0)
 		return result;
-	int mounts = LINUX_SYSCALL(__NR_openat, -100, "/proc/self/mountinfo",
-		LINUX_O_RDONLY | LINUX_O_CLOEXEC, 0);
-	if (mounts < 0)
-		return errno_linux_to_bsd(mounts);
-	char path[4096];
-	result = attribute_find_mountpoint(attribute_read_mountinfo, &mounts,
-		wanted, path, sizeof(path), record, record_capacity);
-	LINUX_SYSCALL(__NR_close, mounts);
+	char path[4096], mnton[4096], fstype[16], mntfrom[1024];
+	result = attribute_host_fdpath(fd, path, sizeof(path));
 	if (result < 0)
 		return result;
-	int root = LINUX_SYSCALL(__NR_openat, -100, path, 010000000 | LINUX_O_CLOEXEC, 0);
+	result = mount_table_lookup(path, mnton, sizeof(mnton), fstype, sizeof(fstype),
+		mntfrom, sizeof(mntfrom));
+	if (result < 0)
+		return result;
+	if (!mnton[0])
+		return -ENOENT;
+	int root = LINUX_SYSCALL(__NR_openat, -100, mnton, 010000000 | LINUX_O_CLOEXEC, 0);
 	if (root < 0)
 		return errno_linux_to_bsd(root);
-	// A mount can be replaced between reading mountinfo and opening its path.
+	// A mount can be replaced between reading the table and opening its path.
 	result = attribute_fd_mount_id(root, &actual);
 	if (result < 0 || actual != wanted) {
 		LINUX_SYSCALL(__NR_close, root);
@@ -84,8 +82,7 @@ static int attribute_host_fdpath(int fd, char* output, __SIZE_TYPE__ capacity)
 
 // A virtual guest root inside a host filesystem acts as that guest's volume
 // root. Preserve actual mount roots for nested mounts and host escape paths.
-static int attribute_open_volume_root(int fd, int guest_root,
-	char* record, __SIZE_TYPE__ record_capacity)
+static int attribute_open_volume_root(int fd, int guest_root)
 {
 	uint64_t object_mount, guest_mount;
 	int result = attribute_fd_mount_id(fd, &object_mount);
@@ -112,6 +109,6 @@ static int attribute_open_volume_root(int fd, int guest_root,
 			return result < 0 ? errno_linux_to_bsd(result) : result;
 		}
 	}
-	return attribute_open_mount_root(fd, record, record_capacity);
+	return attribute_open_mount_root(fd);
 }
 #endif
