@@ -16,6 +16,7 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/fdpath.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/bpf/bpf_device.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/csops.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/fstat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
@@ -324,8 +325,10 @@ long sys_fcntl_nocancel(int fd, int cmd, long arg)
 		case F_DUPFD:
 		case F_DUPFD_CLOEXEC:
 			ret = nofile_limit_check_new(ret);
-			if (ret >= 0)
+			if (ret >= 0) {
 				kqueue_dup(fd, ret);
+				bpf_device_dup(fd, ret);
+			}
 			break;
 	}
 

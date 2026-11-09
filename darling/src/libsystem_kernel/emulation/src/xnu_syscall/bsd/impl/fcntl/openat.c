@@ -12,6 +12,7 @@
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/bpf/bpf_device.h>
 
 #include <darlingserver/rpc.h>
 
@@ -75,6 +76,11 @@ long sys_openat_nocancel(int fd, const char* filename, int flags, unsigned int m
 	if (ret < 0) {
 		return errno_linux_to_bsd(ret);
 	}
+
+	// /dev/bpfN has no Linux counterpart; it is emulated on packet sockets.
+	int bpf_minor = bpf_device_minor(vc.path);
+	if (bpf_minor >= 0)
+		return bpf_device_open(bpf_minor, flags);
 
 	// when we're given O_SYMLINK, `oflags_bsd_to_linux` translates it into
 	// O_NOFOLLOW and O_PATH

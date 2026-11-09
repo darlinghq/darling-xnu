@@ -4,6 +4,7 @@
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/bpf/bpf_device.h>
 
 long sys_write(int fd, const void* mem, int len)
 {
@@ -21,6 +22,10 @@ long __write_for_xtrace(int fd, const void* mem, int len)
 long sys_write_nocancel(int fd, const void* mem, int len)
 {
 	int ret;
+	long bpf_ret;
+
+	if (bpf_device_fd_count && bpf_device_write(fd, mem, len, &bpf_ret))
+		return bpf_ret;
 
 	ret = LINUX_SYSCALL3(__NR_write, fd, mem, len);
 	if (ret < 0)
