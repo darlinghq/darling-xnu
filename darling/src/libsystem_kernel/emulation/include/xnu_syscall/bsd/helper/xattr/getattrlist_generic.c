@@ -308,6 +308,9 @@ int bulk)
 	__SIZE_TYPE__ itemNameLength = 0;
 	__SIZE_TYPE__ fullPathLength = 0;
 	char fullPath[4096];
+#if !HAS_PATH
+	char descriptorPath[4096];
+#endif
 	__SIZE_TYPE__ variableSize = 0;
 	__SIZE_TYPE__ fixedSize;
 	uint32_t packedCommon;
@@ -381,15 +384,23 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 
 	if (alist->commonattr & ATTR_CMN_NAME) {
 #if HAS_PATH
-		__SIZE_TYPE__ end = strlen(vc.path);
-		while (end > 1 && vc.path[end - 1] == '/') --end;
-		itemName = vc.path;
-		for (__SIZE_TYPE__ i = 0; i < end; ++i)
-			if (vc.path[i] == '/' && i + 1 < end) itemName = vc.path + i + 1;
-		itemNameLength = vc.path + end - itemName + 1;
+		const char* namePath = vc.path;
 #else
-		if (!returnSupportedAttributes) return -EINVAL;
+		// The name is the last component of the descriptor's path, as for
+		// getattrlist() on that path.
+		const char* namePath = descriptorPath;
+		struct vchroot_fdpath_args args = { .fd = fd, .path = descriptorPath,
+			.maxlen = sizeof(descriptorPath) };
+		rv = vchroot_fdpath(&args);
+		if (rv < 0)
+			return errno_linux_to_bsd(rv);
 #endif
+		__SIZE_TYPE__ end = strlen(namePath);
+		while (end > 1 && namePath[end - 1] == '/') --end;
+		itemName = (char*)namePath;
+		for (__SIZE_TYPE__ i = 0; i < end; ++i)
+			if (namePath[i] == '/' && i + 1 < end) itemName = (char*)namePath + i + 1;
+		itemNameLength = namePath + end - itemName + 1;
 	}
 
 	if (alist->commonattr & 0x00000200) {
@@ -457,12 +468,6 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 
 	packedCommon = packInvalidAttributes ? alist->commonattr :
 		(alist->commonattr & (availableCommon | ATTR_CMN_RETURNED_ATTRS));
-#if !HAS_PATH
-	// The fd path does not supply names. Match the returned mask: unsupported
-	// fields occupy slots only when the caller explicitly requests placeholders.
-	if (!packInvalidAttributes)
-		packedCommon &= ~ATTR_CMN_NAME;
-#endif
 	packedDir = packInvalidAttributes ? alist->dirattr : (alist->dirattr & availableDir);
 	packedFile = packInvalidAttributes ? alist->fileattr : (alist->fileattr & FILE_SUPPORTED_ALL);
 	// File and directory groups are mutually exclusive for a concrete object,
@@ -479,11 +484,8 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 		spaceNeeded += packed_width(packedDir, dir_attr_widths);
 		spaceNeeded += packed_width(packedFile, file_attr_widths);
 		spaceNeeded += packed_width(packedExtended, extended_attr_widths);
-		if (packedCommon & 0x00000001) {
-#if HAS_PATH
+		if (packedCommon & 0x00000001)
 			variableSize += (itemNameLength + 3) & ~((__SIZE_TYPE__)3);
-#endif
-		}
 		if (packedCommon & 0x08000000) {
 			variableSize += (fullPathLength + 3) & ~((__SIZE_TYPE__)3);
 		}
@@ -533,9 +535,6 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 		char* variable = ourBuffer + fixedSize;
 		uint32_t* returned = (uint32_t*)next;
 		returned[0] = (alist->commonattr & availableCommon) | ATTR_CMN_RETURNED_ATTRS;
-#if !HAS_PATH
-		returned[0] &= ~ATTR_CMN_NAME;
-#endif
 		returned[1] = alist->volattr & VOLUME_SUPPORTED;
 		returned[2] = packedDir & availableDir;
 		returned[3] = packedFile & FILE_SUPPORTED_ALL;
