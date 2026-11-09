@@ -36,6 +36,48 @@ struct __darling_linux_timex {
 	int pad[11];
 };
 
+// Linux adjtimex mode bits (linux/timex.h)
+#define LINUX_ADJ_OFFSET    0x0001
+#define LINUX_ADJ_FREQUENCY 0x0002
+#define LINUX_ADJ_MAXERROR  0x0004
+#define LINUX_ADJ_ESTERROR  0x0008
+#define LINUX_ADJ_STATUS    0x0010
+#define LINUX_ADJ_TIMECONST 0x0020
+#define LINUX_ADJ_TAI       0x0080
+#define LINUX_ADJ_MICRO     0x1000
+#define LINUX_ADJ_NANO      0x2000
+
+// Darwin's MOD_* bits are not Linux's ADJ_* bits throughout: MOD_CLKB has
+// the value of ADJ_TICK, MOD_CLKA overlaps ADJ_OFFSET_SINGLESHOT, and
+// MOD_PPSMAX has no Linux counterpart. Translate the bits that have one and
+// drop the others (PPS and clock selection, which XNU also ignores without
+// a PPS source).
+static unsigned int modes_bsd_to_linux(unsigned int modes)
+{
+	unsigned int out = 0;
+
+	if (modes & MOD_OFFSET)
+		out |= LINUX_ADJ_OFFSET;
+	if (modes & MOD_FREQUENCY)
+		out |= LINUX_ADJ_FREQUENCY;
+	if (modes & MOD_MAXERROR)
+		out |= LINUX_ADJ_MAXERROR;
+	if (modes & MOD_ESTERROR)
+		out |= LINUX_ADJ_ESTERROR;
+	if (modes & MOD_STATUS)
+		out |= LINUX_ADJ_STATUS;
+	if (modes & MOD_TIMECONST)
+		out |= LINUX_ADJ_TIMECONST;
+	if (modes & MOD_TAI)
+		out |= LINUX_ADJ_TAI;
+	if (modes & MOD_MICRO)
+		out |= LINUX_ADJ_MICRO;
+	if (modes & MOD_NANO)
+		out |= LINUX_ADJ_NANO;
+
+	return out;
+}
+
 long sys_ntp_adjtime(struct timex* tp)
 {
 	if (!tp)
@@ -44,7 +86,7 @@ long sys_ntp_adjtime(struct timex* tp)
 	struct __darling_linux_timex ltx;
 	memset(&ltx, 0, sizeof(ltx));
 
-	ltx.modes = tp->modes;
+	ltx.modes = modes_bsd_to_linux(tp->modes);
 	ltx.offset = tp->offset;
 	ltx.freq = tp->freq;
 	ltx.maxerror = tp->maxerror;
@@ -66,7 +108,6 @@ long sys_ntp_adjtime(struct timex* tp)
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
-	tp->modes = ltx.modes;
 	tp->offset = ltx.offset;
 	tp->freq = ltx.freq;
 	tp->maxerror = ltx.maxerror;
