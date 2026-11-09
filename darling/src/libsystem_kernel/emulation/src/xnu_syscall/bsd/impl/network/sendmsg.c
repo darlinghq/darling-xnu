@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 #include <darling/emulation/common/base.h>
+#include <sys/errno.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/conversion/network/duct.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
@@ -56,6 +57,10 @@ long sys_sendmsg_nocancel(int socket, const struct bsd_msghdr* msg, int flags)
 		lmsg.msg_controllen = LINUX_CMSG_ALIGN(msg->msg_controllen + LINUX_BSD_CMSGHDR_SIZE_DIFFERENCE);
 
 		lchdr = (struct linux_cmsghdr*)malloc(lmsg.msg_controllen);
+		if (lchdr == NULL)
+		{
+			return -ENOMEM;
+		}
 
 		lmsg.msg_control = lchdr;
 
