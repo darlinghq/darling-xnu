@@ -507,6 +507,6 @@ void* __bsd_syscall_table[600] = {
 	[543] = sys_pwritev_nocancel,
 	[544] = sys_ulock_wait2,
 	[545] = sys_proc_info_extended_id,
-	[546] = sys_mkfifoat,
-	[547] = sys_mknodat,
+	[553] = sys_mkfifoat,
+	[554] = sys_mknodat,
 };
