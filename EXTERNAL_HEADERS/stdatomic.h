@@ -25,6 +25,8 @@
 #error unsupported compiler
 #endif
 
+/* DARLING: use our own include guard. Clang's stdatomic.h guards itself with
+ * __CLANG_STDATOMIC_H, so sharing that name made the include_next below a no-op. */
 #ifndef DARLING_STDATOMIC_H
 #define DARLING_STDATOMIC_H
 

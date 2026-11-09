@@ -30,6 +30,7 @@
 
 #if defined (__i386__) || defined(__x86_64__)
 #include "i386/_limits.h"
+/* DARLING: also accept __aarch64__, the arm64 spelling of Linux compilers */
 #elif defined (__arm__) || defined (__arm64__) || defined (__aarch64__)
 #include "arm/_limits.h"
 #else
