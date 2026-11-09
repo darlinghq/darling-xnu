@@ -122,7 +122,11 @@ struct xnu_attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, uns
 #endif
 		spaceNeeded += 8; // attrreference_t
 	}
-	if (alist->commonattr & ATTR_CMN_OBJTYPE) {
+	// Directory attributes are only returned for directories and file
+	// attributes only for other objects; the other group is left out
+	// without taking any space. Both need the object's type.
+	uint32_t dirattr = 0, fileattr = 0;
+	if ((alist->commonattr & ATTR_CMN_OBJTYPE) || alist->dirattr || alist->fileattr) {
 #if HAS_PATH
 #ifdef __NR_newfstatat
 		rv = LINUX_SYSCALL(__NR_newfstatat, vc.dfd, vc.path, &linuxStat,
@@ -135,16 +139,21 @@ struct xnu_attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, uns
 		rv = LINUX_SYSCALL(__NR_fstat, fd, &linuxStat);
 #endif
 		if (rv < 0) return errno_linux_to_bsd(rv);
-		spaceNeeded += 4; // fsobj_type_t
+		if (S_ISDIR(linuxStat.st_mode))
+			dirattr = alist->dirattr;
+		else
+			fileattr = alist->fileattr;
 	}
+	if (alist->commonattr & ATTR_CMN_OBJTYPE)
+		spaceNeeded += 4; // fsobj_type_t
 
 	if (alist->commonattr & ATTR_CMN_FNDRINFO)
 		spaceNeeded += 32;
-	if (alist->fileattr & ATTR_FILE_RSRCLENGTH)
+	if (fileattr & ATTR_FILE_RSRCLENGTH)
 		spaceNeeded += 8; // off_t
 	if (alist->commonattr & ATTR_CMN_OBJTAG)
 		spaceNeeded += sizeof(uint32_t); // fsobj_tag_t
-	if (alist->dirattr & ATTR_DIR_ENTRYCOUNT)
+	if (dirattr & ATTR_DIR_ENTRYCOUNT)
 		spaceNeeded += sizeof(uint32_t);
 	fixedSize = spaceNeeded;
 	spaceNeeded += paddedNameLength;
@@ -188,7 +197,7 @@ struct xnu_attrlist* alist, void *attributeBuffer, __SIZE_TYPE__ bufferSize, uns
 			memset(next, 0, 32);
 		next += 32;
 	}
-	if (alist->dirattr & ATTR_DIR_ENTRYCOUNT) {
+	if (dirattr & ATTR_DIR_ENTRYCOUNT) {
 		char buf[1024]; // maybe this should be smaller?
 		int tmp_fd;
 
@@ -230,7 +239,7 @@ attr_dir_entrycount_out_no_fd:
 		next += 4;
 	}
 
-	if (alist->fileattr & ATTR_FILE_RSRCLENGTH)
+	if (fileattr & ATTR_FILE_RSRCLENGTH)
 	{
 #if HAS_PATH
 		if (options & FSOPT_NOFOLLOW)
