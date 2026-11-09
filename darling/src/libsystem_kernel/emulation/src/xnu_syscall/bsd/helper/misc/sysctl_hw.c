@@ -189,35 +189,45 @@ static const struct known_sysctl sysctls_hw_optional[] = {
 /* AT_HWCAP and AT_HWCAP2 from /proc/self/auxv, read once. */
 static int read_hwcaps(unsigned long long caps[2])
 {
-	static volatile int state = 0; /* 0: not read, 1: read, -1: unavailable, -2: reading */
+	/* 0: not read yet, 1: read, -1: unavailable. Threads that find it not
+	 * read yet each read the file; they all get the same values, and the
+	 * release store publishes the values together with the state. */
+	static int state;
 	static unsigned long long cached[2];
-	if (__builtin_expect(state == 0, 0)) {
-		if (__sync_bool_compare_and_swap(&state, 0, -2)) {
-			int local_state = -1;
-			int fd = sys_open_nocancel("/proc/self/auxv", BSD_O_RDONLY, 0);
-			if (fd >= 0) {
-				unsigned long long pair[2];
-				while (sys_read_nocancel(fd, pair, sizeof(pair)) == sizeof(pair) && pair[0] != 0 /* AT_NULL */) {
-					if (pair[0] == 16 /* AT_HWCAP */) {
-						cached[0] = pair[1];
-						local_state = 1;
-					} else if (pair[0] == 26 /* AT_HWCAP2 */) {
-						cached[1] = pair[1];
-					}
+	int current = __atomic_load_n(&state, __ATOMIC_ACQUIRE);
+
+	if (current == 0) {
+		unsigned long long found[2] = { 0, 0 };
+		int fd = sys_open_nocancel("/proc/self/auxv", BSD_O_RDONLY, 0);
+
+		current = -1;
+		if (fd >= 0) {
+			unsigned long long pair[2];
+			while (sys_read_nocancel(fd, pair, sizeof(pair)) == sizeof(pair) && pair[0] != 0 /* AT_NULL */) {
+				if (pair[0] == 16 /* AT_HWCAP */) {
+					found[0] = pair[1];
+					current = 1;
+				} else if (pair[0] == 26 /* AT_HWCAP2 */) {
+					found[1] = pair[1];
 				}
-				close_internal(fd);
 			}
-			__sync_synchronize();
-			state = local_state;
-		} else {
-			while (state == -2) {
-				/* spin wait until initialization completes */
-			}
+			close_internal(fd);
 		}
+		if (current == 1) {
+			caps[0] = found[0];
+			caps[1] = found[1];
+			__atomic_store_n(&cached[0], found[0], __ATOMIC_RELAXED);
+			__atomic_store_n(&cached[1], found[1], __ATOMIC_RELAXED);
+		}
+		__atomic_store_n(&state, current, __ATOMIC_RELEASE);
+		return current == 1;
 	}
-	caps[0] = cached[0];
-	caps[1] = cached[1];
-	return state == 1;
+
+	if (current != 1)
+		return 0;
+	caps[0] = __atomic_load_n(&cached[0], __ATOMIC_RELAXED);
+	caps[1] = __atomic_load_n(&cached[1], __ATOMIC_RELAXED);
+	return 1;
 }
 
 /*
