@@ -498,6 +498,8 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 
 	if (status != 0) {
 		handle_signal_without_server(linux_signum, info, ctxt);
+		_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
+				(void*)(uintptr_t)in_sigexc_handler_signal);
 		return;
 	}
 
@@ -573,7 +575,18 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 			LINUX_SYSCALL(__NR_rt_sigprocmask, 2 /* LINUX_SIG_SETMASK */,
 				&set, NULL, sizeof(linux_sigset_t));
 
+			// The guard covers only Darling's own handler code. The
+			// application's handler may fault on purpose (and handle that
+			// fault with its own SIGSEGV handler), as it can on macOS, so
+			// lift the guard while it runs and put it back afterwards.
+			int guard_signal = (int)(uintptr_t)
+					_pthread_getspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL);
+			_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL, (void*)0);
+
 			handler_linux_to_bsd(linux_signum, info, ctxt);
+
+			_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
+					(void*)(uintptr_t)guard_signal);
 		}
 		else
 		{
