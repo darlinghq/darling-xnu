@@ -11,7 +11,21 @@ Lentry_hook:
 	movq	(%r10,%rax,8), %r10
 	test	%r10, %r10
 	jz		.no_sys
+	# pipe() returns its second descriptor in %rdx (set in sys_pipe)
+	cmpq	$42, %rax
+	je		.keep_rdx
 	# Re-push possible 7th and 8th arg
+	movq	24(%rsp), %r11
+	pushq	%r11
+	movq	24(%rsp), %r11
+	pushq	%r11
+	call	*%r10
+	addq	$16, %rsp
+	# XNU returns a second result in %rdx; it is zero for every syscall but
+	# pipe(), so don't leak the last argument register to the caller
+	xorl	%edx, %edx
+	jmp		.std_ret
+.keep_rdx:
 	movq	24(%rsp), %r11
 	pushq	%r11
 	movq	24(%rsp), %r11
