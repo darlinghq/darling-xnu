@@ -1,6 +1,8 @@
 #include <darling/emulation/xnu_syscall/bsd/bsd_syscall_table.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/audit/audit_addr.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/audit/auditon.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/audit/audit.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/audit/audit_session_join.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/audit/audit_session_port.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/audit/audit_session_self.h>
@@ -426,6 +428,8 @@ void* __bsd_syscall_table[600] = {
 	[347] = sys_getfsstat64,
 	[348] = sys_pthread_chdir,
 	[349] = sys_pthread_fchdir,
+	[350] = sys_audit,
+	[351] = sys_auditon,
 	[357] = sys_getaudit_addr,
 	[358] = sys_setaudit_addr,
 	[360] = sys_bsdthread_create,

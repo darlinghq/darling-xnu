@@ -129,6 +129,8 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/helper/network/duct.c
 
 	src/xnu_syscall/bsd/impl/audit/audit_addr.c
+	src/xnu_syscall/bsd/impl/audit/auditon.c
+	src/xnu_syscall/bsd/impl/audit/audit.c
 	src/xnu_syscall/bsd/impl/audit/audit_session_join.c
 	src/xnu_syscall/bsd/impl/audit/audit_session_port.c
 	src/xnu_syscall/bsd/impl/audit/audit_session_self.c
