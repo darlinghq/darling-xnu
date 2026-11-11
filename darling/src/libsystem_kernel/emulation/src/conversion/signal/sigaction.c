@@ -41,6 +41,12 @@ void handler_linux_to_bsd(int linux_signum, struct linux_siginfo* info, void* ct
 	if (lc != NULL)
 	{
 		ucontext_linux_to_bsd(lc, &bc, (struct bsd_mcontext*) __builtin_alloca(sizeof(struct bsd_mcontext)));
+#if !defined(__aarch64__) && !defined(__arm64__)
+		// On x86 the Linux context has no fault address; the exception state
+		// carries the address of the faulting access, as siginfo does.
+		if (info && (linux_signum == LINUX_SIGSEGV || linux_signum == LINUX_SIGBUS))
+			bc.uc_mcontext->es.faultvaddr = (unsigned long)info->si_addr;
+#endif
 		if (lc->uc_link != NULL)
 		{
 			struct bsd_ucontext* bc_link = (struct bsd_ucontext*) __builtin_alloca(sizeof(struct bsd_ucontext));

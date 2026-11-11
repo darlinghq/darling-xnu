@@ -8,6 +8,7 @@
 #include <_libkernel_init.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/sigaction.h>
+#include <darling/emulation/conversion/signal/duct_signals.h>
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/exit.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
@@ -501,7 +502,10 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 			kern_printf("sigexc: will forward signal to app handler (%p)\n", sig_handlers[linux_signum]);
 
 			// Update the signal mask to what the application actually wanted
-			linux_sigset_t set = sig_masks[linux_signum];
+			// sig_masks holds the Darwin-numbered mask given to sigaction()
+			sigset_t bsd_mask = sig_masks[linux_signum];
+			linux_sigset_t set;
+			sigset_bsd_to_linux(&bsd_mask, &set);
 
 			// Keep the current signal blocked, which is the default behavior
 			if (!(sig_flags[linux_signum] & LINUX_SA_NODEFER))
