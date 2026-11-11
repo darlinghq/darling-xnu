@@ -327,6 +327,26 @@ static void service_requests_locked(void)
 	}
 }
 
+// Resets the workqueue in the child of fork(): only the forking thread exists
+// there, so nobody is parked and nothing else runs. Pending requests belonged
+// to the parent.
+void workq_postfork_child(void)
+{
+	int flags = (int) (uintptr_t) _pthread_getspecific_direct(__PTK_DARLING_WORKQ_FLAGS);
+
+	libsimple_lock_init(&workq_lock);
+	TAILQ_INIT(&workq_parked);
+	for (int i = 0; i < WQ_BUCKETS; i++)
+		wq_pending[i] = 0;
+	wq_kevent_head = NULL;
+	wq_kevent_tail = &wq_kevent_head;
+
+	// A worker that forked keeps running its request in the child and will
+	// return it there.
+	wq_running = (flags != 0) ? 1 : 0;
+	wq_running_constrained = (flags != 0 && is_constrained(flags)) ? 1 : 0;
+}
+
 static long queue_requests(int flags, int count, struct wq_kevent_data* ev)
 {
 	libsimple_lock_lock(&workq_lock);
@@ -466,7 +486,13 @@ static void __attribute__((noreturn)) worker_return(void)
 	resume_worker(next.flags, next.kevent, false);
 }
 
-#endif // !VARIANT_DYLD
+#else // VARIANT_DYLD
+
+void workq_postfork_child(void)
+{
+}
+
+#endif // VARIANT_DYLD
 
 long sys_workq_kernreturn(int options, void* item, int affinity, int prio)
 {

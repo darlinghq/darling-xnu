@@ -24,6 +24,8 @@ struct timespec;
 
 long sys_workq_kernreturn(int options, void* item, int affinity, int prio);
 
+void workq_postfork_child(void);
+
 int sem_down(int* sem, int timeout);
 void sem_up(int* sem);
 

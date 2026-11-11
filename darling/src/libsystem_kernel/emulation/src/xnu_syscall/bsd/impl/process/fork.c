@@ -18,6 +18,7 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/bpf/bpf_device.h>
 #include <darling/emulation/common/tsd.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/bsdthread_register.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/workq_kernreturn.h>
 
 #include <darlingserver/rpc.h>
 
@@ -53,6 +54,7 @@ long sys_fork(void)
 		guard_table_postfork_child();
 		nofile_limit_postfork_child();
 		bpf_device_postfork_child();
+		workq_postfork_child();
 
 		// create a new dserver RPC socket
 		__dserver_per_thread_socket_refresh();
