@@ -352,7 +352,12 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 	if (rv < 0)
 		return errno_linux_to_bsd(rv);
 #else
+#ifdef __NR_fstat64
+	// i386: __NR_fstat fills the old, narrower struct stat.
+	rv = LINUX_SYSCALL(__NR_fstat64, fd, &fileStat);
+#else
 	rv = LINUX_SYSCALL(__NR_fstat, fd, &fileStat);
+#endif
 	if (rv < 0)
 		return errno_linux_to_bsd(rv);
 #endif
