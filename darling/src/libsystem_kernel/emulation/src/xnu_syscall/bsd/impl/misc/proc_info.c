@@ -189,7 +189,7 @@ static long _proc_pidonfo_uniqinfo(int32_t pid, void* buffer, int32_t bufsize)
 	struct proc_uniqidentifierinfo* info = (struct proc_uniqidentifierinfo*) buffer;
 
 	if (bufsize < sizeof(*info))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	memset(buffer, 0, bufsize);
 
@@ -227,6 +227,11 @@ static long _proc_pidonfo_uniqinfo(int32_t pid, void* buffer, int32_t bufsize)
 	// Read info for ppid   //
 	//////////////////////////
 
+	if (ppid == 0) {
+		// A parent outside this PID namespace is reported as zero.
+		info->p_puniqueid = 0;
+		return sizeof(*info);
+	}
 	__simple_sprintf(path, "/proc/%d/stat", ppid);
 	if (!read_string(path, stat, sizeof(stat)))
 		return -ESRCH;
@@ -242,8 +247,12 @@ static long _proc_pidonfo_uniqinfo(int32_t pid, void* buffer, int32_t bufsize)
 	info->p_puniqueid = starttime << 16;
 	info->p_puniqueid |= (ppid & 0xffff);
 
+	// proc_pidinfo reports bytes copied, not a boolean success value.
+	return sizeof(*info);
+#else
+	// This variant does not populate the output structure.
+	return -ENOTSUP;
 #endif
-	return 1;
 }
 
 static long _proc_pidinfo_tbsdinfo(int32_t pid, void* buffer, int32_t bufsize)
@@ -251,7 +260,7 @@ static long _proc_pidinfo_tbsdinfo(int32_t pid, void* buffer, int32_t bufsize)
 	struct proc_bsdinfo* info = (struct proc_bsdinfo*) buffer;
 
 	if (bufsize < sizeof(*info))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	struct proc_bsdshortinfo shortinfo;
 	int err = _proc_pidinfo_shortbsdinfo(pid, &shortinfo, sizeof(shortinfo));
@@ -317,7 +326,7 @@ static long _proc_pidinfo_pidthreadinfo(int32_t pid, uint64_t thread_handle, voi
 
 	struct proc_threadinfo* info = (struct proc_threadinfo*) buffer;
 	if (bufsize < sizeof(*info))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	memset(buffer, 0, bufsize);
 
@@ -334,7 +343,7 @@ static long _proc_pidinfo_pidthreadinfo(int32_t pid, uint64_t thread_handle, voi
 	}
 
 	// TODO: Other proc_threadinfo fields
-	return 1;
+	return sizeof(*info);
 }
 
 static long _proc_pidinfo_shortbsdinfo(int32_t pid, void* buffer, int32_t bufsize)
@@ -347,7 +356,7 @@ static long _proc_pidinfo_shortbsdinfo(int32_t pid, void* buffer, int32_t bufsiz
 
 	struct proc_bsdshortinfo* info = (struct proc_bsdshortinfo*) buffer;
 	if (bufsize < sizeof(*info))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	memset(buffer, 0, bufsize);
 
@@ -411,7 +420,7 @@ static long _proc_pidinfo_shortbsdinfo(int32_t pid, void* buffer, int32_t bufsiz
 	if (is_64_bit)
 		info->pbsi_flags |= P_LP64;
 
-	return 1;
+	return sizeof(*info);
 reterr:
 	return -EINVAL;
 }
@@ -440,7 +449,7 @@ static long _proc_pidinfo_regionpathinfo(int32_t pid, uint64_t arg, void* buffer
 	if (!buffer)
 		return -EFAULT;
 	if (bufsize < sizeof(my_rpi))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	fd = _proc_pidinfo_regionpath_setup(pid, &buf);
 	if (fd < 0)
@@ -501,7 +510,7 @@ static long _proc_pidinfo_regionpath(int32_t pid, uint64_t arg, void* buffer, in
 	if (!buffer)
 		return -EFAULT;
 	if (buffer_size < sizeof(my_rp))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	fd = _proc_pidinfo_regionpath_setup(pid, &readline_buffer);
 	if (fd < 0)
@@ -755,7 +764,7 @@ static long _proc_pidinfo_taskinfo(int32_t pid, void* buffer, int32_t bufsize)
 	if (!buffer)
 		return -EFAULT;
 	if (bufsize < sizeof(struct proc_taskinfo))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	char path[64], stat[1024];
 	char *statptr;
@@ -831,7 +840,7 @@ static long _proc_pidinfo_taskallinfo(int32_t pid, void* buffer, int32_t bufsize
 	if (!buffer)
 		return -EFAULT;
 	if (bufsize < sizeof(struct proc_taskallinfo))
-		return -ENOSPC;
+		return -ENOMEM;
 	
 	long err = _proc_pidinfo_tbsdinfo(pid, buffer + offsetof(struct proc_taskallinfo, pbsd), sizeof(struct proc_bsdinfo));
 	
@@ -913,4 +922,3 @@ long sys_proc_info_extended_id(uint32_t callnum, int32_t pid, uint32_t flavor,
 	(void)ext_id;
 	return sys_proc_info(callnum, pid, flavor, arg, buffer, bufsize);
 }
-

@@ -174,6 +174,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/misc/getrlimit.c
 	src/xnu_syscall/bsd/impl/misc/getrusage.c
 	src/xnu_syscall/bsd/impl/misc/iopolicysys.c
+	src/xnu_syscall/bsd/impl/misc/kdebug_trace.c
 	src/xnu_syscall/bsd/impl/misc/mac_syscall.c
 	src/xnu_syscall/bsd/impl/misc/proc_info.c
 	src/xnu_syscall/bsd/impl/misc/ptrace.c
@@ -407,4 +408,3 @@ add_dependencies(emulation_dyld rtsig_h generate_dserver_rpc_wrappers)
 
 make_fat(emulation)
 make_fat(emulation_dyld)
-
