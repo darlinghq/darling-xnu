@@ -28,6 +28,9 @@ extern int strcmp(const char* str1, const char* str2);
 // Reading at most len / 32 * 24 bytes of Linux records therefore always fits
 // in len bytes, and no entry read from the kernel is dropped.
 #define BSD_DIRENT64_MAX_SIZE_PER_LINUX_MIN 32
+// The smallest Linux record: the 19-byte header, a one-byte name and its NUL,
+// rounded up to 8. (LINUX_DIRENT64_MIN_SIZE above is larger, 32.)
+#define LINUX_DIRENT64_SMALLEST_RECORD 24
 
 static inline void round_to_4(unsigned short* reclen)
 {
@@ -99,7 +102,7 @@ long sys_getdirentries64(int fd, char* ibuf, unsigned int len, long* basep)
 	if (max_entry_count > 20)
 		max_entry_count = 20;
 
-	char buf[max_entry_count * LINUX_DIRENT64_MIN_SIZE];
+	char buf[max_entry_count * LINUX_DIRENT64_SMALLEST_RECORD];
 
 	if (basep)
 		*basep = 0;
