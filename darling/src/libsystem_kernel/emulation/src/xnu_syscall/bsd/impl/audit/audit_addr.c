@@ -49,26 +49,26 @@ long sys_setaudit_addr(struct auditinfo_addr* auditinfo_addr, int length) {
 };
 
 void audit_session_set_mask(au_mask_t mask) {
-	os_unfair_lock_lock(&info_lock);
+	libsimple_lock_lock(&info_lock);
 	info.ai_mask = mask;
-	os_unfair_lock_unlock(&info_lock);
+	libsimple_lock_unlock(&info_lock);
 }
 
 void audit_session_set_auid(au_id_t auid) {
-	os_unfair_lock_lock(&info_lock);
+	libsimple_lock_lock(&info_lock);
 	info.ai_auid = auid;
-	os_unfair_lock_unlock(&info_lock);
+	libsimple_lock_unlock(&info_lock);
 }
 
 void audit_session_set_condition(int condition) {
-	os_unfair_lock_lock(&info_lock);
+	libsimple_lock_lock(&info_lock);
 	audit_condition = condition;
-	os_unfair_lock_unlock(&info_lock);
+	libsimple_lock_unlock(&info_lock);
 }
 
 int audit_session_get_condition(void) {
-	os_unfair_lock_lock(&info_lock);
+	libsimple_lock_lock(&info_lock);
 	int condition = audit_condition;
-	os_unfair_lock_unlock(&info_lock);
+	libsimple_lock_unlock(&info_lock);
 	return condition;
 }
