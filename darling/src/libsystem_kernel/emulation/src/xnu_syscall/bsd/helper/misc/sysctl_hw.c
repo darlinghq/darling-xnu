@@ -15,9 +15,11 @@
 #include <darling/emulation/common/string.h>
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
-#include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/read.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/conversion/fcntl/open.h>
 
 extern kern_return_t mach_port_deallocate(ipc_space_t task, mach_port_name_t name);
@@ -188,6 +190,172 @@ static const struct known_sysctl sysctls_hw_optional[] = {
 	{ .oid = 30, .type = CTLTYPE_INT, .exttype = "I", .name = "avx512vbmi", .handler = handle_optional_avx512vbmi },
 	{ .oid = -1 }
 };
+#elif defined(__aarch64__)
+/* AT_HWCAP and AT_HWCAP2 from /proc/self/auxv, read once. */
+static int read_hwcaps(unsigned long long caps[2])
+{
+	/* 0: not read yet, 1: read, -1: unavailable. Threads that find it not
+	 * read yet each read the file; they all get the same values, and the
+	 * release store publishes the values together with the state. */
+	static int state;
+	static unsigned long long cached[2];
+	int current = __atomic_load_n(&state, __ATOMIC_ACQUIRE);
+
+	if (current == 0) {
+		unsigned long long found[2] = { 0, 0 };
+		int fd = sys_open_nocancel("/proc/self/auxv", BSD_O_RDONLY, 0);
+
+		current = -1;
+		if (fd >= 0) {
+			unsigned long long pair[2];
+			while (sys_read_nocancel(fd, pair, sizeof(pair)) == sizeof(pair) && pair[0] != 0 /* AT_NULL */) {
+				if (pair[0] == 16 /* AT_HWCAP */) {
+					found[0] = pair[1];
+					current = 1;
+				} else if (pair[0] == 26 /* AT_HWCAP2 */) {
+					found[1] = pair[1];
+				}
+			}
+			close_internal(fd);
+		}
+		if (current == 1) {
+			caps[0] = found[0];
+			caps[1] = found[1];
+			__atomic_store_n(&cached[0], found[0], __ATOMIC_RELAXED);
+			__atomic_store_n(&cached[1], found[1], __ATOMIC_RELAXED);
+		}
+		__atomic_store_n(&state, current, __ATOMIC_RELEASE);
+		return current == 1;
+	}
+
+	if (current != 1)
+		return 0;
+	caps[0] = __atomic_load_n(&cached[0], __ATOMIC_RELAXED);
+	caps[1] = __atomic_load_n(&cached[1], __ATOMIC_RELAXED);
+	return 1;
+}
+
+/*
+ * CPU features as macOS reports them under hw.optional, answered from the
+ * Linux host's AT_HWCAP/AT_HWCAP2 (arm64 bits; see the kernel's
+ * arch/arm64/include/uapi/asm/hwcap.h). compiler-rt's outline atomics read
+ * hw.optional.armv8_1_atomics to decide whether to use LSE instructions.
+ * Absent features read as 0, as on macOS.
+ */
+#define HWCAP1(bit) (bit)
+#define HWCAP2(bit) (64 + (bit))
+#define HWCAP_ALWAYS (-1)
+
+static int hwcap_feature(int bit)
+{
+	unsigned long long caps[2];
+
+	if (bit == HWCAP_ALWAYS)
+		return 1;
+	if (!read_hwcaps(caps))
+		return 0;
+	return (caps[bit / 64] >> (bit % 64)) & 1;
+}
+
+#define optional_handler(_name, _bit) \
+	static sysctl_handler(handle_optional_##_name) \
+	{ \
+		sysctl_handle_size(sizeof(int)); \
+		*((int*) old) = hwcap_feature(_bit); \
+		return 0; \
+	}
+
+optional_handler(floatingpoint, HWCAP1(0))
+optional_handler(neon, HWCAP1(1))
+optional_handler(neon_hpfp, HWCAP1(10))
+optional_handler(neon_fp16, HWCAP1(10))
+optional_handler(armv8_1_atomics, HWCAP1(8))
+optional_handler(armv8_crc32, HWCAP1(7))
+optional_handler(armv8_2_fhm, HWCAP1(23))
+optional_handler(armv8_2_sha512, HWCAP1(21))
+optional_handler(armv8_2_sha3, HWCAP1(17))
+optional_handler(armv8_3_compnum, HWCAP1(14))
+optional_handler(arm64, HWCAP_ALWAYS)
+optional_handler(FEAT_LSE, HWCAP1(8))
+optional_handler(FEAT_LSE2, HWCAP1(25))
+optional_handler(FEAT_CRC32, HWCAP1(7))
+optional_handler(FEAT_AES, HWCAP1(3))
+optional_handler(FEAT_PMULL, HWCAP1(4))
+optional_handler(FEAT_SHA1, HWCAP1(5))
+optional_handler(FEAT_SHA256, HWCAP1(6))
+optional_handler(FEAT_SHA512, HWCAP1(21))
+optional_handler(FEAT_SHA3, HWCAP1(17))
+optional_handler(FEAT_FP16, HWCAP1(9))
+optional_handler(FEAT_RDM, HWCAP1(12))
+optional_handler(FEAT_JSCVT, HWCAP1(13))
+optional_handler(FEAT_FCMA, HWCAP1(14))
+optional_handler(FEAT_LRCPC, HWCAP1(15))
+optional_handler(FEAT_LRCPC2, HWCAP1(26))
+optional_handler(FEAT_DPB, HWCAP1(16))
+optional_handler(FEAT_DotProd, HWCAP1(20))
+optional_handler(FEAT_FHM, HWCAP1(23))
+optional_handler(FEAT_DIT, HWCAP1(24))
+optional_handler(FEAT_FlagM, HWCAP1(27))
+optional_handler(FEAT_SSBS, HWCAP1(28))
+optional_handler(FEAT_SB, HWCAP1(29))
+optional_handler(FEAT_DPB2, HWCAP2(0))
+optional_handler(FEAT_FlagM2, HWCAP2(7))
+optional_handler(FEAT_FRINTTS, HWCAP2(8))
+optional_handler(FEAT_I8MM, HWCAP2(13))
+optional_handler(FEAT_BF16, HWCAP2(14))
+optional_handler(FEAT_BTI, HWCAP2(17))
+
+#define optional_entry(_oid, _name) \
+	{ .oid = _oid, .type = CTLTYPE_INT, .exttype = "I", .name = #_name, .handler = handle_optional_##_name }
+
+// XNU registers these with OID_AUTO, so the numbers here are arbitrary.
+static const struct known_sysctl sysctls_hw_optional_arm[] = {
+	optional_entry(1, FEAT_LSE),
+	optional_entry(2, FEAT_LSE2),
+	optional_entry(3, FEAT_CRC32),
+	optional_entry(4, FEAT_AES),
+	optional_entry(5, FEAT_PMULL),
+	optional_entry(6, FEAT_SHA1),
+	optional_entry(7, FEAT_SHA256),
+	optional_entry(8, FEAT_SHA512),
+	optional_entry(9, FEAT_SHA3),
+	optional_entry(10, FEAT_FP16),
+	optional_entry(11, FEAT_RDM),
+	optional_entry(12, FEAT_JSCVT),
+	optional_entry(13, FEAT_FCMA),
+	optional_entry(14, FEAT_LRCPC),
+	optional_entry(15, FEAT_LRCPC2),
+	optional_entry(16, FEAT_DPB),
+	optional_entry(17, FEAT_DotProd),
+	optional_entry(18, FEAT_FHM),
+	optional_entry(19, FEAT_DIT),
+	optional_entry(20, FEAT_FlagM),
+	optional_entry(21, FEAT_SSBS),
+	optional_entry(22, FEAT_SB),
+	optional_entry(23, FEAT_DPB2),
+	optional_entry(24, FEAT_FlagM2),
+	optional_entry(25, FEAT_FRINTTS),
+	optional_entry(26, FEAT_I8MM),
+	optional_entry(27, FEAT_BF16),
+	optional_entry(28, FEAT_BTI),
+	{ .oid = -1 }
+};
+
+static const struct known_sysctl sysctls_hw_optional[] = {
+	optional_entry(1, floatingpoint),
+	optional_entry(2, neon),
+	optional_entry(3, neon_hpfp),
+	optional_entry(4, neon_fp16),
+	optional_entry(5, armv8_1_atomics),
+	optional_entry(6, armv8_crc32),
+	optional_entry(7, armv8_2_fhm),
+	optional_entry(8, armv8_2_sha512),
+	optional_entry(9, armv8_2_sha3),
+	optional_entry(10, armv8_3_compnum),
+	optional_entry(11, arm64),
+	{ .oid = 12, .type = CTLTYPE_NODE, .exttype = "", .name = "arm", .subctls = sysctls_hw_optional_arm },
+	{ .oid = -1 }
+};
 #endif
 
 const struct known_sysctl sysctls_hw[] = {
@@ -216,8 +384,8 @@ const struct known_sysctl sysctls_hw[] = {
 	{ .oid = HW_L1DCACHESIZE, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "l1dcachesize", .handler = handle_l1dcachesize },
 	{ .oid = HW_L2CACHESIZE, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "l2cachesize", .handler = handle_l2cachesize },
 	{ .oid = HW_L3CACHESIZE, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "l3cachesize", .handler = handle_l3cachesize },
+#if defined(__i386__) || defined(__x86_64__) || defined(__aarch64__)
 	{ .oid = _HW_PACKAGES, .type = CTLTYPE_INT, .exttype = "I", .name = "packages", .handler = handle_packages },
-#if defined(__i386__) || defined(__x86_64__)
 	{ .oid = _HW_OPTIONAL, .type = CTLTYPE_NODE, .exttype = "", .name = "optional", .subctls = sysctls_hw_optional },
 #endif
 	{ .oid = -1 }
