@@ -16,7 +16,7 @@ long sys_symlinkat(const char* path, int fd, const char* link)
 	struct vchroot_expand_args vc;
 
 	vc.flags = 0;
-	vc.dfd = get_perthread_wd();
+	vc.dfd = atfd(fd);
 	
 	strcpy(vc.path, link);
 
