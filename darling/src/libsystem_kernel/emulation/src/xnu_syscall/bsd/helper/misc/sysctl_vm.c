@@ -1,6 +1,7 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/sysctl_vm.h>
 
 #include <errno.h>
+#include <limits.h>
 
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
@@ -16,14 +17,17 @@ enum {
 	// the OID for this sysctl is OID_AUTO, so we can assign anything to it
 	_VM_PAGE_PURGEABLE_COUNT = 1000,
 	_VM_PAGE_PAGEABLE_INTERNAL_COUNT,
+	_VM_SWAPUSAGE,
 };
 
 static sysctl_handler(handle_page_purgeable_count);
 static sysctl_handler(handle_page_pageable_internal_count);
+static sysctl_handler(handle_swapusage);
 
 const struct known_sysctl sysctls_vm[] = {
 	{ .oid = _VM_PAGE_PURGEABLE_COUNT, .type = CTLTYPE_INT, .exttype = "I", .name = "page_purgeable_count", .handler = handle_page_purgeable_count },
 	{ .oid = _VM_PAGE_PAGEABLE_INTERNAL_COUNT, .type = CTLTYPE_INT, .exttype = "IU", .name = "page_pageable_internal_count", .handler = handle_page_pageable_internal_count },
+	{ .oid = _VM_SWAPUSAGE, .type = CTLTYPE_OPAQUE, .exttype = "S,xsw_usage", .name = "swapusage", .handler = handle_swapusage },
 	{ .oid = -1 },
 };
 
@@ -32,34 +36,29 @@ struct meminfo {
 	uint64_t total;
 	uint64_t free;
 	uint64_t available;
+	bool has_available;
 	uint64_t buffers;
 	uint64_t cached;
 	uint64_t slab_reclaimable;
 	uint64_t shmem;
-};
-
-static const char* find_first_not(const char* haystack, char needle) {
-	// skip any characters matching `needle`
-	for (; *haystack == needle; ++haystack);
-	if (*haystack == '\0') {
-		// if we reached the end of the string, we didn't find any characters other than `needle`;
-		// return `NULL` to indicate this
-		return NULL;
-	} else {
-		// otherwise, `haystack` points to a non-`needle` character
-		return haystack;
-	}
+	uint64_t swap_total;
+	uint64_t swap_free;
 };
 
 static bool parse_meminfo_line(const char* line, const char* key, size_t key_length, uint64_t* value) {
-	if (strncmp(line, key, key_length) == 0) {
-		const char* value_string = find_first_not(line + key_length, ' ');
-		if (value_string) {
-			*value = __simple_atoi(value_string, NULL);
-			return true;
-		}
-	}
-	return false;
+	if (strncmp(line, key, key_length) != 0)
+		return false;
+	const char* start = line + key_length;
+	while (*start == ' ' || *start == '\t') ++start;
+	const char* end;
+	uint64_t parsed = __simple_atoi(start, &end);
+	if (end == start)
+		return false;
+	while (*end == ' ' || *end == '\t') ++end;
+	if (strcmp(end, "kB") != 0)
+		return false;
+	*value = parsed;
+	return true;
 };
 
 static int read_meminfo(struct meminfo* out_info) {
@@ -87,11 +86,16 @@ static int read_meminfo(struct meminfo* out_info) {
 
 		PARSE("MemTotal:", total)
 			else PARSE("MemFree:", free)
-			else PARSE("MemAvailable:", available)
+			else if (parse_meminfo_line(line, "MemAvailable:", sizeof("MemAvailable:") - 1, &value)) {
+			out_info->available = value;
+			out_info->has_available = true;
+		}
 			else PARSE("Buffers:", buffers)
 			else PARSE("Cached:", cached)
 			else PARSE("SReclaimable:", slab_reclaimable)
 			else PARSE("Shmem:", shmem)
+			else PARSE("SwapTotal:", swap_total)
+			else PARSE("SwapFree:", swap_free)
 			;
 
 		#undef PARSE
@@ -103,6 +107,25 @@ out:
 	}
 	return status;
 };
+
+// XNU exposes available pages * 100 / total pages. MemAvailable includes
+// reclaimable memory, unlike MemFree alone, and can legitimately be zero.
+int _sysctl_memorystatus_level(int* level) {
+	struct meminfo info;
+	int status = read_meminfo(&info);
+	if (status < 0)
+		return status;
+	if (info.total == 0 || !info.has_available)
+		return -ENOENT;
+	if (info.available >= info.total) {
+		*level = 100;
+	} else {
+		if (info.available > ULLONG_MAX / 100)
+			return -EOVERFLOW;
+		*level = (int)(info.available * 100 / info.total);
+	}
+	return 0;
+}
 
 static sysctl_handler(handle_page_purgeable_count) {
 	if (old && oldlen && *oldlen >= sizeof(uint32_t)) {
@@ -143,3 +166,21 @@ static sysctl_handler(handle_page_pageable_internal_count) {
 
 	return 0;
 };
+
+static sysctl_handler(handle_swapusage) {
+    if (!oldlen) return -EINVAL;
+    if (_new) return -EPERM;
+    sysctl_handle_size(sizeof(struct xsw_usage));
+    struct meminfo info;
+    int status = read_meminfo(&info);
+    if (status < 0) return status;
+    struct xsw_usage usage = {0};
+    usage.xsu_total = info.swap_total * 1024;
+    usage.xsu_avail = info.swap_free * 1024;
+    usage.xsu_used = usage.xsu_total - usage.xsu_avail;
+    usage.xsu_pagesize = native_sysconf(LINUX_SC_PAGESIZE);
+    /* Linux /proc/meminfo does not report swap encryption. */
+    usage.xsu_encrypted = 0;
+    memcpy(old, &usage, sizeof(usage));
+    return 0;
+}

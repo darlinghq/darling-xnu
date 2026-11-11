@@ -816,8 +816,15 @@ kern_return_t pid_for_task_impl(
 
 kern_return_t mach_generate_activity_id_impl(mach_port_name_t task, int i, uint64_t* id)
 {
-	UNIMPLEMENTED_TRAP();
-	return KERN_FAILURE;
+	// The server's XNU trap validates the count and copies the result to
+	// this task, like the other pointer-bearing Mach RPCs.
+	int code = dserver_rpc_mach_generate_activity_id(task, i, id);
+	if (code < 0) {
+		__simple_printf("mach_generate_activity_id failed (internally): %d\n", code);
+		__simple_abort();
+	}
+
+	return code;
 }
 
 mach_port_name_t mk_timer_create_impl(void)

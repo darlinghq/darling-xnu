@@ -24,7 +24,7 @@ long sys_fstat(int fd, struct stat* stat)
 	return 0;
 }
 
-long sys_fstat64(int fd, struct stat64* stat)
+long sys_fstat64(int fd, darling_stat64_t* stat)
 {
 	int ret;
 	struct linux_stat lstat;

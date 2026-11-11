@@ -284,7 +284,13 @@ static int vchroot_run(const char* input_path, struct context* ctxt)
 
 						// We cannot exit current_root via ..
 						if (ctxt->current_path_len < ctxt->current_root_len)
-							return -LINUX_ENOENT;
+						{
+							// Post-pop safety clamp: if popping a path component
+							// left the path shallower than current_root, clamp back to current_root
+							// rather than failing with -LINUX_ENOENT (which broke cd .. from root).
+							strcpy(ctxt->current_path, ctxt->current_root);
+							ctxt->current_path_len = ctxt->current_root_len;
+						}
 						break;
 					}
 					p--;
@@ -488,16 +494,21 @@ int vchroot_fdpath(struct vchroot_fdpath_args* args)
 	if (rv < 0)
 		return rv;
 
+	// readlink does not report truncation separately. Never return a partial
+	// path as a valid guest path when the input buffer may have filled.
+	if ((unsigned int)rv >= sizeof(link) - 1)
+		return -LINUX_ENAMETOOLONG;
 	link[rv] = '\0';
 
-	if (rv >= prefix_path_len && strncmp(link, prefix_path, prefix_path_len) == 0)
+	if (rv >= prefix_path_len && strncmp(link, prefix_path, prefix_path_len) == 0 &&
+		(link[prefix_path_len] == '\0' || link[prefix_path_len] == '/'))
 	{
-		if (args->maxlen-1 < rv - prefix_path_len)
+		const char* guest_path = link + prefix_path_len;
+		if (*guest_path == '\0')
+			guest_path = "/";
+		if (args->maxlen < strlen(guest_path) + 1)
 			return -LINUX_ENAMETOOLONG;
-		strcpy(args->path, link + prefix_path_len);
-
-		if (args->path[0] == '\0')
-			strcpy(args->path, "/");
+		strcpy(args->path, guest_path);
 	}
 	else
 	{

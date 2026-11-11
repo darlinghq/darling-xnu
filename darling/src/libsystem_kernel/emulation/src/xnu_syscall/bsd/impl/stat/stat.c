@@ -12,7 +12,7 @@ long sys_stat(const char* path, struct stat* stat)
 	return sys_fstatat(get_perthread_wd(), path, stat, 0);
 }
 
-long sys_stat64(const char* path, struct stat64* stat)
+long sys_stat64(const char* path, darling_stat64_t* stat)
 {
 	return sys_fstatat64(get_perthread_wd(), path, stat, 0);
 }

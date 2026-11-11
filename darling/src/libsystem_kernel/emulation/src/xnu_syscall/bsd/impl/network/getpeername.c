@@ -16,6 +16,7 @@ long sys_getpeername(int fd, void* asa, int* socklen)
 {
 	int ret;
 	struct sockaddr_fixup* fixed;
+	int capacity = *socklen;
 
 #ifdef __NR_socketcall
 	ret = LINUX_SYSCALL(__NR_socketcall, LINUX_SYS_GETPEERNAME,
@@ -29,7 +30,7 @@ long sys_getpeername(int fd, void* asa, int* socklen)
 	else
 	{
 		fixed = (struct sockaddr_fixup*) asa;
-		ret = *socklen = sockaddr_fixup_from_linux(fixed, asa, *socklen);
+		ret = *socklen = sockaddr_fixup_from_linux(fixed, asa, *socklen, capacity);
 		if (ret > 0)
 			ret = 0;
 	}

@@ -168,6 +168,37 @@ static long mount_table_update_locked(void)
 	return 0;
 }
 
+// /proc/self/mounts writes space, tab, newline and backslash in a field as
+// a backslash and three octal digits (\040 for a space). Decode in place.
+static void mount_table_unescape(char* field)
+{
+	char* out = field;
+
+	for (const char* in = field; *in; )
+	{
+		if (in[0] == '\\'
+			&& in[1] >= '0' && in[1] <= '7'
+			&& in[2] >= '0' && in[2] <= '7'
+			&& in[3] >= '0' && in[3] <= '7')
+		{
+			*out++ = (char) (((in[1] - '0') << 6) | ((in[2] - '0') << 3) | (in[3] - '0'));
+			in += 4;
+		}
+		else
+			*out++ = *in++;
+	}
+	*out = 0;
+}
+
+// whether the mount point "mnt" (of length "len") contains "path"
+static int mount_table_contains(const char* mnt, int len, const char* path)
+{
+	if (strncmp(mnt, path, len) != 0)
+		return 0;
+	// "/home" contains "/home" and "/home/a", but not "/homework"
+	return len == 1 || path[len] == 0 || path[len] == '/';
+}
+
 long mount_table_lookup(const char* path, char* mnton, size_t mnton_size,
 	char* fstype, size_t fstype_size, char* mntfrom, size_t mntfrom_size)
 {
@@ -213,8 +244,9 @@ long mount_table_lookup(const char* path, char* mnton, size_t mnton_size,
 		if (p == NULL)
 			continue;
 
+		mount_table_unescape(p);
 		len = strlen(p);
-		if (strncmp(p, path, len) != 0 || len < max_len)
+		if (!mount_table_contains(p, len, path) || len < max_len)
 			continue;
 
 		max_len = len;
@@ -225,6 +257,7 @@ long mount_table_lookup(const char* path, char* mnton, size_t mnton_size,
 			continue;
 
 		strlcpy(fstype, p, fstype_size);
+		mount_table_unescape(from);
 		strlcpy(mntfrom, from, mntfrom_size);
 	}
 

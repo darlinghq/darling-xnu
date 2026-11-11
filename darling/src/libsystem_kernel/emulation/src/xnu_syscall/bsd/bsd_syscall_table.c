@@ -1,6 +1,8 @@
 #include <darling/emulation/xnu_syscall/bsd/bsd_syscall_table.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/audit/audit_addr.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/audit/auditon.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/audit/audit.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/audit/audit_session_join.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/audit/audit_session_port.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/audit/audit_session_self.h>
@@ -46,6 +48,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/getrlimit.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/getrusage.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/iopolicysys.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/misc/kdebug_trace.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/mac_syscall.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/proc_info.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/ptrace.h>
@@ -117,6 +120,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mkdir.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mkdirat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mkfifo.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/mkfifoat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/rmdir.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/stat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/stat64_extended.h>
@@ -128,6 +132,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/time/futimes.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/getitimer.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/gettimeofday.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/time/ntp_adjtime.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/setitimer.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/utimes.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/access.h>
@@ -172,6 +177,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/linkat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/lseek.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/mknod.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/mknodat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/pipe.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/pread.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/preadv.h>
@@ -328,6 +334,8 @@ void* __bsd_syscall_table[600] = {
 	[169] = sys_csops,
 	[170] = sys_csops_audittoken,
 	[173] = sys_waitid,
+	[179] = sys_kdebug_trace64,
+	[180] = sys_kdebug_trace,
 	[181] = sys_setgid,
 	[182] = sys_setegid,
 	[183] = sys_seteuid,
@@ -421,6 +429,8 @@ void* __bsd_syscall_table[600] = {
 	[347] = sys_getfsstat64,
 	[348] = sys_pthread_chdir,
 	[349] = sys_pthread_fchdir,
+	[350] = sys_audit,
+	[351] = sys_auditon,
 	[357] = sys_getaudit_addr,
 	[358] = sys_setaudit_addr,
 	[360] = sys_bsdthread_create,
@@ -457,6 +467,7 @@ void* __bsd_syscall_table[600] = {
 	[413] = sys_sendto_nocancel,
 	[414] = sys_pread_nocancel,
 	[415] = sys_pwrite_nocancel,
+	[416] = sys_waitid_nocancel,
 	[417] = sys_poll_nocancel,
 	[420] = sys_sem_wait_nocancel,
 	[422] = sys_sigwait_nocancel,
@@ -471,6 +482,8 @@ void* __bsd_syscall_table[600] = {
 	[442] = sys_guarded_close_np,
 	[443] = sys_guarded_kqueue_np,
 	[444] = sys_change_fdguard_np,
+	[447] = sys_connectx,
+	[448] = sys_disconnectx,
 	[461] = sys_getattrlistbulk,
 	[462] = sys_clonefileat,
 	[463] = sys_openat,
@@ -497,6 +510,7 @@ void* __bsd_syscall_table[600] = {
 	[520] = sys_terminate_with_payload,
 	[521] = sys_abort_with_payload,
 	[524] = sys_setattrlistat,
+	[527] = sys_ntp_adjtime,
   [538] = sys_task_inspect_for_pid,
 	[539] = sys_task_read_for_pid,
 	[540] = sys_preadv,
@@ -505,4 +519,6 @@ void* __bsd_syscall_table[600] = {
 	[543] = sys_pwritev_nocancel,
 	[544] = sys_ulock_wait2,
 	[545] = sys_proc_info_extended_id,
+	[553] = sys_mkfifoat,
+	[554] = sys_mknodat,
 };

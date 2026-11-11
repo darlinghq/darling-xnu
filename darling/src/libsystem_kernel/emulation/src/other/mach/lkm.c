@@ -50,10 +50,13 @@ void mach_driver_init(const char** applep)
 	}
 #else
 	// ask for elfcalls already set up by dyld
-	void* (*p2)(void);
-	_libkernel_functions->dyld_func_lookup("__dyld_get_elfcalls", (void**)&p2);
-
-	_elfcalls = p2();
+	void* (*p2)(void) = NULL;
+	if (_libkernel_functions && _libkernel_functions->dyld_func_lookup) {
+		_libkernel_functions->dyld_func_lookup("__dyld_get_elfcalls", (void**)&p2);
+		if (p2) {
+			_elfcalls = p2();
+		}
+	}
 
 #if defined(__aarch64__)
 	if (applep) {
@@ -76,11 +79,11 @@ void mach_driver_init(const char** applep)
 		// this is not a fork; guard the main thread's RPC FD we get from mldr
 		// (in the child after a fork, sys_fork already takes care of this)
 		guard_entry_options_t options;
-		options.close = _elfcalls->dserver_close_socket;
+		options.close = _elfcalls ? _elfcalls->dserver_close_socket : NULL;
 		guard_table_add(__dserver_per_thread_socket(), guard_flag_prevent_close | guard_flag_close_on_fork, &options);
 		int lifetime_pipe = __dserver_get_process_lifetime_pipe();
 		if (lifetime_pipe != -1) {
-			options.close = _elfcalls->dserver_close_process_lifetime_pipe;
+			options.close = _elfcalls ? _elfcalls->dserver_close_process_lifetime_pipe : NULL;
 			guard_table_add(lifetime_pipe, guard_flag_prevent_close | guard_flag_close_on_fork, &options);
 		}
 	}

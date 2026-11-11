@@ -11,7 +11,7 @@ long sys_sysctlbyname(const char* name, unsigned long namelen, void* old, unsign
 		*oldlen = size; \
 		return 0; \
 	} else if (*oldlen < size) \
-		return -EINVAL; \
+		return -ENOMEM; \
 	else \
 		*oldlen = size;
 

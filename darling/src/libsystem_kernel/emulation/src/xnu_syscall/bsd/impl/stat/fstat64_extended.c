@@ -6,7 +6,7 @@
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
-long sys_fstat64_extended(int fd, struct stat64* stat, void* xsec, unsigned long* xsec_size)
+long sys_fstat64_extended(int fd, darling_stat64_t* stat, void* xsec, unsigned long* xsec_size)
 {
 	if (xsec_size)
 		*xsec_size = 0;

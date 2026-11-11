@@ -1,6 +1,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/process/waitid.h>
 
 #include <stddef.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
@@ -13,11 +14,17 @@ static void siginfo_linux_to_bsd(const linux_siginfo_t* linux_si, siginfo_t* si)
 
 long sys_waitid(int idtype, int id, siginfo_t* si, int options)
 {
+    CANCELATION_POINT();
+    return sys_waitid_nocancel(idtype, id, si, options);
+}
+
+long sys_waitid_nocancel(int idtype, int id, siginfo_t* si, int options)
+{
 	int ret, linux_options;
 
 	linux_options = waitopts_bsd_to_linux(options);
 
-	linux_siginfo_t linux_si;
+	linux_siginfo_t linux_si = {0};
 	ret = LINUX_SYSCALL(__NR_waitid, idtype, id, &linux_si, linux_options);
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);

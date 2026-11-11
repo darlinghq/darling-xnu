@@ -2,9 +2,9 @@
 #define LINUX_FSTAT_H
 
 struct stat;
-struct stat64;
+#include <darling/emulation/conversion/stat/types.h>
 
 long sys_fstat(int fd, struct stat* stat);
-long sys_fstat64(int fd, struct stat64* stat);
+long sys_fstat64(int fd, darling_stat64_t* stat);
 
 #endif // LINUX_FSTAT_H
