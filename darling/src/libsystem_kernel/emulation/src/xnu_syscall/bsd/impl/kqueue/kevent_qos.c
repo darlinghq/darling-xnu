@@ -123,7 +123,7 @@ long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 			kevent_64_to_qos(&eventlist64[i], &eventlist[i]);
 	}
 
-	if (flags & KEVENT_FLAG_WORKQ)
+	if ((flags & KEVENT_FLAG_WORKQ) && rv >= 0)
 	{
 		// Pass to workqueue and wait
 		wq_kevent.sem = 0;
