@@ -5,6 +5,7 @@
 #include <sys/errno.h>
 #include <sys/signal.h>
 #include <sys/mman.h>
+#include <mach/vm_page_size.h>
 #include <_libkernel_init.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/sigaction.h>
@@ -43,8 +44,12 @@ void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext
 #endif
 
 #if SIGALTSTACK_GUARD
-// align it on a page boundary so mprotect works properly
-static char sigexc_altstack[SIGEXC_STACK_SIZE + 4096ULL] __attribute__((aligned(4096)));
+// The guard is one page, and mprotect needs its address page-aligned. A static array's
+// alignment is fixed at compile time, so reserve the largest page we cater for and take
+// vm_page_size within it.
+#define SIGEXC_GUARD_RESERVE (16ULL * 1024ULL)
+static char sigexc_altstack[SIGEXC_STACK_SIZE + SIGEXC_GUARD_RESERVE]
+		__attribute__((aligned(SIGEXC_GUARD_RESERVE)));
 #else
 static char sigexc_altstack[SIGEXC_STACK_SIZE];
 #endif
@@ -251,12 +256,24 @@ void darling_sigexc_self(void)
 	}
 
 #if SIGALTSTACK_GUARD
-	sys_mprotect(sigexc_altstack, 4096, PROT_NONE);
+	// mprotect needs a page-aligned address, and aligned(4096) is not page-aligned on a
+	// 16K-page host. vm_page_size must match the kernel's granularity: mprotect rounds
+	// the length up, so a smaller value would protect into the stack.
+	unsigned long guard = vm_page_size;
+
+	if (guard > SIGEXC_GUARD_RESERVE) {
+		// Rounding up from the reserve would PROT_NONE the whole stack instead.
+		__simple_kprintf("sigexc: page size %lu exceeds the guard reserve, alt stack unguarded\n", guard);
+		guard = 0;
+	}
+	else if (sys_mprotect(sigexc_altstack, guard, PROT_NONE) < 0) {
+		__simple_kprintf("sigexc: could not protect the alt stack guard page\n");
+	}
 #endif
 
 	struct bsd_stack newstack = {
 #if SIGALTSTACK_GUARD
-		.ss_sp = sigexc_altstack + 4096,
+		.ss_sp = sigexc_altstack + guard,
 #else
 		.ss_sp = sigexc_altstack,
 #endif
@@ -846,10 +863,22 @@ void sigexc_thread_setup(void)
 	};
 
 #if SIGALTSTACK_GUARD
-	newstack.ss_sp = (void*) sys_mmap(NULL, newstack.ss_size + 4096, PROT_READ | PROT_WRITE,
+	// mprotect protects a whole page, so the reserve must be a page: a smaller one
+	// leaves the guard overlapping the stack it sits below.
+	newstack.ss_sp = (void*) sys_mmap(NULL, newstack.ss_size + vm_page_size, PROT_READ | PROT_WRITE,
 			MAP_ANON | MAP_PRIVATE, -1, 0);
-	sys_mprotect(newstack.ss_sp, 4096, PROT_NONE);
-	newstack.ss_sp = (char*)newstack.ss_sp + 4096;
+
+	// -1..-4095 is the Linux syscall error range, not an address.
+	if (((intptr_t)newstack.ss_sp) < 0 && ((intptr_t)newstack.ss_sp) >= -4095) {
+		__simple_kprintf("sigexc: could not allocate a thread alt stack\n");
+		return;
+	}
+
+	if (sys_mprotect(newstack.ss_sp, vm_page_size, PROT_NONE) < 0) {
+		__simple_kprintf("sigexc: could not protect the thread alt stack guard page\n");
+	}
+
+	newstack.ss_sp = (char*)newstack.ss_sp + vm_page_size;
 #else
 	newstack.ss_sp = (void*) sys_mmap(NULL, newstack.ss_size, PROT_READ | PROT_WRITE,
 			MAP_ANON | MAP_PRIVATE, -1, 0);
@@ -863,7 +892,7 @@ void sigexc_thread_exit(void)
 	sys_sigaltstack(NULL, &oldstack);
 
 #if SIGALTSTACK_GUARD
-	sys_munmap((char*)oldstack.ss_sp - 4096, oldstack.ss_size + 4096);
+	sys_munmap((char*)oldstack.ss_sp - vm_page_size, oldstack.ss_size + vm_page_size);
 #else
 	sys_munmap(oldstack.ss_sp, oldstack.ss_size);
 #endif
