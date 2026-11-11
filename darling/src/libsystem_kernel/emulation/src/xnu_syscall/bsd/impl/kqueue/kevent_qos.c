@@ -14,6 +14,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/workq_kernreturn.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/kqueue/kevent64.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/mman/mman.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 
 static int default_kq = -1;
 
@@ -68,10 +69,17 @@ long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 	if ((kq == -1) != !!(flags & KEVENT_FLAG_WORKQ))
 		return -EINVAL;
 
-	if (default_kq == -1)
+	if (__atomic_load_n(&default_kq, __ATOMIC_ACQUIRE) == -1)
 	{
-		default_kq = sys_kqueue();
-		sys_fcntl_nocancel(default_kq, F_SETFD, FD_CLOEXEC);
+		int expected = -1;
+		int new_kq = sys_kqueue();
+
+		if (new_kq < 0)
+			return new_kq;
+		sys_fcntl_nocancel(new_kq, F_SETFD, FD_CLOEXEC);
+		// Threads racing here must all end up on the same kqueue
+		if (!__atomic_compare_exchange_n(&default_kq, &expected, new_kq, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+			sys_close_nocancel(new_kq);
 	}
 
 	// Counts come from the caller: keep small batches on the stack, map larger ones
@@ -112,6 +120,10 @@ long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 		nevents = 1;
 		eventlist64 = small_events;
 	}
+
+	// kq is -1 for the workqueue's kqueue, which is the process's default one
+	if (flags & KEVENT_FLAG_WORKQ)
+		kq = __atomic_load_n(&default_kq, __ATOMIC_ACQUIRE);
 
 	rv = sys_kevent64(kq, changelist64, nchanges, eventlist64, nevents, flags, (flags & KEVENT_FLAG_IMMEDIATE) ? &polling_timeout : NULL);
 
