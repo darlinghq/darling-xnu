@@ -2,6 +2,9 @@
 .globl _linux_syscall
 .private_extern _linux_syscall
 
+#if defined(__aarch64__) || defined(__arm64__)
+.p2align 2
+#endif
 _linux_syscall:
 
 #if defined(__x86_64__)

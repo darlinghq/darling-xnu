@@ -8,6 +8,7 @@
 #include <_libkernel_init.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/sigaction.h>
+#include <darling/emulation/conversion/signal/duct_signals.h>
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/exit.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
@@ -61,7 +62,8 @@ static void thread_state_to_mcontext(const x86_thread_state32_t* s, struct linux
 static void float_state_to_mcontext(const x86_float_state32_t* s, linux_fpregset_t fx);
 #elif defined(__aarch64__) || defined(__arm64__)
 #include <mach/arm/thread_status.h>
-typedef struct { unsigned int fpsr; unsigned int fpcr; __uint128_t vregs[32]; } arm_neon_state64_t_linux;
+/* RPC exchanges Darwin arm_neon_state64_t, not Linux's FPSIMD record layout. */
+typedef struct { __uint128_t vregs[32]; unsigned int fpsr; unsigned int fpcr; } arm_neon_state64_t_linux;
 static void mcontext_to_thread_state(const struct linux_gregset* regs, arm_thread_state64_t* s);
 static void mcontext_to_float_state(const unsigned char* reserved, arm_neon_state64_t_linux* s);
 static void thread_state_to_mcontext(const arm_thread_state64_t* s, struct linux_gregset* regs);
@@ -451,6 +453,13 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 
 #ifdef __x86_64__
 	kern_printf("sigexc: have RIP 0x%llx\n", ctxt->uc_mcontext.gregs.rip);
+#elif defined(__aarch64__) || defined(__arm64__)
+	if (linux_signum == LINUX_SIGSEGV || linux_signum == LINUX_SIGBUS || linux_signum == LINUX_SIGILL)
+		kern_printf("sigexc: fatal signal %d in PID %d at PC 0x%llx, fault_addr 0x%llx, SP 0x%llx\n",
+			linux_signum, getpid(),
+			(unsigned long long)ctxt->uc_mcontext.gregs.pc,
+			(unsigned long long)ctxt->uc_mcontext.gregs.fault_address,
+			(unsigned long long)ctxt->uc_mcontext.gregs.sp);
 #endif
 
 	thread_t thread = mach_thread_self();
@@ -469,7 +478,11 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 	state_to_kernel(ctxt, &tstate, &fstate);
 	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, info->si_pid, info->si_code, info->si_addr, &tstate, &fstate, &bsd_signum);
 	if (ret < 0) {
-		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d", linux_signum, ret);
+#if defined(__x86_64__)
+		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d in PID %d (RIP 0x%llx)\n", linux_signum, ret, getpid(), (unsigned long long)ctxt->uc_mcontext.gregs.rip);
+#else
+		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d in PID %d\n", linux_signum, ret, getpid());
+#endif
 		__simple_abort();
 	}
 	state_from_kernel(ctxt, &tstate, &fstate);
@@ -489,7 +502,10 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 			kern_printf("sigexc: will forward signal to app handler (%p)\n", sig_handlers[linux_signum]);
 
 			// Update the signal mask to what the application actually wanted
-			linux_sigset_t set = sig_masks[linux_signum];
+			// sig_masks holds the Darwin-numbered mask given to sigaction()
+			sigset_t bsd_mask = sig_masks[linux_signum];
+			linux_sigset_t set;
+			sigset_bsd_to_linux(&bsd_mask, &set);
 
 			// Keep the current signal blocked, which is the default behavior
 			if (!(sig_flags[linux_signum] & LINUX_SA_NODEFER))
@@ -760,6 +776,7 @@ void mcontext_to_thread_state(const struct linux_gregset* regs, arm_thread_state
 	s->__sp = regs->sp;
 	s->__pc = regs->pc;
 	s->__cpsr = (uint32_t)regs->pstate;
+	s->__pad = 0;
 }
 
 void thread_state_to_mcontext(const arm_thread_state64_t* s, struct linux_gregset* regs)

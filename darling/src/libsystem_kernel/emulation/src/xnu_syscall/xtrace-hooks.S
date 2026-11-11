@@ -23,6 +23,7 @@
 .macro xtrace_hook name
 	.text
 	.globl _\name
+	.p2align 2
 	_\name\():
 		nop
 		nop
