@@ -129,6 +129,10 @@ int sockopt_bsd_to_linux(int* level, int* optname, void** optval, void* optbuf)
 				*optname = LINUX_IP_DROP_MEMBERSHIP; break;
 			case BSD_IP_RECVTTL:
 				*optname = LINUX_IP_RECVTTL; break;
+			case BSD_IP_RECVPKTINFO:
+				*optname = LINUX_IP_PKTINFO; break;
+			case BSD_IP_RECVTOS:
+				*optname = LINUX_IP_RECVTOS; break;
 			default:
 				return -ENOTSUP;
 		}
@@ -163,6 +167,14 @@ int sockopt_bsd_to_linux(int* level, int* optname, void** optval, void* optbuf)
 				*optname = LINUX_IPV6_2292RTHDR; break;
 			case BSD_IPV6_V6ONLY:
 				*optname = LINUX_IPV6_V6ONLY; break;
+			case BSD_IPV6_RECVTCLASS:
+				*optname = LINUX_IPV6_RECVTCLASS; break;
+			case BSD_IPV6_TCLASS:
+				*optname = LINUX_IPV6_TCLASS; break;
+			case BSD_IPV6_RECVHOPLIMIT:
+				*optname = LINUX_IPV6_RECVHOPLIMIT; break;
+			case BSD_IPV6_RECVPKTINFO:
+				*optname = LINUX_IPV6_RECVPKTINFO; break;
 			default:
 				return -ENOTSUP;
 		}

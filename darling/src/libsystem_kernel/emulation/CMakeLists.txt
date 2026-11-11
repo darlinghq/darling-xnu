@@ -53,6 +53,7 @@ set(common_sources
 
 set(conversion_sources
 	src/conversion/fcntl/open.c
+	src/conversion/network/cmsg.c
 	src/conversion/network/duct.c
 	src/conversion/network/getsockopt.c
 	src/conversion/network/recvmsg.c
