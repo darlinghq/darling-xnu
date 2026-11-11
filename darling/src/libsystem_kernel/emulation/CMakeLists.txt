@@ -245,6 +245,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/stat/mkdir.c
 	src/xnu_syscall/bsd/impl/stat/mkdirat.c
 	src/xnu_syscall/bsd/impl/stat/mkfifo.c
+	src/xnu_syscall/bsd/impl/stat/mkfifoat.c
 	src/xnu_syscall/bsd/impl/stat/mount_table.c
 	src/xnu_syscall/bsd/impl/stat/rmdir.c
 	src/xnu_syscall/bsd/impl/stat/stat.c
@@ -301,6 +302,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/unistd/linkat.c
 	src/xnu_syscall/bsd/impl/unistd/lseek.c
 	src/xnu_syscall/bsd/impl/unistd/mknod.c
+	src/xnu_syscall/bsd/impl/unistd/mknodat.c
 	src/xnu_syscall/bsd/impl/unistd/pipe.c
 	src/xnu_syscall/bsd/impl/unistd/pread.c
 	src/xnu_syscall/bsd/impl/unistd/preadv.c

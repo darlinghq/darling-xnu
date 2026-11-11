@@ -863,3 +863,17 @@
 543	AUE_PWRITEV	ALL	{ user_ssize_t sys_pwritev_nocancel(int fd, struct iovec *iovp, int iovcnt, off_t offset) NO_SYSCALL_STUB; }
 544     AUE_NULL        ALL     { int ulock_wait2(uint32_t operation, void *addr, uint64_t value, uint64_t timeout, uint64_t value2) NO_SYSCALL_STUB; }
 545	AUE_PROCINFO	ALL	{ int proc_info_extended_id(int32_t callnum, int32_t pid, uint32_t flavor, uint32_t flags, uint64_t ext_id, uint64_t arg, user_addr_t buffer, int32_t buffersize) NO_SYSCALL_STUB; }
+; DARLING: 546-552 and 555-557 are not implemented here; mkfifoat and mknodat
+; use the numbers they have in the macOS SDK.
+546	AUE_NULL	ALL	{ int nosys(void); }
+547	AUE_NULL	ALL	{ int nosys(void); }
+548	AUE_NULL	ALL	{ int nosys(void); }
+549	AUE_NULL	ALL	{ int nosys(void); }
+550	AUE_NULL	ALL	{ int nosys(void); }
+551	AUE_NULL	ALL	{ int nosys(void); }
+552	AUE_NULL	ALL	{ int nosys(void); }
+553	AUE_MKFIFOAT	ALL	{ int mkfifoat(int fd, user_addr_t path, int mode); }
+554	AUE_MKNODAT	ALL	{ int mknodat(int fd, user_addr_t path, int mode, int dev); }
+555	AUE_NULL	ALL	{ int nosys(void); }
+556	AUE_NULL	ALL	{ int nosys(void); }
+557	AUE_NULL	ALL	{ int nosys(void); }
