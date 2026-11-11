@@ -29,6 +29,7 @@
 enum {
 	_KERN_MSGBUF = 1000,
 	_KERN_OSPRODUCTVERSION,
+	_KERN_SECURE_KERNEL,
 	_KERN_MEMORYSTATUS_LEVEL,
 	_KERN_NUM_FILES,
 
@@ -58,6 +59,7 @@ static sysctl_handler(handle_usrstack64);
 static sysctl_handler(handle_sysv_semmns);
 static sysctl_handler(handle_osproductversion);
 static sysctl_handler(handle_osrevision);
+static sysctl_handler(handle_secure_kernel);
 
 extern int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* buflen);
 extern int _sysctl_procargs(int pid, char* buf, unsigned long* buflen);
@@ -92,6 +94,7 @@ const struct known_sysctl sysctls_kern[] = {
 	{ .oid = KERN_USRSTACK64, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "usrstack64", .handler = handle_usrstack64 },
 	{ .oid = _KERN_OSPRODUCTVERSION, .type = CTLTYPE_STRING, .exttype = "S", .name = "osproductversion", .handler = handle_osproductversion },
 	{ .oid = KERN_OSREV, .type = CTLTYPE_INT, .exttype = "I", .name = "osrevision", .handler = handle_osrevision },
+	{ .oid = _KERN_SECURE_KERNEL, .type = CTLTYPE_INT, .exttype = "I", .name = "secure_kernel", .handler = handle_secure_kernel },
 	{ .oid = KERN_SYSV, .type = CTLTYPE_NODE, .exttype = "", .name = "sysv", .subctls = sysctls_kern_sysv },
 	{ .oid = -1 }
 };
@@ -415,6 +418,29 @@ static sysctl_handler(handle_osrevision) {
 		*ovalue = EMULATED_OSREVISION;
 	*oldlen = sizeof(*ovalue);
 	return 0;
+}
+
+// Whether the kernel runs in the secure (restricted) mode; 0 on a normal
+// Mac, and read-only. Libc's opendir() reads it to decide how to handle
+// union mounts.
+static sysctl_handler(handle_secure_kernel)
+{
+	if (_new)
+		return -EPERM;
+	if (!oldlen)
+		return -EINVAL;
+	if (old == NULL)
+	{
+		*oldlen = sizeof(int);
+		return 0;
+	}
+	if (*oldlen < sizeof(int))
+		return -ENOMEM;
+
+	*(int*) old = 0;
+	*oldlen = sizeof(int);
+  
+  return 0;
 }
 
 static sysctl_handler(handle_memorystatus_level) {
