@@ -48,7 +48,7 @@ long sys_fstatat(int fd, const char* path, struct stat* stat, int flag)
 	return 0;
 }
 
-long sys_fstatat64(int fd, const char* path, struct stat64* stat, int flag)
+long sys_fstatat64(int fd, const char* path, darling_stat64_t* stat, int flag)
 {
 	int ret;
 	struct linux_stat lstat;

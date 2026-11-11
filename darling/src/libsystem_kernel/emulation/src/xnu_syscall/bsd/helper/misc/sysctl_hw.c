@@ -3,6 +3,7 @@
 #include <mach/host_info.h>
 #include <mach/machine.h>
 #include <mach/mach_init.h>
+#include <mach/vm_page_size.h>
 #include <sys/errno.h>
 #include <stdint.h>
 
@@ -330,7 +331,9 @@ sysctl_handler(handle_pagesize)
 	}
 	else
 	{
-		*((int*) old) = 4096; // true on all Darling platforms
+		// Not 4K everywhere: aarch64 kernels are commonly built with 16K pages. mldr puts the
+		// host's page shift in the commpage and libsyscall's mach_init_doit() derives this.
+		*((int*) old) = (int) vm_page_size;
 
 		// libc's sysconf passes in a `long` for the argument.
 		// Apple's code is actually wrong there because it doesn't check the returned size.

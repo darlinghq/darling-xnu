@@ -1484,6 +1484,11 @@ int     unmount(const char *, int);
 int     getvfsbyname(const char *, struct vfsconf *);
 #if PRIVATE
 int     pivot_root(const char *, const char *) __OSX_AVAILABLE(10.16);
+
+/* VFS-only query; the wrapper may fall back to statfs on EINVAL. */
+#define STATFS_EXT_NOBLOCK 0x0001
+int     statfs_ext(const char *, struct statfs *, int);
+int     fstatfs_ext(int, struct statfs *, int);
 #endif
 __END_DECLS
 

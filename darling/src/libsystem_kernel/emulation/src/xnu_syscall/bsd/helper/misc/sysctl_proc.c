@@ -45,6 +45,7 @@ extern int strncmp(const char* str1, const char* str2, __SIZE_TYPE__ num);
 // glibc bits/confname.h
 #define _SC_CLK_TCK 2
 extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
+extern char *strrchr(const char *str, int ch);
 
 int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* buflen)
 {
@@ -55,8 +56,6 @@ int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* bufl
 	struct kinfo_proc_chain *first = NULL, *last = NULL;
 
 	if (buflen == NULL)
-		return -EFAULT;
-	if (*buflen > 0 && out == NULL)
 		return -EFAULT;
 
 	fd = sys_open_nocancel("/proc", BSD_O_RDONLY | BSD_O_DIRECTORY, 0);
@@ -74,6 +73,14 @@ int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* bufl
 			// __simple_printf("Looking at %s\n", dent->d_name);
 
 			if (dent->d_type != DT_DIR || !isdigit(dent->d_name[0]))
+			{
+				pos += dent->d_reclen;
+				continue;
+			}
+
+			int pid = __simple_atoi(dent->d_name, NULL);
+			bool is_64_bit;
+			if (dserver_rpc_task_is_64_bit(pid, &is_64_bit) < 0)
 			{
 				pos += dent->d_reclen;
 				continue;
@@ -103,10 +110,10 @@ int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* bufl
 		}
 	}
 
-	if (*buflen < nproc*sizeof(struct kinfo_proc))
+	if (out == NULL || *buflen < nproc*sizeof(struct kinfo_proc))
 	{
 		*buflen = nproc*sizeof(struct kinfo_proc);
-		ret = out ? -ENOSPC : 0;
+		ret = out ? -ENOMEM : 0;
 	}
 	else
 	{
@@ -116,7 +123,7 @@ int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* bufl
 		*buflen = nproc*sizeof(struct kinfo_proc);
 
 		next = first;
-		for (i = 0; next != NULL; i++)
+		for (i = 0; next != NULL && out != NULL; i++)
 		{
 			memcpy(&out[i], &next->kinfo, sizeof(struct kinfo_proc));
 			next = next->next;
@@ -150,6 +157,9 @@ const char* next_stat_elem(char** buf)
 {
 	char* start;
 
+	if (!buf || !*buf)
+		return NULL;
+
 	start = *buf;
 
 	if (!*start)
@@ -159,26 +169,39 @@ const char* next_stat_elem(char** buf)
 		char* end;
 
 		start++;
-		end = start;
+		end = strrchr(start, ')');
+		if (!end)
+		{
+			*buf = start + strlen(start);
+			return NULL;
+		}
 
-		while (*end != ')' && *end)
-			end++;
 		*end = '\0';
-		*buf = end+2;
+		end++;
+		if (*end != '\0' && *end == ' ')
+			end++;
+		*buf = end;
+		return start;
 	}
 	else
 	{
 		char* end;
 
 		end = start;
-		while (*end != ' ' && *end)
+		while (*end != ' ' && *end != '\0')
 			end++;
-		*end = '\0';
-		*buf = end+1;
-	}
 
-	// __simple_printf("Next stat elem: %s\n", start);
-	return start;
+		if (*end == ' ')
+		{
+			*end = '\0';
+			*buf = end + 1;
+		}
+		else
+		{
+			*buf = end;
+		}
+		return start;
+	}
 }
 
 void skip_stat_elems(char** buf, int count)
@@ -241,7 +264,7 @@ static struct kinfo_proc_chain* load_proc(const char* name, int what, int flag)
 
 	bool is_64_bit;
 	if (dserver_rpc_task_is_64_bit(kinfo->kinfo.kp_proc.p_pid, &is_64_bit) < 0) {
-		is_64_bit = false;
+		goto retnull;
 	}
 	if (is_64_bit)
 		kinfo->kinfo.kp_proc.p_flag |= P_LP64;
@@ -256,7 +279,8 @@ static struct kinfo_proc_chain* load_proc(const char* name, int what, int flag)
 
 	// comm
 	READELEM();
-	strncpy(kinfo->kinfo.kp_proc.p_comm, elem, sizeof(kinfo->kinfo.kp_proc.p_comm));
+	strncpy(kinfo->kinfo.kp_proc.p_comm, elem, sizeof(kinfo->kinfo.kp_proc.p_comm) - 1);
+	kinfo->kinfo.kp_proc.p_comm[sizeof(kinfo->kinfo.kp_proc.p_comm) - 1] = '\0';
 
 	// process state
 	READELEM();
@@ -388,6 +412,10 @@ static void free_chain(struct kinfo_proc_chain* chain)
 
 int _sysctl_procargs(int pid, char* buf, unsigned long* buflen)
 {
+	bool is_64_bit;
+	if (dserver_rpc_task_is_64_bit(pid, &is_64_bit) < 0)
+		return -ESRCH;
+
 	char path[56];
 	char cmdline[2048];
 	int argc = 0, i, arg0len = 0, argslen = 0;

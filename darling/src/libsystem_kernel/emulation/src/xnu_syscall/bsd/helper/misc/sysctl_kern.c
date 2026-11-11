@@ -30,6 +30,7 @@ enum {
 	_KERN_MSGBUF = 1000,
 	_KERN_OSPRODUCTVERSION,
 	_KERN_MEMORYSTATUS_LEVEL,
+	_KERN_NUM_FILES,
 
 	_KERN_SEMMNS = 1000,
 };
@@ -47,6 +48,9 @@ static sysctl_handler(handle_version);
 static sysctl_handler(handle_osversion);
 static sysctl_handler(handle_maxproc);
 static sysctl_handler(handle_memorystatus_level);
+static sysctl_handler(handle_maxfiles);
+static sysctl_handler(handle_maxfilesperproc);
+static sysctl_handler(handle_num_files);
 static sysctl_handler(handle_netboot);
 static sysctl_handler(handle_safeboot);
 static sysctl_handler(handle_usrstack32);
@@ -72,6 +76,9 @@ const struct known_sysctl sysctls_kern[] = {
 	{ .oid = KERN_PROCARGS2, .type = CTLTYPE_STRUCT, .exttype = "", .name = "procargs2", .handler = handle_procargs32 },
 	{ .oid = KERN_ARGMAX, .type = CTLTYPE_INT, .exttype = "I", .name = "argmax", .handler = handle_argmax },
 	{ .oid = KERN_MAXPROC, .type = CTLTYPE_INT, .exttype = "I", .name = "maxproc", .handler = handle_maxproc },
+	{ .oid = KERN_MAXFILES, .type = CTLTYPE_INT, .exttype = "I", .name = "maxfiles", .handler = handle_maxfiles },
+	{ .oid = KERN_MAXFILESPERPROC, .type = CTLTYPE_INT, .exttype = "I", .name = "maxfilesperproc", .handler = handle_maxfilesperproc },
+	{ .oid = _KERN_NUM_FILES, .type = CTLTYPE_INT, .exttype = "I", .name = "num_files", .handler = handle_num_files },
 	{ .oid = KERN_NETBOOT, .type = CTLTYPE_INT, .exttype = "I", .name = "netboot", .handler = handle_netboot },
 	{ .oid = KERN_SAFEBOOT, .type = CTLTYPE_INT, .exttype = "I", .name = "safeboot", .handler = handle_safeboot },
 	{ .oid = KERN_BOOTTIME, .type = CTLTYPE_STRUCT, .exttype = "S,timeval", .name = "boottime", .handler = handle_boottime },
@@ -115,6 +122,9 @@ sysctl_handler(handle_msgbuf)
 
 sysctl_handler(handle_proc)
 {
+	// KERN_PROC_ALL takes no argument, so its name has three components.
+	if (nlen == 3 && name[2] == KERN_PROC_ALL)
+		return _sysctl_proc(KERN_PROC_ALL, 0, (struct kinfo_proc*) old, oldlen);
 	if (nlen < 4)
 		return -ENOENT;
 	return _sysctl_proc(name[2], name[3], (struct kinfo_proc*) old, oldlen);
@@ -414,4 +424,29 @@ static sysctl_handler(handle_memorystatus_level) {
 		return -EINVAL;
 	sysctl_handle_size(sizeof(int));
 	return _sysctl_memorystatus_level((int*)old);
+}
+// Linux's fs.file-max does not fit in an int and is no useful limit for
+// a guest; report macOS's value for a machine with little memory.
+static sysctl_handler(handle_maxfiles) {
+	sysctl_handle_size(sizeof(int));
+	*((int*) old) = 49152;
+	return 0;
+}
+
+// The most a guest's RLIMIT_NOFILE can be raised to (see nofile_limit.c).
+static sysctl_handler(handle_maxfilesperproc) {
+	sysctl_handle_size(sizeof(int));
+	*((int*) old) = DARWIN_OPEN_MAX;
+	return 0;
+}
+
+// Open files in the system: the first field of /proc/sys/fs/file-nr.
+static sysctl_handler(handle_num_files) {
+	char buf[64];
+
+	sysctl_handle_size(sizeof(int));
+	if (!read_string("/proc/sys/fs/file-nr", buf, sizeof(buf)))
+		return -ENOENT;
+	*((int*) old) = (int) __simple_atoi(buf, NULL);
+	return 0;
 }

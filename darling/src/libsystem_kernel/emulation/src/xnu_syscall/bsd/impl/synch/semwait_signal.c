@@ -33,7 +33,7 @@ long sys_semwait_signal_nocancel(int cond_sem, int mutex_sem, int timeout, int r
 		if (!relative)
 		{
 			struct bsd_timeval tv;
-			sys_gettimeofday(&tv, NULL);
+			sys_gettimeofday(&tv, NULL, NULL);
 
 			if (tv.tv_usec*1000 < tv_nsec)
 				tv_nsec -= tv.tv_usec * 1000;

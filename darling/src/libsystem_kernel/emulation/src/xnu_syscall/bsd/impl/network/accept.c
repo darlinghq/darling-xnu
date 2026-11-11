@@ -26,6 +26,7 @@ long sys_accept_nocancel(int fd, void* from, int* socklen)
 {
 	int ret;
 	struct sockaddr_fixup* fixed;
+	int capacity = (from != NULL && socklen != NULL) ? *socklen : 0;
 
 #ifdef __NR_socketcall
 	ret = LINUX_SYSCALL(__NR_socketcall, LINUX_SYS_ACCEPT, ((long[6]) { fd, from, socklen }));
@@ -42,7 +43,7 @@ long sys_accept_nocancel(int fd, void* from, int* socklen)
 		if (from != NULL && socklen != NULL)
 		{
 			fixed = (struct sockaddr_fixup*) from;
-			int conv = sockaddr_fixup_from_linux(fixed, from, *socklen);
+			int conv = sockaddr_fixup_from_linux(fixed, from, *socklen, capacity);
 			if (conv < 0)
 			{
 				// the caller never sees the new descriptor, so don't leak it
