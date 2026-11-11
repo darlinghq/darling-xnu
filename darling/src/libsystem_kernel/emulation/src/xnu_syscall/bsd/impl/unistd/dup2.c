@@ -8,6 +8,7 @@
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/common/guarded/table.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/bpf/bpf_device.h>
 
 extern void kqueue_dup(int oldfd, int newfd);
 
@@ -36,8 +37,14 @@ long sys_dup2(int fd_from, int fd_to)
 	#endif
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
-	else
+	else {
 		kqueue_dup(fd_from, fd_to);
+		if (fd_from != fd_to) {
+			// fd_to was closed and now refers to fd_from's file.
+			bpf_device_close(fd_to);
+			bpf_device_dup(fd_from, fd_to);
+		}
+	}
 
 	return ret;
 }

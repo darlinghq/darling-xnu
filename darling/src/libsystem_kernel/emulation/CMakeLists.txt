@@ -110,6 +110,9 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/bsd_syscall_table.c
 	src/xnu_syscall/bsd/bsd_syscall.S
 
+	src/xnu_syscall/bsd/helper/bpf/bpf_device.c
+	src/xnu_syscall/bsd/helper/bpf/bpf_program.c
+
 	src/xnu_syscall/bsd/helper/ioctl/termios.c
 	src/xnu_syscall/bsd/helper/ioctl/filio.c
 	src/xnu_syscall/bsd/helper/ioctl/socket.c

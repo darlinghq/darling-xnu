@@ -7,6 +7,7 @@
 #include <darling/emulation/other/mach/lkm.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/common/guarded/table.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/bpf/bpf_device.h>
 #include <_libkernel_init.h>
 
 extern _libkernel_functions_t _libkernel_functions;
@@ -34,6 +35,10 @@ long sys_close_nocancel(int fd)
 			return 0;
 		}
 	}
+
+	// Forget BPF device state first, so that a descriptor number reused by
+	// another thread right after the close is not taken for the device.
+	bpf_device_close(fd);
 
 	ret = LINUX_SYSCALL1(__NR_close, fd);
 	if (ret < 0)
