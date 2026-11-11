@@ -411,10 +411,10 @@ static sysctl_handler(handle_osrevision) {
 // union mounts.
 static sysctl_handler(handle_secure_kernel)
 {
-	if (!oldlen)
-		return -EINVAL;
 	if (_new)
 		return -EPERM;
+	if (!oldlen)
+		return -EINVAL;
 	if (old == NULL)
 	{
 		*oldlen = sizeof(int);
