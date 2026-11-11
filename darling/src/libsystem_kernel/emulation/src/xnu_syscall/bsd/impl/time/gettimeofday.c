@@ -24,6 +24,8 @@ long sys_gettimeofday(struct bsd_timeval* tv, struct timezone* tz, uint64_t* mac
 		{
 			tv->tv_sec = ts.tv_sec;
 			tv->tv_usec = ts.tv_nsec / 1000;
+			if (mach_time)
+				*mach_time = mach_absolute_time();
 			return 0;
 		}
 	}
