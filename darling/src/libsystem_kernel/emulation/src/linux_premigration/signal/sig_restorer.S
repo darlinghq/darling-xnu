@@ -15,6 +15,7 @@ _sig_restorer:
 
 #elif defined(__aarch64__)
 
+.p2align 2
 _sig_restorer:
 	mov x8, #139
 	svc #0

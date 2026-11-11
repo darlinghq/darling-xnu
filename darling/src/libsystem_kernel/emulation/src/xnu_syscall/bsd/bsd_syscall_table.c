@@ -46,6 +46,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/getrlimit.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/getrusage.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/iopolicysys.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/misc/kdebug_trace.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/mac_syscall.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/proc_info.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/ptrace.h>
@@ -117,6 +118,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mkdir.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mkdirat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mkfifo.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/mkfifoat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/rmdir.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/stat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/stat64_extended.h>
@@ -172,6 +174,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/linkat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/lseek.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/mknod.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/mknodat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/pipe.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/pread.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/preadv.h>
@@ -328,6 +331,8 @@ void* __bsd_syscall_table[600] = {
 	[169] = sys_csops,
 	[170] = sys_csops_audittoken,
 	[173] = sys_waitid,
+	[179] = sys_kdebug_trace64,
+	[180] = sys_kdebug_trace,
 	[181] = sys_setgid,
 	[182] = sys_setegid,
 	[183] = sys_seteuid,
@@ -457,6 +462,7 @@ void* __bsd_syscall_table[600] = {
 	[413] = sys_sendto_nocancel,
 	[414] = sys_pread_nocancel,
 	[415] = sys_pwrite_nocancel,
+	[416] = sys_waitid_nocancel,
 	[417] = sys_poll_nocancel,
 	[420] = sys_sem_wait_nocancel,
 	[422] = sys_sigwait_nocancel,
@@ -507,4 +513,6 @@ void* __bsd_syscall_table[600] = {
 	[543] = sys_pwritev_nocancel,
 	[544] = sys_ulock_wait2,
 	[545] = sys_proc_info_extended_id,
+	[553] = sys_mkfifoat,
+	[554] = sys_mknodat,
 };

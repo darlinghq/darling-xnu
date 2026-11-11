@@ -10,7 +10,10 @@
 
 long sys_reboot(int opt, const char* cmd)
 {
-	__simple_printf("ALERT: The process has asked for system reboot with opt %d and cmd '%s' - terminating\n", cmd);
+	// This stub does not use cmd; do not dereference a caller-provided pointer
+	// merely to report that reboot is unsupported.
+	(void)cmd;
+	__simple_printf("ALERT: The process has asked for system reboot with opt %d - terminating\n", opt);
 	sys_exit(1);
 	return -ENOTSUP;
 }

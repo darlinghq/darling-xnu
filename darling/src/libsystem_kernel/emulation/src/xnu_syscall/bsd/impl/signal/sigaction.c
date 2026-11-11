@@ -22,6 +22,7 @@ static void handler_linux_to_bsd_wrapper(int linux_signum, struct linux_siginfo*
 
 // Libc uses only one trampoline
 void (*sa_tramp)(void*, int, int, struct bsd_siginfo*, void*) = 0;
+bsd_sig_tramp sig_tramps[32] = {0};
 bsd_sig_handler* sig_handlers[32] = {
 	[LINUX_SIGWINCH] = (bsd_sig_handler*) SIG_IGN,
 	[LINUX_SIGURG] = (bsd_sig_handler*) SIG_IGN,
@@ -97,6 +98,7 @@ long sys_sigaction(int signum, const struct bsd___sigaction* nsa, struct bsd_sig
 	{
 		// __simple_printf("Saving handler for signal %d: %p\n", linux_signum, nsa->sa_sigaction);
 		sig_handlers[linux_signum] = nsa->sa_sigaction;
+		sig_tramps[linux_signum] = nsa->sa_tramp;
 		sig_flags[linux_signum] = nsa->sa_flags;
 		sig_masks[linux_signum] = nsa->sa_mask;
 	}

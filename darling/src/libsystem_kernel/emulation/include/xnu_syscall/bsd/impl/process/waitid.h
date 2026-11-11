@@ -90,5 +90,6 @@ typedef struct
 #define linux_si_band		_sifields._sigpoll.si_band
 
 long sys_waitid(int idtype, int id, siginfo_t* si, int options);
+long sys_waitid_nocancel(int idtype, int id, siginfo_t* si, int options);
 
 #endif // LINUX_WAITID_H

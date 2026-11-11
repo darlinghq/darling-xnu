@@ -174,6 +174,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/misc/getrlimit.c
 	src/xnu_syscall/bsd/impl/misc/getrusage.c
 	src/xnu_syscall/bsd/impl/misc/iopolicysys.c
+	src/xnu_syscall/bsd/impl/misc/kdebug_trace.c
 	src/xnu_syscall/bsd/impl/misc/mac_syscall.c
 	src/xnu_syscall/bsd/impl/misc/proc_info.c
 	src/xnu_syscall/bsd/impl/misc/ptrace.c
@@ -245,6 +246,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/stat/mkdir.c
 	src/xnu_syscall/bsd/impl/stat/mkdirat.c
 	src/xnu_syscall/bsd/impl/stat/mkfifo.c
+	src/xnu_syscall/bsd/impl/stat/mkfifoat.c
 	src/xnu_syscall/bsd/impl/stat/mount_table.c
 	src/xnu_syscall/bsd/impl/stat/rmdir.c
 	src/xnu_syscall/bsd/impl/stat/stat.c
@@ -301,6 +303,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/unistd/linkat.c
 	src/xnu_syscall/bsd/impl/unistd/lseek.c
 	src/xnu_syscall/bsd/impl/unistd/mknod.c
+	src/xnu_syscall/bsd/impl/unistd/mknodat.c
 	src/xnu_syscall/bsd/impl/unistd/pipe.c
 	src/xnu_syscall/bsd/impl/unistd/pread.c
 	src/xnu_syscall/bsd/impl/unistd/preadv.c
@@ -405,4 +408,3 @@ add_dependencies(emulation_dyld rtsig_h generate_dserver_rpc_wrappers)
 
 make_fat(emulation)
 make_fat(emulation_dyld)
-

@@ -118,6 +118,9 @@ sysctl_handler(handle_msgbuf)
 
 sysctl_handler(handle_proc)
 {
+	// KERN_PROC_ALL takes no argument, so its name has three components.
+	if (nlen == 3 && name[2] == KERN_PROC_ALL)
+		return _sysctl_proc(KERN_PROC_ALL, 0, (struct kinfo_proc*) old, oldlen);
 	if (nlen < 4)
 		return -ENOENT;
 	return _sysctl_proc(name[2], name[3], (struct kinfo_proc*) old, oldlen);
