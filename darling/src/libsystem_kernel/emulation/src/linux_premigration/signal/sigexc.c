@@ -445,6 +445,11 @@ static void handle_signal_without_server(int linux_signum, struct linux_siginfo*
 	LINUX_SYSCALL(__NR_tgkill, pid, tid, linux_signum);
 }
 
+unsigned long sigexc_handlers_run(void)
+{
+	return (unsigned long)(uintptr_t)_pthread_getspecific_direct(__PTK_DARLING_SIGNAL_HANDLERS_RUN);
+}
+
 void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
 	// Re-entrancy guard. The first thing this handler does is enter a server RPC,
@@ -615,6 +620,9 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 			int guard_signal = (int)(uintptr_t)
 					_pthread_getspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL);
 			_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL, (void*)0);
+
+			_pthread_setspecific_direct(__PTK_DARLING_SIGNAL_HANDLERS_RUN,
+					(void*)((uintptr_t)_pthread_getspecific_direct(__PTK_DARLING_SIGNAL_HANDLERS_RUN) + 1));
 
 			handler_linux_to_bsd(linux_signum, info, ctxt);
 
