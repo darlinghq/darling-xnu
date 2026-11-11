@@ -37,20 +37,24 @@ __darling_bsd_syscall_exit:
 
 #elif defined(__i386__)
 
+// Darwin's i386 syscall entries preserve every register except %eax and %edx
+// (the result) - libplatform's setjmp relies on %ecx surviving ___sigaltstack -
+// so the table lookup and the argument copy use %edx as scratch, and %ecx is
+// saved across the call to the handler.
 #define copy_arg(off) \
-	movl	8+off(%esp), %ecx ;\
-	movl	%ecx, -56+off(%esp)
+	movl	8+off(%esp), %edx ;\
+	movl	%edx, -72+off(%esp)
 
 __darling_bsd_syscall:
 Lentry_hook:
 	.space 7, 0x90
 	calll	1f
 1:
-	popl	%ecx
+	popl	%edx
 2:
-	movl	L___bsd_syscall_table$non_lazy_ptr-1b(%ecx), %ecx
+	movl	L___bsd_syscall_table$non_lazy_ptr-1b(%edx), %edx
 	andl	$0xffff, %eax // Because there is some extra stuff in upper bytes we don't need
-	movl	(%ecx,%eax,4), %eax
+	movl	(%edx,%eax,4), %eax
 	test	%eax, %eax
 	jz		.no_sys
 	// Copy arguments
@@ -68,15 +72,17 @@ Lentry_hook:
 	copy_arg(44)
 	copy_arg(48)
 	copy_arg(52)
-	subl	$56, %esp
+	subl	$72, %esp
+	movl	%ecx, 56(%esp)
 	call	*%eax
-	addl	$56, %esp
+	movl	56(%esp), %ecx
+	addl	$72, %esp
 .std_ret:
 Lexit_hook:
 	.space 7, 0x90
 	ret
 .no_sys:
-	pushl	%ecx
+	pushl	%edx
 	call	___unknown_syscall
 	addl	$4, %esp
 	jmp .std_ret
