@@ -290,6 +290,11 @@ int handle_termios(int fd, unsigned int cmd, void* arg, int* retval)
 			*retval = __real_ioctl(fd, LINUX_TIOCSCTTY, arg);
 			return IOCTL_HANDLED;
 		}
+		case BSD_TIOCPKT:
+		{
+			*retval = __real_ioctl(fd, LINUX_TIOCPKT, arg);
+			return IOCTL_HANDLED;
+		}
 		case BSD_TIOCCONS:
 		{
 			*retval = __real_ioctl(fd, LINUX_TIOCCONS, 0);

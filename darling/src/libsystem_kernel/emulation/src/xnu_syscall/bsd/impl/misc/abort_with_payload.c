@@ -1,6 +1,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/abort_with_payload.h>
 
 #include <sys/signal.h>
+#include <sys/errno.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/kill.h>
 #include <darling/emulation/common/simple.h>
@@ -21,15 +22,13 @@ long sys_abort_with_payload(unsigned int reason_namespace, unsigned long long re
 
 long sys_terminate_with_payload(int pid, unsigned int reason_namespace, unsigned long long reason_code, void *payload, unsigned int payload_size, const char *reason_string, unsigned long long reason_flags)
 {
-	__simple_printf("terminate_with_payload: pid=%d reason: %s; code: %lu\n",
+	// Unlike kill(), this syscall accepts only a positive process ID.
+	// Match terminate_with_payload_internal before reading the reason string.
+	if (pid <= 0)
+		return -EINVAL;
+
+	__simple_printf("terminate_with_payload: pid=%d reason: %s; code: %llu\n",
 	                pid, reason_string ? reason_string : "(null)", reason_code);
-	// On Darwin this targets the given pid; we approximate by exiting if it
-	// refers to us (pid<=0 means current process group / -1 means self in
-	// many call sites). For other pids we send SIGKILL.
-	if (pid <= 0) {
-		LINUX_SYSCALL1(__NR_exit_group, 128 + SIGKILL);
-		__builtin_unreachable();
-	}
-	sys_kill(pid, SIGKILL, 1);
-	return 0;
+	// sys_kill already translates Linux failures to negative Darwin errno.
+	return sys_kill(pid, SIGKILL, 1);
 }
