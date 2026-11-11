@@ -69,9 +69,18 @@ long sys_bsdthread_create(void* thread_start, void* arg,
 	ret = darling_thread_create((void**) stack, pthread_entry_point_wrapper, thread_start,
 			arg, stacksize, flags);
 #else
-	return __darling_thread_create(((uintptr_t)stack), pthread_obj_size,
+	void* created = __darling_thread_create(((uintptr_t)stack), pthread_obj_size,
 			pthread_entry_point_wrapper, thread_start, arg, (uintptr_t) stack, flags,
 			&callbacks, pthread);
+
+	// __darling_thread_create returns NULL when the native thread could not
+	// be created. Report that as a resource shortage, which is the error
+	// pthread_create() documents for it; returning NULL would tell libpthread
+	// that the thread was started.
+	if (created == NULL)
+		return -EAGAIN;
+
+	return (long) created;
 #endif
 
 	if (ret < 0)
