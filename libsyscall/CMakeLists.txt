@@ -221,6 +221,7 @@ set(syscall_sources
 	wrappers/sfi.c
 	# wrappers/sigsuspend-base.c
 	wrappers/stackshot.c
+	wrappers/statfs_ext.c
 	wrappers/system-version-compat.c
 	wrappers/system-version-compat-support.c
 	wrappers/terminate_with_reason.c
@@ -793,6 +794,5 @@ make_fat(libsyscall_dynamic)
 #add_darling_object_library(libsyscall_legacy_extra wrappers/legacy/select.c)
 #set_target_properties(libsyscall_legacy_extra PROPERTIES COMPILE_FLAGS
 #	"${CMAKE_C_FLAGS} -U_DARWIN_C_SOURCE -U_POSIX_C_SOURCE -U__DARWIN_UNIX03 -D__DARWIN_UNIX03=0 -U__DARWIN_C_LEVEL")
-
 
 
