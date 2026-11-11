@@ -258,6 +258,15 @@ long sys_execve(const char* fname, const char** argvp, const char** envp)
 	LINUX_SYSCALL(__NR_rt_sigprocmask, 0 /* LINUX_SIG_BLOCK */,
 			&set, NULL, sizeof(linux_sigset_t));
 
+	// mldr takes over the lifetime pipe named in __mldr_lifetime_pipe, so it
+	// must survive the execve even if the program marked every descriptor
+	// close-on-exec before exec'ing (APT does, for its download methods).
+	if (is_script || is_macho) {
+		int lifetime_pipe = __dserver_get_process_lifetime_pipe();
+		if (lifetime_pipe >= 0)
+			LINUX_SYSCALL(__NR_fcntl, lifetime_pipe, 2 /* F_SETFD */, 0);
+	}
+
 	// let xtrace inject itself into the execve, if necessary
 	_xtrace_execve_inject(&envp);
 

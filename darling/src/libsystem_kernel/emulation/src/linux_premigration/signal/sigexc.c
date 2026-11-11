@@ -5,9 +5,11 @@
 #include <sys/errno.h>
 #include <sys/signal.h>
 #include <sys/mman.h>
+#include <mach/vm_page_size.h>
 #include <_libkernel_init.h>
 
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/sigaction.h>
+#include <darling/emulation/conversion/signal/duct_signals.h>
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/exit.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
@@ -17,6 +19,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/kill.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/pthread_canceled.h>
+#include <darling/emulation/common/tsd.h>
 
 #include <darlingserver/rpc.h>
 
@@ -42,8 +45,12 @@ void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext
 #endif
 
 #if SIGALTSTACK_GUARD
-// align it on a page boundary so mprotect works properly
-static char sigexc_altstack[SIGEXC_STACK_SIZE + 4096ULL] __attribute__((aligned(4096)));
+// The guard is one page, and mprotect needs its address page-aligned. A static array's
+// alignment is fixed at compile time, so reserve the largest page we cater for and take
+// vm_page_size within it.
+#define SIGEXC_GUARD_RESERVE (16ULL * 1024ULL)
+static char sigexc_altstack[SIGEXC_STACK_SIZE + SIGEXC_GUARD_RESERVE]
+		__attribute__((aligned(SIGEXC_GUARD_RESERVE)));
 #else
 static char sigexc_altstack[SIGEXC_STACK_SIZE];
 #endif
@@ -61,7 +68,8 @@ static void thread_state_to_mcontext(const x86_thread_state32_t* s, struct linux
 static void float_state_to_mcontext(const x86_float_state32_t* s, linux_fpregset_t fx);
 #elif defined(__aarch64__) || defined(__arm64__)
 #include <mach/arm/thread_status.h>
-typedef struct { unsigned int fpsr; unsigned int fpcr; __uint128_t vregs[32]; } arm_neon_state64_t_linux;
+/* RPC exchanges Darwin arm_neon_state64_t, not Linux's FPSIMD record layout. */
+typedef struct { __uint128_t vregs[32]; unsigned int fpsr; unsigned int fpcr; } arm_neon_state64_t_linux;
 static void mcontext_to_thread_state(const struct linux_gregset* regs, arm_thread_state64_t* s);
 static void mcontext_to_float_state(const unsigned char* reserved, arm_neon_state64_t_linux* s);
 static void thread_state_to_mcontext(const arm_thread_state64_t* s, struct linux_gregset* regs);
@@ -169,6 +177,7 @@ static void cancel_interrupted_syscall(struct linux_ucontext* ctxt)
 
 void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
+
 	int status = dserver_rpc_interrupt_enter();
 
 	if (status != 0) {
@@ -249,12 +258,24 @@ void darling_sigexc_self(void)
 	}
 
 #if SIGALTSTACK_GUARD
-	sys_mprotect(sigexc_altstack, 4096, PROT_NONE);
+	// mprotect needs a page-aligned address, and aligned(4096) is not page-aligned on a
+	// 16K-page host. vm_page_size must match the kernel's granularity: mprotect rounds
+	// the length up, so a smaller value would protect into the stack.
+	unsigned long guard = vm_page_size;
+
+	if (guard > SIGEXC_GUARD_RESERVE) {
+		// Rounding up from the reserve would PROT_NONE the whole stack instead.
+		__simple_kprintf("sigexc: page size %lu exceeds the guard reserve, alt stack unguarded\n", guard);
+		guard = 0;
+	}
+	else if (sys_mprotect(sigexc_altstack, guard, PROT_NONE) < 0) {
+		__simple_kprintf("sigexc: could not protect the alt stack guard page\n");
+	}
 #endif
 
 	struct bsd_stack newstack = {
 #if SIGALTSTACK_GUARD
-		.ss_sp = sigexc_altstack + 4096,
+		.ss_sp = sigexc_altstack + guard,
 #else
 		.ss_sp = sigexc_altstack,
 #endif
@@ -426,10 +447,78 @@ static void handle_signal_without_server(int linux_signum, struct linux_siginfo*
 
 void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
+	// Re-entrancy guard. The first thing this handler does is enter a server RPC,
+	// which takes duct-tape mutexes. A thread running inside a signal handler has
+	// no registered dtape thread, so dtape_mutex_lock takes its fallback path
+	// (duct-tape/src/locks.c) and spins waiting for an owner to drop the lock. If
+	// anything inside the handler faults, the kernel reinvokes the handler, which
+	// spins again - and with both threads in that state the spin never ends.
+	//
+	// That was observed turning a single guest SIGSEGV into ~30 nested handler
+	// entries and ~3000 "Trying to lock mutex without an active thread!"
+	// warnings across two threads, which destroyed the original crash's stack: the
+	// cores only ever showed the signal trampoline.
+	//
+	// One entry per thread is allowed. A fault while already inside the handler
+	// cannot be reported through the same path, so kill the thread outright: the
+	// process still dies, but the core describes the first fault instead of the
+	// livelock.
+	//
+	// Only for signals that are themselves a fault. A benign re-entry - a SIGWINCH
+	// delivered while the handler is already running, which happens during normal
+	// startup - must not take the thread down with it.
+	// Compiler TLS requires __tlv_bootstrap, which is unavailable in the
+	// static dyld variant. Direct TSD is already initialized for signal delivery.
+	int in_sigexc_handler_signal = (int)(uintptr_t)
+			_pthread_getspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL);
+
+	if (in_sigexc_handler_signal) {
+		bool nested_is_fault =
+				linux_signum == LINUX_SIGSEGV || linux_signum == LINUX_SIGBUS ||
+				linux_signum == LINUX_SIGILL || linux_signum == LINUX_SIGFPE ||
+				linux_signum == LINUX_SIGSYS || linux_signum == LINUX_SIGTRAP;
+
+		if (nested_is_fault) {
+			kern_printf("sigexc: fault (%d) inside the handler for signal %d, killing this thread\n",
+					linux_signum, in_sigexc_handler_signal);
+
+			// Report where it faulted before killing the thread. Without this the
+			// register state is lost with the process and the nested fault - the
+			// one that actually matters - stays as invisible as it was before the
+			// guard existed. The usual dump further down is never reached, because
+			// that path would block on the same RPC that faulted.
+#if defined(__x86_64__)
+			if (ctxt)
+				kern_printf("sigexc: nested fault at RIP 0x%llx\n",
+					(unsigned long long)ctxt->uc_mcontext.gregs.rip);
+#elif defined(__aarch64__) || defined(__arm64__)
+			if (ctxt)
+				kern_printf("sigexc: nested fault at PC 0x%llx, fault_addr 0x%llx, SP 0x%llx\n",
+					(unsigned long long)ctxt->uc_mcontext.gregs.pc,
+					(unsigned long long)ctxt->uc_mcontext.gregs.fault_address,
+					(unsigned long long)ctxt->uc_mcontext.gregs.sp);
+#elif defined(__i386__)
+			if (ctxt)
+				kern_printf("sigexc: nested fault at EIP 0x%llx\n",
+					(unsigned long long)ctxt->uc_mcontext.gregs.eip);
+#endif
+
+			LINUX_SYSCALL(__NR_exit_group, 128 + LINUX_SIGKILL);
+			// exit_group does not return.
+		}
+
+		// Not a fault: fall through and let the nested signal be handled.
+	} else {
+		_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
+				(void*)(uintptr_t)linux_signum);
+	}
+
 	int status = dserver_rpc_interrupt_enter();
 
 	if (status != 0) {
 		handle_signal_without_server(linux_signum, info, ctxt);
+		_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
+				(void*)(uintptr_t)in_sigexc_handler_signal);
 		return;
 	}
 
@@ -451,6 +540,13 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 
 #ifdef __x86_64__
 	kern_printf("sigexc: have RIP 0x%llx\n", ctxt->uc_mcontext.gregs.rip);
+#elif defined(__aarch64__) || defined(__arm64__)
+	if (linux_signum == LINUX_SIGSEGV || linux_signum == LINUX_SIGBUS || linux_signum == LINUX_SIGILL)
+		kern_printf("sigexc: fatal signal %d in PID %d at PC 0x%llx, fault_addr 0x%llx, SP 0x%llx\n",
+			linux_signum, getpid(),
+			(unsigned long long)ctxt->uc_mcontext.gregs.pc,
+			(unsigned long long)ctxt->uc_mcontext.gregs.fault_address,
+			(unsigned long long)ctxt->uc_mcontext.gregs.sp);
 #endif
 
 	thread_t thread = mach_thread_self();
@@ -467,9 +563,20 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 #endif
 
 	state_to_kernel(ctxt, &tstate, &fstate);
-	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, info->si_pid, info->si_code, info->si_addr, &tstate, &fstate, &bsd_signum);
+
+	// info is NULL for signals the kernel raises itself rather than delivering
+	// from another process, so its fields cannot be read unconditionally.
+	int sig_pid = info ? info->si_pid : 0;
+	int sig_code = info ? info->si_code : 0;
+	unsigned long long sig_addr = info ? (unsigned long long) info->si_addr : 0;
+
+	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, sig_pid, sig_code, (void *) sig_addr, &tstate, &fstate, &bsd_signum);
 	if (ret < 0) {
-		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d", linux_signum, ret);
+#if defined(__x86_64__)
+		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d in PID %d (RIP 0x%llx)\n", linux_signum, ret, getpid(), (unsigned long long)ctxt->uc_mcontext.gregs.rip);
+#else
+		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d in PID %d\n", linux_signum, ret, getpid());
+#endif
 		__simple_abort();
 	}
 	state_from_kernel(ctxt, &tstate, &fstate);
@@ -489,7 +596,10 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 			kern_printf("sigexc: will forward signal to app handler (%p)\n", sig_handlers[linux_signum]);
 
 			// Update the signal mask to what the application actually wanted
-			linux_sigset_t set = sig_masks[linux_signum];
+			// sig_masks holds the Darwin-numbered mask given to sigaction()
+			sigset_t bsd_mask = sig_masks[linux_signum];
+			linux_sigset_t set;
+			sigset_bsd_to_linux(&bsd_mask, &set);
 
 			// Keep the current signal blocked, which is the default behavior
 			if (!(sig_flags[linux_signum] & LINUX_SA_NODEFER))
@@ -498,7 +608,18 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 			LINUX_SYSCALL(__NR_rt_sigprocmask, 2 /* LINUX_SIG_SETMASK */,
 				&set, NULL, sizeof(linux_sigset_t));
 
+			// The guard covers only Darling's own handler code. The
+			// application's handler may fault on purpose (and handle that
+			// fault with its own SIGSEGV handler), as it can on macOS, so
+			// lift the guard while it runs and put it back afterwards.
+			int guard_signal = (int)(uintptr_t)
+					_pthread_getspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL);
+			_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL, (void*)0);
+
 			handler_linux_to_bsd(linux_signum, info, ctxt);
+
+			_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
+					(void*)(uintptr_t)guard_signal);
 		}
 		else
 		{
@@ -545,6 +666,10 @@ out:
 		__simple_printf("*** dserver_rpc_interrupt_exit failed with code %d ***\n", status);
 		__simple_abort();
 	}
+
+	// Clear the outermost guard, retaining it when a benign nested signal returns.
+	_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
+			(void*)(uintptr_t)in_sigexc_handler_signal);
 }
 
 #define DUMPREG(regname) kern_printf("sigexc:   " #regname ": 0x%llx\n", regs->regname);
@@ -760,6 +885,7 @@ void mcontext_to_thread_state(const struct linux_gregset* regs, arm_thread_state
 	s->__sp = regs->sp;
 	s->__pc = regs->pc;
 	s->__cpsr = (uint32_t)regs->pstate;
+	s->__pad = 0;
 }
 
 void thread_state_to_mcontext(const arm_thread_state64_t* s, struct linux_gregset* regs)
@@ -829,10 +955,22 @@ void sigexc_thread_setup(void)
 	};
 
 #if SIGALTSTACK_GUARD
-	newstack.ss_sp = (void*) sys_mmap(NULL, newstack.ss_size + 4096, PROT_READ | PROT_WRITE,
+	// mprotect protects a whole page, so the reserve must be a page: a smaller one
+	// leaves the guard overlapping the stack it sits below.
+	newstack.ss_sp = (void*) sys_mmap(NULL, newstack.ss_size + vm_page_size, PROT_READ | PROT_WRITE,
 			MAP_ANON | MAP_PRIVATE, -1, 0);
-	sys_mprotect(newstack.ss_sp, 4096, PROT_NONE);
-	newstack.ss_sp = (char*)newstack.ss_sp + 4096;
+
+	// -1..-4095 is the Linux syscall error range, not an address.
+	if (((intptr_t)newstack.ss_sp) < 0 && ((intptr_t)newstack.ss_sp) >= -4095) {
+		__simple_kprintf("sigexc: could not allocate a thread alt stack\n");
+		return;
+	}
+
+	if (sys_mprotect(newstack.ss_sp, vm_page_size, PROT_NONE) < 0) {
+		__simple_kprintf("sigexc: could not protect the thread alt stack guard page\n");
+	}
+
+	newstack.ss_sp = (char*)newstack.ss_sp + vm_page_size;
 #else
 	newstack.ss_sp = (void*) sys_mmap(NULL, newstack.ss_size, PROT_READ | PROT_WRITE,
 			MAP_ANON | MAP_PRIVATE, -1, 0);
@@ -846,7 +984,7 @@ void sigexc_thread_exit(void)
 	sys_sigaltstack(NULL, &oldstack);
 
 #if SIGALTSTACK_GUARD
-	sys_munmap((char*)oldstack.ss_sp - 4096, oldstack.ss_size + 4096);
+	sys_munmap((char*)oldstack.ss_sp - vm_page_size, oldstack.ss_size + vm_page_size);
 #else
 	sys_munmap(oldstack.ss_sp, oldstack.ss_size);
 #endif

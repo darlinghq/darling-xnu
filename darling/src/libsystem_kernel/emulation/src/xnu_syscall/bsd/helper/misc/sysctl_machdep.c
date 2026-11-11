@@ -105,6 +105,7 @@ enum {
 	_CPU_FEATURES,
 	_CPU_CORE_COUNT,
 	_CPU_THREAD_COUNT,
+	_CPU_FEATURE_BITS,
 };
 
 static sysctl_handler(handle_vendor);
@@ -116,6 +117,7 @@ static sysctl_handler(handle_brand_string);
 static sysctl_handler(handle_features);
 static sysctl_handler(handle_core_count);
 static sysctl_handler(handle_thread_count);
+static sysctl_handler(handle_feature_bits);
 
 const struct known_sysctl sysctls_machdep_cpu[] = {
     { .oid = _CPU_MAX_BASIC, .type = CTLTYPE_INT, .exttype = "I", .name = "max_basic", .handler = handle_max_basic },
@@ -127,6 +129,7 @@ const struct known_sysctl sysctls_machdep_cpu[] = {
 		{ .oid = _CPU_FEATURES, .type = CTLTYPE_STRING, .exttype = "S", .name = "features", .handler = handle_features },
 		{ .oid = _CPU_CORE_COUNT, .type = CTLTYPE_INT, .exttype = "I", .name = "core_count", .handler = handle_core_count },
 		{ .oid = _CPU_THREAD_COUNT, .type = CTLTYPE_INT, .exttype = "I", .name = "thread_count", .handler = handle_thread_count },
+	{ .oid = _CPU_FEATURE_BITS, .type = CTLTYPE_QUAD, .exttype = "IU", .name = "feature_bits", .handler = handle_feature_bits },
 	{ .oid = -1 }
 };
 
@@ -165,6 +168,20 @@ static inline void copyout_int(int value, void* to_copy, unsigned long* to_copy_
 		*to_copy_length = sizeof(int);
 }
 
+
+// The CPUID leaf 1 feature flags: ECX in the upper and EDX in the lower half.
+// On macOS this is a 64-bit value whose format string is "IU" (observed on
+// macOS 27 under Rosetta); there is no machdep.cpu.signature there.
+sysctl_handler(handle_feature_bits)
+{
+    if (!oldlen) return -EINVAL;
+    if (_new) return -EPERM;
+    sysctl_handle_size(sizeof(uint64_t));
+    setup(1);
+    __cpuid(level, eax, ebx, ecx, edx);
+    *(uint64_t*)old = ((uint64_t)ecx << 32) | edx;
+    return 0;
+}
 
 sysctl_handler(handle_vendor)
 {

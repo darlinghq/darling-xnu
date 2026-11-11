@@ -1,3 +1,4 @@
+#include <darling/emulation/common/string.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/proc_info.h>
 
 #define PRIVATE 1
@@ -7,6 +8,8 @@
 #include <mach/vm_prot.h>
 #include <stdbool.h>
 #include <sys/proc.h>
+#include <sys/resource.h>
+#include <sys/sysctl.h>
 #include <stddef.h>
 
 #include <darling/emulation/common/base.h>
@@ -22,6 +25,8 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/readlink.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/getuid.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/getgid.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/getpid.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/stat.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
@@ -37,8 +42,15 @@
 
 #define LINUX_PR_SET_NAME 15
 
+// glibc bits/confname.h, for native_sysconf()
+#define LINUX_SC_CLK_TCK 2
+#define LINUX_SC_PAGESIZE 30
+
 static long _proc_pidinfo(int32_t pid, uint32_t flavor, uint64_t arg, void* buffer, int32_t bufsize);
+static long _proc_pidinfo_pidrusage(int32_t pid, uint32_t flavor, void* buffer, int32_t bufsize);
+static long _proc_pidinfo_vnodepathinfo(int32_t pid, void* buffer, int32_t bufsize);
 static long _proc_pidfdinfo(int32_t pid, uint32_t flavor, int fd, void* buffer, int32_t bufsize);
+static long _proc_listpids(uint32_t type, uint32_t typeinfo, void* buffer, int32_t bufsize);
 
 extern __SIZE_TYPE__ strlen(const char *s);
 extern void *memset(void *s, int c, __SIZE_TYPE__ n);
@@ -47,6 +59,9 @@ extern char *strcpy(char *dest, const char *src);
 extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
 extern int strncmp (const char * str1, const char * str2, __SIZE_TYPE__ num);
 extern char *strchr(char *str, int character);
+extern void* malloc(__SIZE_TYPE__ len);
+extern void free(void* ptr);
+extern int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* buflen);
 
 long sys_proc_info(uint32_t callnum, int32_t pid, uint32_t flavor,
 		uint64_t arg, void* buffer, int32_t bufsize)
@@ -84,16 +99,101 @@ long sys_proc_info(uint32_t callnum, int32_t pid, uint32_t flavor,
 		}
 		case 8: // dirtycontrol
 			return 0;
+		case PROC_INFO_CALL_PIDRUSAGE: // 9: proc_pidrusage
+			return _proc_pidinfo_pidrusage(pid, flavor, buffer, bufsize);
 		case 2: // proc_pidinfo
 			return _proc_pidinfo(pid, flavor, arg, buffer, bufsize);
+		case 1: // proc_listpids
+			// `pid` carries the type, `flavor` the typeinfo (pgid, ppid, uid...)
+			return _proc_listpids(pid, flavor, buffer, bufsize);
 		case 3: // proc_pidfdinfo
 			return _proc_pidfdinfo(pid, flavor, (int) arg, buffer, bufsize);
-		case 1: // proc_listpids
 		default:
 			__simple_printf("sys_proc_info(): Unsupported callnum: %d\n",
 					callnum);
 			return -ENOTSUP;
 	}
+}
+
+// XNU's proc_listpids() (bsd/kern/proc_info.c), built on the /proc walk that
+// sysctl(KERN_PROC_*) does, so both see the same processes.
+static long _proc_listpids(uint32_t type, uint32_t typeinfo, void* buffer, int32_t bufsize)
+{
+	struct kinfo_proc* procs = NULL;
+	unsigned long len = 0;
+	int what, ret, tries, i, n;
+	uint32_t count = 0, maxpids;
+
+	// A NULL buffer asks for a size: XNU answers (nprocs + 20) pids for
+	// every type, so that a fill right after it is unlikely to come up short.
+	if (buffer == NULL)
+	{
+		ret = _sysctl_proc(KERN_PROC_ALL, 0, NULL, &len);
+		if (ret < 0)
+			return ret;
+		return (len / sizeof(struct kinfo_proc) + 20) * sizeof(int);
+	}
+
+	if ((uint32_t) bufsize < sizeof(int))
+		return -ENOMEM;
+	maxpids = (uint32_t) bufsize / sizeof(int);
+
+	switch (type)
+	{
+		case PROC_ALL_PIDS:
+		case PROC_PPID_ONLY: // filtered below; sysctl has no parent filter
+			what = KERN_PROC_ALL;
+			break;
+		case PROC_PGRP_ONLY:
+			what = KERN_PROC_PGRP;
+			break;
+		case PROC_TTY_ONLY:
+			what = KERN_PROC_TTY;
+			break;
+		case PROC_UID_ONLY:
+			what = KERN_PROC_UID;
+			break;
+		case PROC_RUID_ONLY:
+			what = KERN_PROC_RUID;
+			break;
+		default:
+			// PROC_KDBG_ONLY: no process is kdebug-enabled here. XNU matches
+			// nothing for unknown types either.
+			return 0;
+	}
+
+	// Processes may appear between the size query and the fill; retry.
+	for (tries = 0; ; tries++)
+	{
+		len = 0;
+		ret = _sysctl_proc(what, typeinfo, NULL, &len);
+		if (ret < 0)
+			return ret;
+		len += 20 * sizeof(struct kinfo_proc);
+		procs = (struct kinfo_proc*) malloc(len);
+		if (procs == NULL)
+			return -ENOMEM;
+		ret = _sysctl_proc(what, typeinfo, procs, &len);
+		if (ret != -ENOMEM || tries == 2)
+			break;
+		free(procs);
+	}
+	if (ret < 0)
+	{
+		free(procs);
+		return ret;
+	}
+
+	n = len / sizeof(struct kinfo_proc);
+	for (i = 0; i < n && count < maxpids; i++)
+	{
+		if (type == PROC_PPID_ONLY && procs[i].kp_eproc.e_ppid != (pid_t) typeinfo)
+			continue;
+		((int*) buffer)[count++] = procs[i].kp_proc.p_pid;
+	}
+
+	free(procs);
+	return count * sizeof(int);
 }
 
 static bool parse_smaps_firstline(
@@ -166,6 +266,10 @@ long _proc_pidinfo(int32_t pid, uint32_t flavor, uint64_t arg, void* buffer, int
 		{
 			return _proc_pidinfo_listthreads(pid, buffer, bufsize);
 		}
+		case PROC_PIDVNODEPATHINFO:
+		{
+			return _proc_pidinfo_vnodepathinfo(pid, buffer, bufsize);
+		}
 		default:
 		{
 			__simple_printf("sys_proc_info(): Unsupported pidinfo flavor: %d\n",
@@ -189,7 +293,7 @@ static long _proc_pidonfo_uniqinfo(int32_t pid, void* buffer, int32_t bufsize)
 	struct proc_uniqidentifierinfo* info = (struct proc_uniqidentifierinfo*) buffer;
 
 	if (bufsize < sizeof(*info))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	memset(buffer, 0, bufsize);
 
@@ -227,6 +331,11 @@ static long _proc_pidonfo_uniqinfo(int32_t pid, void* buffer, int32_t bufsize)
 	// Read info for ppid   //
 	//////////////////////////
 
+	if (ppid == 0) {
+		// A parent outside this PID namespace is reported as zero.
+		info->p_puniqueid = 0;
+		return sizeof(*info);
+	}
 	__simple_sprintf(path, "/proc/%d/stat", ppid);
 	if (!read_string(path, stat, sizeof(stat)))
 		return -ESRCH;
@@ -242,8 +351,12 @@ static long _proc_pidonfo_uniqinfo(int32_t pid, void* buffer, int32_t bufsize)
 	info->p_puniqueid = starttime << 16;
 	info->p_puniqueid |= (ppid & 0xffff);
 
+	// proc_pidinfo reports bytes copied, not a boolean success value.
+	return sizeof(*info);
+#else
+	// This variant does not populate the output structure.
+	return -ENOTSUP;
 #endif
-	return 1;
 }
 
 static long _proc_pidinfo_tbsdinfo(int32_t pid, void* buffer, int32_t bufsize)
@@ -251,7 +364,7 @@ static long _proc_pidinfo_tbsdinfo(int32_t pid, void* buffer, int32_t bufsize)
 	struct proc_bsdinfo* info = (struct proc_bsdinfo*) buffer;
 
 	if (bufsize < sizeof(*info))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	struct proc_bsdshortinfo shortinfo;
 	int err = _proc_pidinfo_shortbsdinfo(pid, &shortinfo, sizeof(shortinfo));
@@ -317,7 +430,7 @@ static long _proc_pidinfo_pidthreadinfo(int32_t pid, uint64_t thread_handle, voi
 
 	struct proc_threadinfo* info = (struct proc_threadinfo*) buffer;
 	if (bufsize < sizeof(*info))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	memset(buffer, 0, bufsize);
 
@@ -334,7 +447,7 @@ static long _proc_pidinfo_pidthreadinfo(int32_t pid, uint64_t thread_handle, voi
 	}
 
 	// TODO: Other proc_threadinfo fields
-	return 1;
+	return sizeof(*info);
 }
 
 static long _proc_pidinfo_shortbsdinfo(int32_t pid, void* buffer, int32_t bufsize)
@@ -347,7 +460,7 @@ static long _proc_pidinfo_shortbsdinfo(int32_t pid, void* buffer, int32_t bufsiz
 
 	struct proc_bsdshortinfo* info = (struct proc_bsdshortinfo*) buffer;
 	if (bufsize < sizeof(*info))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	memset(buffer, 0, bufsize);
 
@@ -411,7 +524,7 @@ static long _proc_pidinfo_shortbsdinfo(int32_t pid, void* buffer, int32_t bufsiz
 	if (is_64_bit)
 		info->pbsi_flags |= P_LP64;
 
-	return 1;
+	return sizeof(*info);
 reterr:
 	return -EINVAL;
 }
@@ -440,7 +553,7 @@ static long _proc_pidinfo_regionpathinfo(int32_t pid, uint64_t arg, void* buffer
 	if (!buffer)
 		return -EFAULT;
 	if (bufsize < sizeof(my_rpi))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	fd = _proc_pidinfo_regionpath_setup(pid, &buf);
 	if (fd < 0)
@@ -501,7 +614,7 @@ static long _proc_pidinfo_regionpath(int32_t pid, uint64_t arg, void* buffer, in
 	if (!buffer)
 		return -EFAULT;
 	if (buffer_size < sizeof(my_rp))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	fd = _proc_pidinfo_regionpath_setup(pid, &readline_buffer);
 	if (fd < 0)
@@ -755,7 +868,7 @@ static long _proc_pidinfo_taskinfo(int32_t pid, void* buffer, int32_t bufsize)
 	if (!buffer)
 		return -EFAULT;
 	if (bufsize < sizeof(struct proc_taskinfo))
-		return -ENOSPC;
+		return -ENOMEM;
 
 	char path[64], stat[1024];
 	char *statptr;
@@ -831,7 +944,7 @@ static long _proc_pidinfo_taskallinfo(int32_t pid, void* buffer, int32_t bufsize
 	if (!buffer)
 		return -EFAULT;
 	if (bufsize < sizeof(struct proc_taskallinfo))
-		return -ENOSPC;
+		return -ENOMEM;
 	
 	long err = _proc_pidinfo_tbsdinfo(pid, buffer + offsetof(struct proc_taskallinfo, pbsd), sizeof(struct proc_bsdinfo));
 	
@@ -914,3 +1027,178 @@ long sys_proc_info_extended_id(uint32_t callnum, int32_t pid, uint32_t flavor,
 	return sys_proc_info(callnum, pid, flavor, arg, buffer, bufsize);
 }
 
+static long _proc_pidinfo_pidrusage(int32_t pid, uint32_t flavor, void* buffer, int32_t bufsize)
+{
+	if (!buffer)
+		return -EFAULT;
+
+	size_t size;
+	switch (flavor)
+	{
+		case RUSAGE_INFO_V0:
+			size = sizeof(struct rusage_info_v0);
+			break;
+		case RUSAGE_INFO_V1:
+			size = sizeof(struct rusage_info_v1);
+			break;
+		case RUSAGE_INFO_V2:
+			size = sizeof(struct rusage_info_v2);
+			break;
+		case RUSAGE_INFO_V3:
+			size = sizeof(struct rusage_info_v3);
+			break;
+		case RUSAGE_INFO_V4:
+			size = sizeof(struct rusage_info_v4);
+			break;
+		case RUSAGE_INFO_V5:
+			size = sizeof(struct rusage_info_v5);
+			break;
+#ifdef RUSAGE_INFO_V6
+		case RUSAGE_INFO_V6:
+			size = sizeof(struct rusage_info_v6);
+			break;
+#endif
+		default:
+			return -EINVAL;
+	}
+
+	if (bufsize > 0 && (size_t)bufsize < size)
+		return -ENOSPC;
+
+	memset(buffer, 0, size);
+	struct rusage_info_v0* ri = (struct rusage_info_v0*) buffer;
+
+	char path[64], stat[1024];
+	char *statptr;
+	const char* elem;
+
+	if (pid <= 0)
+		pid = sys_getpid();
+
+	__simple_sprintf(path, "/proc/%d/stat", pid);
+	if (!read_string(path, stat, sizeof(stat)))
+		return -ESRCH;
+
+	statptr = stat;
+	skip_stat_elems(&statptr, 9); // skip until minflt
+	elem = next_stat_elem(&statptr);
+	if (!elem) return -EINVAL;
+
+	skip_stat_elems(&statptr, 1); // skip until majflt
+	elem = next_stat_elem(&statptr);
+	if (!elem) return -EINVAL;
+	uint64_t majflt = __simple_atoi(elem, NULL);
+
+	skip_stat_elems(&statptr, 1); // skip until utime
+	elem = next_stat_elem(&statptr);
+	if (!elem) return -EINVAL;
+	uint64_t utime = __simple_atoi(elem, NULL);
+
+	elem = next_stat_elem(&statptr); // stime
+	if (!elem) return -EINVAL;
+	uint64_t stime = __simple_atoi(elem, NULL);
+
+	// cutime, cstime, priority, nice, num_threads, itrealvalue, starttime
+	skip_stat_elems(&statptr, 7);
+	elem = next_stat_elem(&statptr); // vsize
+	elem = next_stat_elem(&statptr); // rss, in pages
+	if (!elem) return -EINVAL;
+	uint64_t rss = __simple_atoi(elem, NULL);
+
+	long ticks_per_sec = native_sysconf(LINUX_SC_CLK_TCK);
+	if (ticks_per_sec <= 0)
+		ticks_per_sec = 100;
+	long page_size = native_sysconf(LINUX_SC_PAGESIZE);
+	if (page_size <= 0)
+		page_size = 4096;
+
+	ri->ri_user_time = (utime * 1000000000ULL) / ticks_per_sec;
+	ri->ri_system_time = (stime * 1000000000ULL) / ticks_per_sec;
+	ri->ri_pageins = majflt;
+	ri->ri_resident_size = rss * page_size;
+	ri->ri_phys_footprint = rss * page_size;
+
+	return 0;
+}
+
+static long _proc_pidinfo_vnodepathinfo(int32_t pid, void* buffer, int32_t bufsize)
+{
+	if (!buffer)
+		return -EFAULT;
+	if (bufsize < sizeof(struct proc_vnodepathinfo))
+		return -ENOSPC;
+
+	struct proc_vnodepathinfo* info = (struct proc_vnodepathinfo*) buffer;
+	memset(info, 0, sizeof(*info));
+
+	if (pid <= 0)
+		pid = sys_getpid();
+
+	char linkpath[64];
+	char target[4096];
+	int ret;
+
+	// 1. CWD
+	__simple_sprintf(linkpath, "/proc/%d/cwd", pid);
+	ret = sys_readlink(linkpath, target, sizeof(target) - 1);
+	if (ret > 0)
+	{
+		target[ret] = '\0';
+		struct vchroot_unexpand_args unex;
+		strncpy(unex.path, target, sizeof(unex.path) - 1);
+		unex.path[sizeof(unex.path) - 1] = '\0';
+		if (vchroot_unexpand(&unex) == 0)
+			strncpy(info->pvi_cdir.vip_path, unex.path, sizeof(info->pvi_cdir.vip_path) - 1);
+		else
+			strncpy(info->pvi_cdir.vip_path, target, sizeof(info->pvi_cdir.vip_path) - 1);
+	}
+	else
+	{
+		strcpy(info->pvi_cdir.vip_path, "/");
+	}
+
+	info->pvi_cdir.vip_vi.vi_type = 2; // VDIR
+	darling_stat64_t st_cwd;
+	if (sys_stat64(info->pvi_cdir.vip_path, &st_cwd) == 0)
+	{
+		info->pvi_cdir.vip_vi.vi_stat.vst_dev = st_cwd.st_dev;
+		info->pvi_cdir.vip_vi.vi_stat.vst_mode = st_cwd.st_mode;
+		info->pvi_cdir.vip_vi.vi_stat.vst_ino = st_cwd.st_ino;
+		info->pvi_cdir.vip_vi.vi_stat.vst_uid = st_cwd.st_uid;
+		info->pvi_cdir.vip_vi.vi_stat.vst_gid = st_cwd.st_gid;
+		info->pvi_cdir.vip_vi.vi_stat.vst_size = st_cwd.st_size;
+	}
+
+	// 2. ROOT
+	__simple_sprintf(linkpath, "/proc/%d/root", pid);
+	ret = sys_readlink(linkpath, target, sizeof(target) - 1);
+	if (ret > 0)
+	{
+		target[ret] = '\0';
+		struct vchroot_unexpand_args unex;
+		strncpy(unex.path, target, sizeof(unex.path) - 1);
+		unex.path[sizeof(unex.path) - 1] = '\0';
+		if (vchroot_unexpand(&unex) == 0)
+			strncpy(info->pvi_rdir.vip_path, unex.path, sizeof(info->pvi_rdir.vip_path) - 1);
+		else
+			strncpy(info->pvi_rdir.vip_path, target, sizeof(info->pvi_rdir.vip_path) - 1);
+	}
+	else
+	{
+		strcpy(info->pvi_rdir.vip_path, "/");
+	}
+
+	info->pvi_rdir.vip_vi.vi_type = 2; // VDIR
+	darling_stat64_t st_root;
+	if (sys_stat64(info->pvi_rdir.vip_path, &st_root) == 0)
+	{
+		info->pvi_rdir.vip_vi.vi_stat.vst_dev = st_root.st_dev;
+		info->pvi_rdir.vip_vi.vi_stat.vst_mode = st_root.st_mode;
+		info->pvi_rdir.vip_vi.vi_stat.vst_ino = st_root.st_ino;
+		info->pvi_rdir.vip_vi.vi_stat.vst_uid = st_root.st_uid;
+		info->pvi_rdir.vip_vi.vi_stat.vst_gid = st_root.st_gid;
+		info->pvi_rdir.vip_vi.vi_stat.vst_size = st_root.st_size;
+	}
+
+	return sizeof(struct proc_vnodepathinfo);
+}

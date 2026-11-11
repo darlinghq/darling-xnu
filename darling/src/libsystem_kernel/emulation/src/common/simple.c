@@ -500,7 +500,7 @@ unsigned long long __simple_atoi16(const char* str, const char** endp)
 			value += *str - '0';
 		else if (*str >= 'a' && *str <= 'f')
 			value += 10 + (*str - 'a');
-		else if (*str >= 'A' && *str < 'F')
+		else if (*str >= 'A' && *str <= 'F')
 			value += 10 + (*str - 'A');
 
 		str++;
@@ -544,7 +544,7 @@ find_nl:
 		}
 
 		rd = sys_read_nocancel(fd, buf->buf + buf->used, sizeof(buf->buf) - buf->used);
-		if (rd == 0)
+		if (rd <= 0)
 		{
 			if (!buf->used)
 				return NULL;

@@ -37,7 +37,7 @@ long sys_statfs64(const char* path, struct bsd_statfs64* buf)
 	struct linux_statfs64 lbuf;
 
 	struct vchroot_expand_args vc;
-	vc.flags = 0;
+	vc.flags = VCHROOT_FOLLOW;
 	vc.dfd = get_perthread_wd();
 
 	strcpy(vc.path, path);

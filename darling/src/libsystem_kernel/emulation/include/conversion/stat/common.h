@@ -182,17 +182,10 @@ struct linux_statfs64
 	long f_spare[4];
 };
 
-struct stat;
-#if !defined(__aarch64__) && !defined(__arm64__)
-struct stat64;
-#endif
+#include <darling/emulation/conversion/stat/types.h>
 
 void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat);
-#if defined(__aarch64__) || defined(__arm64__)
-void stat_linux_to_bsd64(const struct linux_stat* lstat, struct stat* stat);
-#else
-void stat_linux_to_bsd64(const struct linux_stat* lstat, struct stat64* stat);
-#endif
+void stat_linux_to_bsd64(const struct linux_stat* lstat, darling_stat64_t* stat);
 void statfs_linux_to_bsd(const struct linux_statfs64* lstat, struct bsd_statfs* stat);
 void statfs_linux_to_bsd64(const struct linux_statfs64* lstat, struct bsd_statfs64* stat);
 
