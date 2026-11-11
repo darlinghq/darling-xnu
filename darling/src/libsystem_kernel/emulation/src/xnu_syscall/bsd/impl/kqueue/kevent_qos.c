@@ -129,6 +129,7 @@ long sys_kevent_qos(int	kq, const struct kevent_qos_s *changelist, int nchanges,
 		wq_kevent.sem = 0;
 		wq_kevent.events = eventlist;
 		wq_kevent.nevents = rv;
+		wq_kevent.capacity = nevents;
 
 		sys_workq_kernreturn(WQOPS_QUEUE_REQTHREAD_FOR_KEVENT, &wq_kevent, 1, 0);
 		

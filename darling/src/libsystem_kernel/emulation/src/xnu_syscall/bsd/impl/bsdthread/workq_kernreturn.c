@@ -5,6 +5,7 @@
 #include <sys/queue.h>
 #include <libsimple/lock.h>
 #include <pthread/tsd_private.h>
+#include <darling/emulation/common/tsd.h>
 
 #define __PTHREAD_EXPOSE_INTERNALS__ 1
 #include <pthread/priority_private.h>
@@ -27,7 +28,52 @@
 // much easier to include than libpthread's `internal.h`
 #include <darling/mldr/elfcalls/dthreads.h>
 
-#define WQ_MAX_THREADS	64
+/*
+ * Workqueue thread requests.
+ *
+ * libdispatch asks for worker threads with WQOPS_QUEUE_REQTHREADS (count in
+ * `affinity`, pthread priority in `prio`) and never retries a request, so a
+ * request must neither be dropped nor make the requesting thread wait for a
+ * worker to become free: on macOS the kernel queues it and services it later.
+ * Here every request is recorded as pending and then handed to an idle
+ * (parked) worker or to a newly created one as far as the limits allow. What
+ * cannot be serviced yet stays pending until a worker returns.
+ *
+ * Limits: constrained (non-overcommit) requests are serviced by at most
+ * WQ_MAX_CONSTRAINED workers at a time. Overcommit requests and kevent
+ * deliveries are not held back by that limit (a serial queue or an event must
+ * get a thread even if every constrained worker is blocked), only by
+ * WQ_MAX_THREADS running workers overall, the value macOS reports as
+ * kern.wq_max_threads.
+ *
+ * Invariants, all protected by workq_lock:
+ * - wq_running counts workers that have been given a request and have not
+ *   returned it yet (including threads still being created for one);
+ *   wq_running_constrained counts those whose request is constrained.
+ *   They are incremented when a request is taken (take_request_locked) and
+ *   decremented when the worker returns (WQOPS_THREAD_RETURN) or its thread
+ *   could not be created.
+ * - A worker on the parked list has no request. A waker removes it from the
+ *   list, stores the request in its parked_thread record and then sets
+ *   `state`; the parked worker only reads the record after seeing `state`
+ *   set, and takes the lock once more before it leaves (its record lives on
+ *   its own stack, which it is about to reuse), so the waker is done with the
+ *   record by then.
+ * - A request is in exactly one place: counted in wq_pending, linked on the
+ *   kevent list, or held by one worker.
+ *
+ * Each worker remembers the flags it was started with in the
+ * __PTK_DARLING_WORKQ_FLAGS TSD slot (to know which limit it counts against
+ * when it returns) and the kevent request it is servicing, if any, in
+ * __PTK_DARLING_WORKQ_KEVENT (so WQOPS_THREAD_KEVENT_RETURN completes the
+ * right one even with several deliveries in flight).
+ */
+#define WQ_MAX_CONSTRAINED	64
+#define WQ_MAX_THREADS		512
+
+// Idle workers exit after this many seconds without work.
+#define WQ_PARK_TIMEOUT		15
+
 
 #define WQOPS_QUEUE_ADD 1
 #define WQOPS_QUEUE_REMOVE 2
@@ -60,38 +106,41 @@
 
 #define WORKQ_EXIT_THREAD_NKEVENT (-1)
 
-static int workq_sem = WQ_MAX_THREADS; // max 64 threads in use
-static libsimple_lock_t workq_parked_lock = LIBSIMPLE_LOCK_INITIALIZER;
-// static int workq_parked_threads = 0; // num spawned, but unused threads
-static int workq_parked[WQ_MAX_THREADS];
-static int workq_parked_prio[WQ_MAX_THREADS];
-
-TAILQ_HEAD(tailhead, parked_thread) workq_parked_head = TAILQ_HEAD_INITIALIZER(workq_parked_head);
-
-struct parked_thread
-{
-	int sem, flags;
-	struct wq_kevent_data* event;
-	TAILQ_ENTRY(parked_thread) entries;
-};
-
-static void list_add(struct parked_thread* head, struct parked_thread* item);
-static void list_remove(struct parked_thread* head, struct parked_thread* item);
-
 struct timespec
 {
 	long tv_sec;
 	long tv_nsec;
 };
 
+#ifndef VARIANT_DYLD
 
-//void* __attribute__((weak)) __attribute__((visibility("default"))) pthread_getspecific(unsigned long key) { return NULL; }
-//int __attribute__((weak)) __attribute__((visibility("default"))) pthread_setspecific(unsigned long key, const void* value) { return 1; }
+struct parked_thread
+{
+	// 0 while parked; set to 1 (under workq_lock, after `flags` and `kevent`
+	// are filled in) when the thread is given a request. Futex word.
+	int state;
+	int flags;
+	struct wq_kevent_data* kevent;
+	TAILQ_ENTRY(parked_thread) entries;
+};
+
+static libsimple_lock_t workq_lock = LIBSIMPLE_LOCK_INITIALIZER;
+static TAILQ_HEAD(parked_head, parked_thread) workq_parked = TAILQ_HEAD_INITIALIZER(workq_parked);
+
+// Pending (not yet serviced) thread requests other than kevent deliveries,
+// counted per thread QoS (0-7) and overcommit bit: index qos * 2 + overcommit.
+#define WQ_BUCKETS 16
+static unsigned int wq_pending[WQ_BUCKETS];
+
+// Pending kevent deliveries, oldest first. Each wq_kevent_data belongs to a
+// thread blocked in kevent_qos() until its delivery has been returned.
+static struct wq_kevent_data* wq_kevent_head = NULL;
+static struct wq_kevent_data** wq_kevent_tail = &wq_kevent_head;
+
+static int wq_running = 0;
+static int wq_running_constrained = 0;
 
 static int priority_to_class(int prio);
-
-// This is horrible, but it may work
-static struct wq_kevent_data* wq_event_pending = NULL;
 
 static void rpc_guard(int fd) {
 	guard_entry_options_t options;
@@ -123,113 +172,317 @@ static int extract_wq_flags(int priority) {
 	return flags;
 };
 
+static int bucket_of(int flags)
+{
+	int qos = flags & WQ_FLAG_THREAD_PRIO_MASK;
+	if (qos > 7)
+		qos = 7;
+	return qos * 2 + ((flags & WQ_FLAG_THREAD_OVERCOMMIT) ? 1 : 0);
+}
+
+static int flags_of_bucket(int bucket)
+{
+	return WQ_FLAG_THREAD_NEWSPI | WQ_FLAG_THREAD_PRIO_QOS | (bucket / 2)
+		| ((bucket & 1) ? WQ_FLAG_THREAD_OVERCOMMIT : 0);
+}
+
+static bool is_constrained(int flags)
+{
+	return !(flags & (WQ_FLAG_THREAD_OVERCOMMIT | WQ_FLAG_THREAD_KEVENT));
+}
+
+// What a worker is to do next.
+struct wq_assignment
+{
+	int flags;
+	struct wq_kevent_data* kevent;
+};
+
+// Takes the most urgent pending request that the limits allow to run now and
+// counts it as running. Kevent deliveries come first (their requester is
+// blocked waiting), then the highest QoS, overcommit before constrained at
+// the same QoS. Called with workq_lock held.
+static bool take_request_locked(struct wq_assignment* out)
+{
+	if (wq_running >= WQ_MAX_THREADS)
+		return false;
+
+	if (wq_kevent_head != NULL)
+	{
+		struct wq_kevent_data* ev = wq_kevent_head;
+
+		wq_kevent_head = ev->next;
+		if (wq_kevent_head == NULL)
+			wq_kevent_tail = &wq_kevent_head;
+		ev->next = NULL;
+
+		out->flags = ev->flags;
+		out->kevent = ev;
+		wq_running++;
+		return true;
+	}
+
+	for (int bucket = WQ_BUCKETS - 1; bucket >= 0; bucket--)
+	{
+		int flags;
+
+		if (wq_pending[bucket] == 0)
+			continue;
+
+		flags = flags_of_bucket(bucket);
+		if (is_constrained(flags) && wq_running_constrained >= WQ_MAX_CONSTRAINED)
+			continue;
+
+		wq_pending[bucket]--;
+		out->flags = flags;
+		out->kevent = NULL;
+		wq_running++;
+		if (is_constrained(flags))
+			wq_running_constrained++;
+		return true;
+	}
+
+	return false;
+}
+
+// Undoes take_request_locked() for a request no thread could be created for:
+// the request goes back to the front of its queue. Called with workq_lock held.
+static void untake_request_locked(const struct wq_assignment* a)
+{
+	wq_running--;
+	if (is_constrained(a->flags))
+		wq_running_constrained--;
+
+	if (a->kevent != NULL)
+	{
+		a->kevent->next = wq_kevent_head;
+		if (wq_kevent_head == NULL)
+			wq_kevent_tail = &a->kevent->next;
+		wq_kevent_head = a->kevent;
+	}
+	else
+		wq_pending[bucket_of(a->flags)]++;
+}
+
+// Entry point of a newly created workqueue thread. For a kevent delivery,
+// `item` is the wq_kevent_data; everything else gets no item.
+static void workq_thread_start(void* self, int thread_port, void* stackaddr,
+		void* item, int flags, int nevents)
+{
+	struct wq_kevent_data* ev = NULL;
+
+	if (flags & WQ_FLAG_THREAD_KEVENT)
+	{
+		ev = (struct wq_kevent_data*) item;
+		item = ev->events;
+		nevents = ev->nevents;
+	}
+
+	_pthread_setspecific_direct(__PTK_DARLING_WORKQ_FLAGS, (uintptr_t) (flags & ~WQ_FLAG_THREAD_TSD_BASE_SET));
+	_pthread_setspecific_direct(__PTK_DARLING_WORKQ_KEVENT, (uintptr_t) ev);
+
+	wqueue_entry_point_wrapper(self, thread_port, stackaddr, item, flags, nevents);
+}
+
+static bool create_worker(const struct wq_assignment* a)
+{
+	void* pth = __darling_thread_create(512*1024, pthread_obj_size, workq_thread_start, 0,
+			(uintptr_t) a->kevent, a->flags, 0, &callbacks, NULL);
+	return pth != NULL;
+}
+
+// Hands pending requests to parked workers or to new threads while the
+// limits allow. Called with workq_lock held; drops it around thread creation.
+static void service_requests_locked(void)
+{
+	struct wq_assignment a;
+
+	while (take_request_locked(&a))
+	{
+		struct parked_thread* t = TAILQ_FIRST(&workq_parked);
+
+		if (t != NULL)
+		{
+			TAILQ_REMOVE(&workq_parked, t, entries);
+			t->flags = a.flags;
+			t->kevent = a.kevent;
+			__atomic_store_n(&t->state, 1, __ATOMIC_RELEASE);
+			// Woken while the lock is held: the thread takes the lock before
+			// it leaves, so `t` stays valid until we are done with it.
+			LINUX_SYSCALL(__NR_futex, &t->state, FUTEX_WAKE, 1, NULL, NULL, 0);
+			continue;
+		}
+
+		libsimple_lock_unlock(&workq_lock);
+		bool created = create_worker(&a);
+		libsimple_lock_lock(&workq_lock);
+
+		if (!created)
+		{
+			// Give the slot back. The request stays pending and is serviced
+			// as soon as a worker returns or another request comes in.
+			untake_request_locked(&a);
+			break;
+		}
+	}
+}
+
+static long queue_requests(int flags, int count, struct wq_kevent_data* ev)
+{
+	libsimple_lock_lock(&workq_lock);
+
+	if (ev != NULL)
+	{
+		ev->flags = flags | WQ_FLAG_THREAD_KEVENT;
+		ev->next = NULL;
+		*wq_kevent_tail = ev;
+		wq_kevent_tail = &ev->next;
+	}
+	else
+	{
+		unsigned int* pending = &wq_pending[bucket_of(flags)];
+
+		if (*pending > ~0u - (unsigned int) count)
+			*pending = ~0u;
+		else
+			*pending += count;
+	}
+
+	service_requests_locked();
+	libsimple_lock_unlock(&workq_lock);
+	return 0;
+}
+
+// Completes the kevent delivery the calling worker was servicing, if any.
+static void complete_kevent(struct kevent_qos_s* keventlist, int nkevents)
+{
+	struct wq_kevent_data* ev = (struct wq_kevent_data*) _pthread_getspecific_direct(__PTK_DARLING_WORKQ_KEVENT);
+
+	if (ev == NULL)
+		return;
+	_pthread_setspecific_direct(__PTK_DARLING_WORKQ_KEVENT, 0);
+
+	if (nkevents < 0)
+		nkevents = 0;
+	if (nkevents > ev->capacity)
+		nkevents = ev->capacity;
+	if (nkevents > 0 && keventlist != ev->events)
+		memmove(ev->events, keventlist, nkevents * sizeof(struct kevent_qos_s));
+	ev->nevents = nkevents;
+
+	// The requester returns (and `ev` goes away with its stack) once this
+	// is posted; nothing may touch `ev` afterwards.
+	sem_up(&ev->sem);
+}
+
+// Re-enters the workqueue entry point on this thread's own stack.
+static void __attribute__((noreturn)) resume_worker(int flags, struct wq_kevent_data* ev, bool terminating)
+{
+	int thread_self = _pthread_getspecific_direct(_PTHREAD_TSD_SLOT_MACH_THREAD_SELF);
+	dthread_t dthread = _pthread_getspecific_direct(_PTHREAD_TSD_SLOT_PTHREAD_SELF);
+
+	if (!terminating)
+	{
+		_pthread_setspecific_direct(__PTK_DARLING_WORKQ_FLAGS, (uintptr_t) flags);
+		_pthread_setspecific_direct(__PTK_DARLING_WORKQ_KEVENT, (uintptr_t) ev);
+	}
+
+	// `_pthread_wqthread` needs valid flags even when it is only told to
+	// exit (it derives the thread's priority from them).
+	wqueue_entry_point_asm_jump(dthread, thread_self, dthread->stackbottom,
+		(!terminating && ev != NULL) ? ev->events : NULL,
+		flags | WQ_FLAG_THREAD_REUSE,
+		terminating ? WORKQ_EXIT_THREAD_NKEVENT : (ev != NULL ? ev->nevents : 0)
+	);
+
+	__builtin_unreachable();
+}
+
+// The calling worker has finished its request: run the next pending one,
+// or park until one arrives, or exit after WQ_PARK_TIMEOUT idle seconds.
+static void __attribute__((noreturn)) worker_return(void)
+{
+	int my_flags = (int) (uintptr_t) _pthread_getspecific_direct(__PTK_DARLING_WORKQ_FLAGS);
+	struct wq_assignment next;
+	struct parked_thread me;
+	struct timespec ts = { WQ_PARK_TIMEOUT, 0 };
+
+	if (my_flags == 0)
+	{
+		// Not started by us: derive valid flags so the thread can at least
+		// exit cleanly through `_pthread_wqthread`.
+		my_flags = extract_wq_flags(_pthread_getspecific_direct(_PTHREAD_TSD_SLOT_PTHREAD_QOS_CLASS));
+		resume_worker(my_flags, NULL, true);
+	}
+
+	libsimple_lock_lock(&workq_lock);
+
+	wq_running--;
+	if (is_constrained(my_flags))
+		wq_running_constrained--;
+
+	// Our slot is free. If a request was waiting for one, this thread
+	// services it without parking; the others can only be waiting for the
+	// constrained limit, which only a returning worker frees.
+	if (take_request_locked(&next))
+	{
+		libsimple_lock_unlock(&workq_lock);
+		resume_worker(next.flags, next.kevent, false);
+	}
+
+	me.state = 0;
+	me.flags = 0;
+	me.kevent = NULL;
+	TAILQ_INSERT_HEAD(&workq_parked, &me, entries);
+
+	libsimple_lock_unlock(&workq_lock);
+
+	while (__atomic_load_n(&me.state, __ATOMIC_ACQUIRE) == 0)
+	{
+		long result = LINUX_SYSCALL(__NR_futex, &me.state, FUTEX_WAIT, 0, &ts, NULL, 0);
+
+		// Linux's ETIMEDOUT. EAGAIN means we were just woken, EINTR is a signal
+		// (which starts the timeout over; at worst the thread retires late).
+		if (result == -110)
+			break;
+	}
+
+	libsimple_lock_lock(&workq_lock);
+
+	if (me.state == 0)
+	{
+		// Timed out with nothing assigned: leave the pool.
+		TAILQ_REMOVE(&workq_parked, &me, entries);
+		libsimple_lock_unlock(&workq_lock);
+		resume_worker(my_flags & ~WQ_FLAG_THREAD_KEVENT, NULL, true);
+	}
+
+	// Assigned. The waker removed us from the list and holds no reference to
+	// `me` once it has dropped the lock, which it has since we got it.
+	next.flags = me.flags;
+	next.kevent = me.kevent;
+	libsimple_lock_unlock(&workq_lock);
+
+	resume_worker(next.flags, next.kevent, false);
+}
+
+#endif // !VARIANT_DYLD
+
 long sys_workq_kernreturn(int options, void* item, int affinity, int prio)
 {
 #ifndef VARIANT_DYLD
 	struct wq_kevent_data* wq_event = NULL;
-	
-	// __simple_printf("workq_kernreturn: 0x%x, %p, 0x%x, 0x%x\n", options, item, affinity, prio);
 
 	// item is only used with WQOPS_QUEUE_ADD
 	switch (options)
 	{
 		case WQOPS_THREAD_KEVENT_RETURN:
-		{
-			struct kevent_qos_s* keventlist = item;
-			int nkevents = affinity;
-			
-			// __simple_printf("kevent return, obj=%p, nkevents=%d\n", wq_event, nkevents);
-
-			if (wq_event_pending != NULL)
-			{
-				int* sem;
-				if (nkevents > 0)
-					memmove(wq_event_pending->events, keventlist, nkevents * sizeof(struct kevent_qos_s));
-				wq_event_pending->nevents = nkevents;
-
-				sem = &wq_event_pending->sem;
-				wq_event_pending = NULL;
-				sem_up(sem);
-			}
-			else
-				__simple_printf("wq_event is NULL, something is going to get stuck forever\n");
-		}
+			complete_kevent((struct kevent_qos_s*) item, affinity);
+			// fall through
 		case WQOPS_THREAD_RETURN:
-		{
-			// Signalizes that the thread has completed its job
-			// and can be either recycled or terminated
-
-			int thread_self;
-			struct parked_thread me;
-			dthread_t dthread;
-			bool terminating = false;
-
-			libsimple_lock_lock(&workq_parked_lock);
-
-			// Semaphore locked state (wait for wakeup)
-			me.sem = 0;
-
-			// extract initial flags
-			// (in case we only get created and used once and then terminate; `_pthread_wqthread` requires a valid `flags` argument)
-			dthread = _pthread_getspecific_direct(_PTHREAD_TSD_SLOT_PTHREAD_SELF);
-			prio = _pthread_getspecific_direct(_PTHREAD_TSD_SLOT_PTHREAD_QOS_CLASS);
-			// doesn't extract `WQ_FLAG_THREAD_KEVENT` if we had it set, but that shouldn't matter
-			// like i said before, the only case where we actually need these flags to be set here is when the thread is going to die immediately after creation
-			me.flags = extract_wq_flags(prio);
-
-			// Enqueue for future WQOPS_QUEUE_REQTHREADS
-			TAILQ_INSERT_HEAD(&workq_parked_head, &me, entries);
-
-			// Decrease the amount of running threads
-			sem_up(&workq_sem);
-
-			libsimple_lock_unlock(&workq_parked_lock);
-
-			// Wait until someone calls WQOPS_QUEUE_REQTHREADS
-			// and wakes us up
-			if (!sem_down(&me.sem, 15))
-			{
-				// Make sure we haven't just been woken up before locking the queue
-				// and remove us from the queue if not.
-				libsimple_lock_lock(&workq_parked_lock);
-	
-				if (me.sem > 0)
-				{
-					libsimple_lock_unlock(&workq_parked_lock);
-					goto wakeup;
-				}
-
-				TAILQ_REMOVE(&workq_parked_head, &me, entries);
-
-				libsimple_lock_unlock(&workq_parked_lock);
-
-				terminating = true;
-
-				// resume the thread; it'll call `_pthread_wqthread_exit` and kill itself
-				goto resume_thread;
-			}
-
-wakeup: // we actually want to go back into the thread to do work
-			// __simple_printf("Thread %d woken up, prio=%d\n", thread_self, me.flags & WQ_FLAG_THREAD_PRIOMASK);
-
-			if (me.event)
-				wq_event_pending = me.event;
-
-resume_thread: // we want the thread to resume, but it might be just to die
-			// reset stack and call entry point again with WQ_FLAG_THREAD_REUSE
-			thread_self = _pthread_getspecific_direct(_PTHREAD_TSD_SLOT_MACH_THREAD_SELF);
-			dthread = _pthread_getspecific_direct(_PTHREAD_TSD_SLOT_PTHREAD_SELF);
-
-			wqueue_entry_point_asm_jump(dthread, thread_self, dthread->stackbottom, 
-				(!terminating && me.event) ? me.event->events : NULL, 
-				me.flags | WQ_FLAG_THREAD_REUSE,
-				terminating ? WORKQ_EXIT_THREAD_NKEVENT : (me.event ? me.event->nevents : 0)
-			);
-			
-			__builtin_unreachable();
-
-			return 0;
-		}
+			// The thread has completed its job and can be either recycled
+			// or terminated.
+			worker_return();
 		case WQOPS_SET_EVENT_MANAGER_PRIORITY:
 		case WQOPS_QUEUE_NEWSPISUPP:
 			return 0;
@@ -242,60 +495,11 @@ resume_thread: // we want the thread to resume, but it might be just to die
 		case WQOPS_QUEUE_REQTHREADS:
 		{
 			// affinity contains thread count
+			if (affinity <= 0)
+				return 0;
 
-			int i, flags = extract_wq_flags(prio);
-
-			if (wq_event != NULL)
-				flags |= WQ_FLAG_THREAD_KEVENT;
-			
-			// __simple_printf("Thread requested with prio %d\n", prio & WQ_FLAG_THREAD_PRIOMASK);
-
-			for (i = 0; i < affinity; i++)
-			{
-				// Increase the amount of running threads
-				sem_down(&workq_sem, -1);
-
-				libsimple_lock_lock(&workq_parked_lock);
-
-				if (workq_parked_head.tqh_first != NULL)
-				{
-					struct parked_thread* thread;
-
-					thread = workq_parked_head.tqh_first;
-
-					// Resume an existing thread
-					// __simple_printf("Resuming thread %d\n", id);
-
-					thread->flags = flags;
-					thread->event = wq_event;
-
-					// Dequeue
-					TAILQ_REMOVE(&workq_parked_head, thread, entries);
-
-					// Resume the thread
-					sem_up(&thread->sem);
-					libsimple_lock_unlock(&workq_parked_lock);
-
-					continue;
-				}
-
-				libsimple_lock_unlock(&workq_parked_lock);
-
-				// __simple_printf("Spawning a new thread, nevents=%d\n", (wq_event != NULL) ? wq_event->nevents : -1);
-				wq_event_pending = wq_event;
-
-				__darling_thread_create(512*1024, pthread_obj_size, wqueue_entry_point_wrapper, 0,
-						(wq_event != NULL) ? wq_event->events : NULL, flags,
-						(wq_event != NULL) ? wq_event->nevents : 0,
-						&callbacks, NULL);
-
-				/*if (ret < 0)
-				{
-					__simple_printf("Failed to spawn a new thread, err %d\n", -ret);
-					return ret;
-				}*/
-			}
-			return 0;
+			// Never waits for a worker: what cannot run now stays pending.
+			return queue_requests(extract_wq_flags(prio), affinity, wq_event);
 		}
 		case WQOPS_SETUP_DISPATCH: {
 			// TODO: actually do something with the info passed in
