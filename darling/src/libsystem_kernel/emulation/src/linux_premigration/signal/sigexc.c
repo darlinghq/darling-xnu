@@ -19,6 +19,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/kill.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/pthread_canceled.h>
+#include <darling/emulation/common/tsd.h>
 
 #include <darlingserver/rpc.h>
 
@@ -176,6 +177,7 @@ static void cancel_interrupted_syscall(struct linux_ucontext* ctxt)
 
 void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
+
 	int status = dserver_rpc_interrupt_enter();
 
 	if (status != 0) {
@@ -445,10 +447,78 @@ static void handle_signal_without_server(int linux_signum, struct linux_siginfo*
 
 void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
+	// Re-entrancy guard. The first thing this handler does is enter a server RPC,
+	// which takes duct-tape mutexes. A thread running inside a signal handler has
+	// no registered dtape thread, so dtape_mutex_lock takes its fallback path
+	// (duct-tape/src/locks.c) and spins waiting for an owner to drop the lock. If
+	// anything inside the handler faults, the kernel reinvokes the handler, which
+	// spins again - and with both threads in that state the spin never ends.
+	//
+	// That was observed turning a single guest SIGSEGV into ~30 nested handler
+	// entries and ~3000 "Trying to lock mutex without an active thread!"
+	// warnings across two threads, which destroyed the original crash's stack: the
+	// cores only ever showed the signal trampoline.
+	//
+	// One entry per thread is allowed. A fault while already inside the handler
+	// cannot be reported through the same path, so kill the thread outright: the
+	// process still dies, but the core describes the first fault instead of the
+	// livelock.
+	//
+	// Only for signals that are themselves a fault. A benign re-entry - a SIGWINCH
+	// delivered while the handler is already running, which happens during normal
+	// startup - must not take the thread down with it.
+	// Compiler TLS requires __tlv_bootstrap, which is unavailable in the
+	// static dyld variant. Direct TSD is already initialized for signal delivery.
+	int in_sigexc_handler_signal = (int)(uintptr_t)
+			_pthread_getspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL);
+
+	if (in_sigexc_handler_signal) {
+		bool nested_is_fault =
+				linux_signum == LINUX_SIGSEGV || linux_signum == LINUX_SIGBUS ||
+				linux_signum == LINUX_SIGILL || linux_signum == LINUX_SIGFPE ||
+				linux_signum == LINUX_SIGSYS || linux_signum == LINUX_SIGTRAP;
+
+		if (nested_is_fault) {
+			kern_printf("sigexc: fault (%d) inside the handler for signal %d, killing this thread\n",
+					linux_signum, in_sigexc_handler_signal);
+
+			// Report where it faulted before killing the thread. Without this the
+			// register state is lost with the process and the nested fault - the
+			// one that actually matters - stays as invisible as it was before the
+			// guard existed. The usual dump further down is never reached, because
+			// that path would block on the same RPC that faulted.
+#if defined(__x86_64__)
+			if (ctxt)
+				kern_printf("sigexc: nested fault at RIP 0x%llx\n",
+					(unsigned long long)ctxt->uc_mcontext.gregs.rip);
+#elif defined(__aarch64__) || defined(__arm64__)
+			if (ctxt)
+				kern_printf("sigexc: nested fault at PC 0x%llx, fault_addr 0x%llx, SP 0x%llx\n",
+					(unsigned long long)ctxt->uc_mcontext.gregs.pc,
+					(unsigned long long)ctxt->uc_mcontext.gregs.fault_address,
+					(unsigned long long)ctxt->uc_mcontext.gregs.sp);
+#elif defined(__i386__)
+			if (ctxt)
+				kern_printf("sigexc: nested fault at EIP 0x%llx\n",
+					(unsigned long long)ctxt->uc_mcontext.gregs.eip);
+#endif
+
+			LINUX_SYSCALL(__NR_exit_group, 128 + LINUX_SIGKILL);
+			// exit_group does not return.
+		}
+
+		// Not a fault: fall through and let the nested signal be handled.
+	} else {
+		_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
+				(void*)(uintptr_t)linux_signum);
+	}
+
 	int status = dserver_rpc_interrupt_enter();
 
 	if (status != 0) {
 		handle_signal_without_server(linux_signum, info, ctxt);
+		_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
+				(void*)(uintptr_t)in_sigexc_handler_signal);
 		return;
 	}
 
@@ -493,7 +563,14 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 #endif
 
 	state_to_kernel(ctxt, &tstate, &fstate);
-	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, info->si_pid, info->si_code, info->si_addr, &tstate, &fstate, &bsd_signum);
+
+	// info is NULL for signals the kernel raises itself rather than delivering
+	// from another process, so its fields cannot be read unconditionally.
+	int sig_pid = info ? info->si_pid : 0;
+	int sig_code = info ? info->si_code : 0;
+	unsigned long long sig_addr = info ? (unsigned long long) info->si_addr : 0;
+
+	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, sig_pid, sig_code, (void *) sig_addr, &tstate, &fstate, &bsd_signum);
 	if (ret < 0) {
 #if defined(__x86_64__)
 		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d in PID %d (RIP 0x%llx)\n", linux_signum, ret, getpid(), (unsigned long long)ctxt->uc_mcontext.gregs.rip);
@@ -531,7 +608,18 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 			LINUX_SYSCALL(__NR_rt_sigprocmask, 2 /* LINUX_SIG_SETMASK */,
 				&set, NULL, sizeof(linux_sigset_t));
 
+			// The guard covers only Darling's own handler code. The
+			// application's handler may fault on purpose (and handle that
+			// fault with its own SIGSEGV handler), as it can on macOS, so
+			// lift the guard while it runs and put it back afterwards.
+			int guard_signal = (int)(uintptr_t)
+					_pthread_getspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL);
+			_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL, (void*)0);
+
 			handler_linux_to_bsd(linux_signum, info, ctxt);
+
+			_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
+					(void*)(uintptr_t)guard_signal);
 		}
 		else
 		{
@@ -578,6 +666,10 @@ out:
 		__simple_printf("*** dserver_rpc_interrupt_exit failed with code %d ***\n", status);
 		__simple_abort();
 	}
+
+	// Clear the outermost guard, retaining it when a benign nested signal returns.
+	_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
+			(void*)(uintptr_t)in_sigexc_handler_signal);
 }
 
 #define DUMPREG(regname) kern_printf("sigexc:   " #regname ": 0x%llx\n", regs->regname);
