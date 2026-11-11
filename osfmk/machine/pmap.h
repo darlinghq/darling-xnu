@@ -30,7 +30,8 @@
 
 #if defined (__x86_64__) || defined (__i386__)
 #include "i386/pmap.h"
-#elif defined (__arm__) || defined (__arm64__)
+/* DARLING: also accept __aarch64__, the arm64 spelling of Linux compilers */
+#elif defined (__arm__) || defined (__arm64__) || defined (__aarch64__)
 #include "arm/pmap.h"
 #else
 #error architecture not supported

@@ -599,7 +599,9 @@
 #define __DARWIN_ONLY_UNIX_CONFORMANCE  1
 #define __DARWIN_ONLY_VERS_1050         1
 #endif /* PLATFORM_DriverKit */
-#ifdef PLATFORM_MacOSX
+/* DARLING: SDK consumers don't pass -DPLATFORM_<name> like Darling's own build does; without a platform
+ * the conformance macros stayed undefined and arm64 code got i386-era $UNIX2003 aliases. Default to macOS. */
+#if defined(PLATFORM_MacOSX) || !defined(__DARWIN_ONLY_UNIX_CONFORMANCE)
 /* Platform: MacOSX */
 #if defined(__i386__)
 #define __DARWIN_ONLY_64_BIT_INO_T      0
