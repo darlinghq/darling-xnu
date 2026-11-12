@@ -18,6 +18,11 @@
 #define BSD_AT_REMOVEDIR_DATALESS		0x100
 #define BSD_AT_REALDEV 			0x200
 #define BSD_AT_FDONLY			0x400
+// newer XNU flags (sys/fcntl.h of current SDKs)
+#define BSD_AT_SYMLINK_NOFOLLOW_ANY	0x800
+#define BSD_AT_RESOLVE_BENEATH		0x2000
+#define BSD_AT_NODELETEBUSY		0x4000
+#define BSD_AT_UNIQUE			0x8000
 
 int atflags_bsd_to_linux(int flags);
 

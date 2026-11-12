@@ -63,7 +63,7 @@ long sys_fchmodat(int fd, const char* path, int mode, int flag)
 	struct vchroot_expand_args vc;
 	int linux_flags;
 
-	vc.flags = (flag & BSD_AT_SYMLINK_NOFOLLOW) ? 0 : VCHROOT_FOLLOW;;
+	vc.flags = (flag & (BSD_AT_SYMLINK_NOFOLLOW | BSD_AT_SYMLINK_NOFOLLOW_ANY)) ? 0 : VCHROOT_FOLLOW;;
 	vc.dfd = atfd(fd);
 
 	strcpy(vc.path, path);
