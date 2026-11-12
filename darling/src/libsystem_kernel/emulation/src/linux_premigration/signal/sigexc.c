@@ -409,6 +409,8 @@ static void sigexc_kqueue_notify(int linux_signum)
 	__atomic_sub_fetch(&kqueue_notifiers, 1, __ATOMIC_ACQ_REL);
 }
 
+#define SIGEXC_SI_TKILL (-6)
+
 // The signal arrived on a thread that cannot talk to darlingserver: one that
 // was not created as a Darwin thread (it never had a connection), or any
 // thread once the server is gone. The signal cannot be processed here.
@@ -419,12 +421,24 @@ static void handle_signal_without_server(int linux_signum, struct linux_siginfo*
 
 	// A signal sent to the process may be handled by any of its threads.
 	// Keep it blocked on this thread once the handler returns and send it to
-	// the process again with its siginfo, so that a thread that can process
-	// it takes it (or it stays pending until one can).
+	// the process again, so that a thread that can process it takes it (or it
+	// stays pending until one can). A signal sent to this very thread cannot
+	// be processed here either, so it is passed on to the process the same way.
 	if (!is_thread_fault(linux_signum, info) && tid != pid && info != NULL && ctxt != NULL)
 	{
+		long requeued;
+
 		ctxt->uc_sigmask |= (1ull << (linux_signum - 1));
-		if (LINUX_SYSCALL(__NR_rt_sigqueueinfo, pid, linux_signum, info) == 0)
+
+		// The kernel lets a thread other than the main one use rt_sigqueueinfo() only for signals
+		// that carry data (sigqueue(), timers, ...): it refuses the siginfo of kill() and tgkill()
+		// (SI_USER and SI_TKILL), which have to be sent again with kill().
+		if (info->si_code < 0 && info->si_code != SIGEXC_SI_TKILL)
+			requeued = LINUX_SYSCALL(__NR_rt_sigqueueinfo, pid, linux_signum, info);
+		else
+			requeued = LINUX_SYSCALL(__NR_kill, pid, linux_signum);
+
+		if (requeued == 0)
 			return;
 		ctxt->uc_sigmask &= ~(1ull << (linux_signum - 1));
 	}
