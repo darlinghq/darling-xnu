@@ -73,6 +73,7 @@ set(linux_premigration_sources
 	src/linux_premigration/ext/epoll_wait.c
 	src/linux_premigration/ext/eventfd.c
 	src/linux_premigration/ext/eventfd_read.c
+	src/linux_premigration/ext/darling-nanosleep.c
 	src/linux_premigration/ext/eventfd_write.c
 	src/linux_premigration/ext/fanotify.c
 	src/linux_premigration/ext/file_handle.c

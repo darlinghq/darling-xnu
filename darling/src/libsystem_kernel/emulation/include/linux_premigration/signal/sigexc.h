@@ -22,6 +22,12 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 int sigexc_kqueue_watch(int linux_signum, int fd);
 void sigexc_kqueue_unwatch(int linux_signum, int fd);
 
+// How many guest signal handlers the calling thread has run so far. A blocking Linux syscall that
+// returns EINTR was interrupted by a signal the guest sees only if this changed over the call; other
+// interruptions (signals that are ignored or dropped, darlingserver's own) are not visible to the guest.
+// Only valid once libpthread has registered (bsdthread_registered()).
+unsigned long sigexc_handlers_run(void);
+
 void sigexc_thread_setup(void);
 void sigexc_thread_exit(void);
 
