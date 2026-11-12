@@ -18,7 +18,11 @@ long sys_faccessat(int fd, const char* filename, int amode, int flag)
 	struct vchroot_expand_args vc;
 	int linux_flags;
 
-	vc.flags = (flag & BSD_AT_SYMLINK_NOFOLLOW) ? 0 : VCHROOT_FOLLOW;
+	// XNU reports a bad path pointer as EFAULT (Darwin's libsystem calls access(NULL, 0))
+	if (filename == 0)
+		return -EFAULT;
+
+	vc.flags = (flag & (BSD_AT_SYMLINK_NOFOLLOW | BSD_AT_SYMLINK_NOFOLLOW_ANY)) ? 0 : VCHROOT_FOLLOW;
 	vc.dfd = atfd(fd);
 
 	strcpy(vc.path, filename);
