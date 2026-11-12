@@ -36,6 +36,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/kqueue/kqueue.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/abort_with_payload.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/mremap_encrypted.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/mach/mach_eventlink.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/clonefile.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/csops.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/csrctl.h>
@@ -452,6 +453,9 @@ void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[381] = sys___mac_syscall,
 	[480] = sys_recvmsg_x,
 	[481] = sys_sendmsg_x,
+	[496] = sys_mach_eventlink_signal,
+	[497] = sys_mach_eventlink_wait_until,
+	[498] = sys_mach_eventlink_signal_wait_until,
 	[394] = sys_pselect,
 	[395] = sys_pselect_nocancel,
 	[396] = sys_read_nocancel,

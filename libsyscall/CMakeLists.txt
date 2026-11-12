@@ -47,6 +47,7 @@ set(LIBSYSCALL_MIGS
 	mach/thread_act
 	mach/vm_map
 	mach/mach_vm
+	mach/mach_eventlink
 )
 
 set(LIBSYSCALL_MIGS_INTERNAL
