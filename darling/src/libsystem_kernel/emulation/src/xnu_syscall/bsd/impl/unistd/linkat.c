@@ -12,6 +12,7 @@
 #include <darling/emulation/conversion/stat/common.h>
 #include <stdbool.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/host_platform.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/link_copy.h>
 #include <stddef.h>
 
 extern char* strcpy(char* dst, const char* src);
@@ -21,8 +22,7 @@ static int copy_for_link(int dfd, const char* path, int dfdlink, const char* lin
 	struct linux_stat st;
 	int from, to, ret;
 
-	from = LINUX_SYSCALL(__NR_openat, dfd, path, LINUX_O_RDONLY | LINUX_O_CLOEXEC
-		| ((linux_flags & LINUX_AT_SYMLINK_FOLLOW) ? 0 : LINUX_O_NOFOLLOW));
+	from = LINUX_SYSCALL(__NR_openat, dfd, path, link_copy_source_flags(linux_flags));
 	if (from < 0)
 		return from;
 	ret = LINUX_SYSCALL(__NR_fstat, from, &st);
@@ -33,7 +33,7 @@ static int copy_for_link(int dfd, const char* path, int dfdlink, const char* lin
 		return ret;
 	}
 	to = LINUX_SYSCALL(__NR_openat, dfdlink, link, LINUX_O_WRONLY | LINUX_O_CREAT | LINUX_O_EXCL | LINUX_O_CLOEXEC,
-		st.st_mode & 07777);
+		link_copy_mode(st.st_mode));
 	if (to < 0) {
 		LINUX_SYSCALL(__NR_close, from);
 		return to;
