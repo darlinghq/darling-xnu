@@ -8,14 +8,16 @@
 
 // The CPU time the calling thread has consumed, in mach absolute time units.
 // Those are nanoseconds here (mach_timebase_info reports 1/1). The call cannot
-// fail; if the clock is unavailable the usage reads as zero.
+// fail; if the clock is unavailable the usage reads as zero. The result is 64
+// bits wide, so it is returned as long long: 32-bit callers get it in %edx:%eax,
+// as with lseek.
 VISIBLE // made visible for xtrace
-long sys_thread_selfusage(void)
+long long sys_thread_selfusage(void)
 {
 	struct { long tv_sec; long tv_nsec; } ts;
 
 	if (LINUX_SYSCALL(__NR_clock_gettime, LINUX_CLOCK_THREAD_CPUTIME_ID, &ts) < 0)
 		return 0;
 
-	return ts.tv_sec * 1000000000L + ts.tv_nsec;
+	return (long long) ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
