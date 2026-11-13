@@ -58,6 +58,10 @@ long sys_fork(void)
 		psynch_inproc_postfork_child(&psynch_sigmask);
 		mach_sq_postfork_child();
 
+		// Reset mldr's locks before the guard table closes the parent's descriptors through
+		// its socket bitmap (the raw syscall path does not run the host's atfork handlers).
+		__darling_elf_postfork_child();
+
 		// the old RPC FD will be closed in `guard_table_postfork_child`;
 		// we don't need to close it ourselves.
 		// that should also take care of closing descriptors for any other threads.
