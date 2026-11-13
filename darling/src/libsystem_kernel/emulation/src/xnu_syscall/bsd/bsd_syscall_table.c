@@ -238,6 +238,8 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/xattr/setattrlistat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/xattr/setxattr.h>
 
+long sys_process_policy(int scope, int action, int policy, int subtype, void* attrp, int pid, unsigned long long tid);
+
 void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[0] = sys_syscall,
 	[1] = sys_exit,
@@ -426,6 +428,7 @@ void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[319] = sys_aio_write,
 	[320] = sys_lio_listio,
 	[322] = sys_iopolicysys,
+	[323] = sys_process_policy,
 	[327] = sys_issetugid,
 	[328] = sys_pthread_kill,
 	[329] = sys_sigprocmask, // __pthread_sigmask
