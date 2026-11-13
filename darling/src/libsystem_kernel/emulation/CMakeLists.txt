@@ -192,6 +192,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/misc/syscall.c
 	src/xnu_syscall/bsd/impl/misc/sysctl.c
 	src/xnu_syscall/bsd/impl/misc/thread_selfid.c
+	src/xnu_syscall/bsd/impl/misc/thread_selfusage.c
 	src/xnu_syscall/bsd/impl/mman/madvise.c
 	src/xnu_syscall/bsd/impl/mman/mman.c
 	src/xnu_syscall/bsd/impl/mman/msync.c
