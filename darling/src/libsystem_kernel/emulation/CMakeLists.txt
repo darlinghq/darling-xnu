@@ -228,6 +228,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/process/fork.c
 	src/xnu_syscall/bsd/impl/process/getpriority.c
 	src/xnu_syscall/bsd/impl/process/posix_spawn.c
+	src/xnu_syscall/bsd/impl/process/process_policy.c
 	src/xnu_syscall/bsd/impl/process/setpriority.c
 	src/xnu_syscall/bsd/impl/process/task_inspect_for_pid.c
 	src/xnu_syscall/bsd/impl/process/task_read_for_pid.c
