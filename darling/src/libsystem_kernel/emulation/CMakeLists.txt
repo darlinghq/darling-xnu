@@ -175,6 +175,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/misc/csrctl.c
 	src/xnu_syscall/bsd/impl/misc/fileport_makefd.c
 	src/xnu_syscall/bsd/impl/misc/fileport_makeport.c
+	src/xnu_syscall/bsd/impl/misc/fsctl.c
 	src/xnu_syscall/bsd/impl/misc/fsgetpath.c
 	src/xnu_syscall/bsd/impl/misc/getentropy.c
 	src/xnu_syscall/bsd/impl/misc/gethostuuid.c
