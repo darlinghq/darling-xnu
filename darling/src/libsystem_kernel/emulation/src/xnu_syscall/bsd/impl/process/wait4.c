@@ -5,6 +5,7 @@
 
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/duct_errno.h>
 #include <darling/emulation/conversion/process/wait4.h>
 #include <darling/emulation/conversion/signal/duct_signals.h>
 #include <darling/emulation/linux_premigration/signal/sigexc.h>
@@ -34,6 +35,14 @@ long sys_wait4_nocancel(int pid, int* status, int options, void* rusage)
 
 restart:
 	ret = LINUX_SYSCALL(__NR_wait4, pid, status, linux_options, rusage);
+	if (ret == -LINUX_ECHILD)
+	{
+		// A process this one attached to with ptrace is not a Linux child,
+		// but XNU lets the tracer wait for it.
+		ret = ptrace_wait_tracee(pid, status, options & BSD_WNOHANG);
+		if (ret == 0)
+			return 0;
+	}
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
