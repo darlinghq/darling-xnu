@@ -36,6 +36,10 @@ LEAF(___syscall, 0)
 	popl	%eax		// syscall number
 	pushl	%ecx
 	UNIX_SYSCALL_TRAP
+#ifdef DARLING
+	// Darling dispatcher returns raw -errno, not a reliable CF.
+	DARLING_SYSCALL_RESULT_TO_CF
+#endif
 	movl	(%esp),%edx	// add one element to stack so
 #ifdef DARLING
 	// Pushing ecx will cause a i386 process

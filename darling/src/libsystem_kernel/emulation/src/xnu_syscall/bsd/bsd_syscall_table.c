@@ -231,7 +231,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/xattr/setattrlistat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/xattr/setxattr.h>
 
-void* __bsd_syscall_table[600] = {
+void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[0] = sys_syscall,
 	[1] = sys_exit,
 	[2] = sys_fork,

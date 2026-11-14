@@ -67,6 +67,9 @@ LABEL(__sysenter_trap)
 _i386_get_ldt:
 	movl    $6,%eax
 	MACHDEP_SYSCALL_TRAP
+#ifdef DARLING
+	DARLING_SYSCALL_RESULT_TO_CF
+#endif
 	jnb		2f
 	jmp		tramp_cerror
 2:	ret
@@ -77,6 +80,9 @@ _i386_get_ldt:
 _i386_set_ldt:
 	movl    $5,%eax
 	MACHDEP_SYSCALL_TRAP
+#ifdef DARLING
+	DARLING_SYSCALL_RESULT_TO_CF
+#endif
 	jnb		2f
 	jmp		tramp_cerror
 2:	ret
