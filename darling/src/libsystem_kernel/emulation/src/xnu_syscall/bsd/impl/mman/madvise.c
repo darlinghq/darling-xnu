@@ -93,9 +93,31 @@ static int range_mapped(unsigned long start, unsigned long len)
 	return 1;
 }
 
+// madvise() on macOS takes any address and length: the range is widened to
+// whole pages (the start rounded down, the end rounded up) instead of being
+// rejected as Linux does for an unaligned start, and a zero length is a no-op.
+static void round_to_pages(void** addr, unsigned long* len)
+{
+	unsigned long start = (unsigned long) *addr;
+	unsigned long end = start + *len;
+	unsigned long rounded_end = (end + 4095) & ~4095UL;
+
+	if (*len == 0 || end < start || rounded_end < end)
+		return;
+
+	start &= ~4095UL;
+	*addr = (void*) start;
+	*len = rounded_end - start;
+}
+
 long sys_madvise(void* addr, unsigned long len, int advice)
 {
 	int ret;
+
+	// Observed on macOS 26 (x86_64; see madvise_rounding.c): an
+	// unaligned address succeeds for the reuse, reusable, free and
+	// willneed hints.
+	round_to_pages(&addr, &len);
 
 	if (advice == MADV_FREE_REUSE)
 	{
@@ -105,8 +127,13 @@ long sys_madvise(void* addr, unsigned long len, int advice)
 		if (!populate_write_supported())
 			return 0;
 		ret = LINUX_SYSCALL(__NR_madvise, addr, len, LINUX_MADV_POPULATE_WRITE);
+		// QUIRK: a range that is not entirely mapped fails with EINVAL
+		// here, where Linux reports ENOMEM. Evidence: black-box observation
+		// on macOS 26.7.3 x86_64 (tier 2): REUSE on an unmapped page and on
+		// a range running into an unmapped page both return EINVAL.
+		// Test: test_quirk_madvise_reuse_unmapped_einval (madvise_rounding.c)
 		if (ret == -LINUX_ENOMEM)
-			return errno_linux_to_bsd(ret);
+			return -EINVAL;
 		// XNU's reuse does not fault pages in, so it succeeds where
 		// populating cannot (read-only or special mappings).
 		return 0;
