@@ -27,7 +27,6 @@ static struct tsd_entry tsd_table[TSD_TABLE_SIZE];
 /* Optional native-loader-owned ELF TLS slot. Older loaders omit the apple
  * metadata, retaining table lookup and the cached-instruction trap fallback. */
 static unsigned long native_tsd_slot_offset = ~0UL;
-__attribute__((visibility("default")))
 unsigned long sys_thread_get_native_tsd_slot_offset(void) {
     return native_tsd_slot_offset;
 }
