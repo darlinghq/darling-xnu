@@ -33,8 +33,8 @@ long sys_unlinkat(int fd, const char* path, int flag)
 		return -EINVAL;
 
 	ret = LINUX_SYSCALL(__NR_unlinkat, vc.dfd, vc.path, linux_flags);
-	// Linux refuses unlink() of a directory with EISDIR, xnu with EPERM (bsd/vfs/vfs_subr.c vn_authorize_unlink,
-	// "POSIX").
+	// Linux refuses unlink() of a directory with EISDIR; macOS reports EPERM (POSIX allows either), also on
+	// APFS (observed on macOS 26.7.3 with unlink(2) of a directory, the same program as tests/unlink-directory.c).
 	if (ret == -LINUX_EISDIR && !(linux_flags & LINUX_AT_REMOVEDIR))
 		return -EPERM;
 	if (ret < 0)
