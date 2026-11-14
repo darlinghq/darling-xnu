@@ -316,6 +316,10 @@ no_fork:
 		{
 			char** new_envp;
 			int i, env_len = 0;
+			static char* empty_envp[] = { NULL };
+
+			if (envp == NULL)
+				envp = empty_envp;
 
 			while (envp[env_len])
 				env_len++;

@@ -42,6 +42,13 @@ static inline bool istext(char c)
 long sys_execve(const char* fname, const char** argvp, const char** envp)
 {
 	int ret;
+	static const char* empty_envp[] = { NULL };
+
+	// a null environment pointer means an empty environment (Linux accepts it
+	// too), and the code below walks the array
+	if (envp == NULL)
+		envp = empty_envp;
+
 	struct vchroot_expand_args vc;
 	char mldr_path[4096];
 	uint64_t mldr_path_length;
