@@ -22,6 +22,7 @@
 
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
 #include <darling/emulation/common/string.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/host_platform.h>
 #include "proc_boottime.h"
 
 #include <darling-config.h>
@@ -298,9 +299,26 @@ sysctl_handler(handle_hostname)
 	
 	if (_new && newlen > 0)
 	{
-		rv = LINUX_SYSCALL(__NR_sethostname, _new, newlen);
-		if (rv < 0)
-			rv = errno_linux_to_bsd(rv);
+		// QUIRK: on Android the host name is not settable and the call
+		// fails with EPERM, as for an unprivileged caller on macOS (setting
+		// the host name needs privilege there). The call is not forwarded:
+		// on the Android kernels observed, issuing it raises SIGSYS and ends
+		// the process. Evidence: contributor observation on Android (tier 2,
+		// not reproduced by us; Android's app seccomp policy is not public
+		// API).
+		// Only active when host_platform_is_android(); other hosts forward
+		// the call and get the kernel's own answer.
+		// Test: sethostname-unprivileged-eperm.c (pins the unchanged result
+		// for an unprivileged caller on a normal host; the Android branch
+		// itself cannot be exercised off Android).
+		if (host_platform_is_android())
+			rv = -EPERM;
+		else
+		{
+			rv = LINUX_SYSCALL(__NR_sethostname, _new, newlen);
+			if (rv < 0)
+				rv = errno_linux_to_bsd(rv);
+		}
 	}
 	
 	return rv;
@@ -315,9 +333,17 @@ sysctl_handler(handle_domainname)
 	
 	if (_new && newlen > 0)
 	{
-		rv = LINUX_SYSCALL(__NR_setdomainname, _new, newlen);
-		if (rv < 0)
-			rv = errno_linux_to_bsd(rv);
+		// QUIRK: as for handle_hostname above: EPERM on Android without
+		// calling setdomainname, which raises SIGSYS there as well. Evidence:
+		// tier 2, same observation. Not active on other hosts.
+		if (host_platform_is_android())
+			rv = -EPERM;
+		else
+		{
+			rv = LINUX_SYSCALL(__NR_setdomainname, _new, newlen);
+			if (rv < 0)
+				rv = errno_linux_to_bsd(rv);
+		}
 	}
 	
 	return rv;

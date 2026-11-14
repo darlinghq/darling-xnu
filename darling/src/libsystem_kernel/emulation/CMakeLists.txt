@@ -122,6 +122,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/helper/misc/readline.c
 	src/xnu_syscall/bsd/helper/misc/fdpath.c
 	src/xnu_syscall/bsd/helper/misc/nofile_limit.c
+	src/xnu_syscall/bsd/helper/misc/host_platform.c
 	src/xnu_syscall/bsd/helper/misc/platform_identity.c
 	src/xnu_syscall/bsd/helper/misc/sysctl_hw.c
 	src/xnu_syscall/bsd/helper/misc/sysctl_kern.c
