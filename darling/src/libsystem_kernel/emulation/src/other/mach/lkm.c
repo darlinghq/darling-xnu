@@ -1,4 +1,7 @@
 #include <darling/emulation/other/mach/lkm.h>
+#if defined(__aarch64__)
+#include <darling/emulation/linux_premigration/elfcalls_size.h>
+#endif
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -28,6 +31,10 @@ extern _libkernel_functions_t _libkernel_functions;
 
 VISIBLE
 struct elf_calls* _elfcalls;
+#if defined(__aarch64__)
+// Size of the loader's elf_calls table in bytes, 0 when the loader did not say.
+size_t _elfcalls_size;
+#endif
 
 static bool use_per_thread_driver_fd = false;
 
@@ -35,6 +42,21 @@ extern void _xtrace_postfork_child(void);
 
 void mach_driver_init(const char** applep)
 {
+#if defined(__aarch64__)
+	// Both the static dyld copy and the dynamic kernel copy publish TSD. The
+	// latter must initialize this offset too, including on new guest threads.
+	if (applep != NULL) {
+		for (int i = 0; applep[i] != NULL; ++i) {
+			if (strncmp(applep[i], "darling_tsd_slot_offset=", 24) == 0) {
+				const char* end = NULL;
+				unsigned long offset = __simple_atoi16(applep[i] + 24, &end);
+				if (end && *end == '\0' && end != applep[i] + 24)
+					sys_thread_set_native_tsd_slot_offset(offset);
+			}
+		}
+	}
+#endif
+
 #ifdef VARIANT_DYLD
 	if (applep != NULL)
 	{
@@ -45,6 +67,9 @@ void mach_driver_init(const char** applep)
 			{
 				uintptr_t table = (uintptr_t) __simple_atoi16(applep[i] + 10, NULL);
 				_elfcalls = (struct elf_calls*) table;
+#if defined(__aarch64__)
+				_elfcalls_size = elfcalls_size_from_apple(applep);
+#endif
 			}
 		}
 	}
@@ -55,6 +80,13 @@ void mach_driver_init(const char** applep)
 		_libkernel_functions->dyld_func_lookup("__dyld_get_elfcalls", (void**)&p2);
 		if (p2) {
 			_elfcalls = p2();
+#if defined(__aarch64__)
+			size_t (*get_size)(void) = NULL;
+			_elfcalls_size = 0;
+			_libkernel_functions->dyld_func_lookup("__dyld_get_elfcalls_size", (void**)&get_size);
+			if (_elfcalls && get_size)
+				_elfcalls_size = get_size();
+#endif
 		}
 	}
 
@@ -147,6 +179,13 @@ VISIBLE
 void* elfcalls_get_pointer(void) {
 	return _elfcalls;
 };
+
+#if defined(__aarch64__)
+VISIBLE
+size_t elfcalls_get_size(void) {
+	return _elfcalls ? _elfcalls_size : 0;
+}
+#endif
 
 VISIBLE
 uint64_t mach_absolute_time(void)
