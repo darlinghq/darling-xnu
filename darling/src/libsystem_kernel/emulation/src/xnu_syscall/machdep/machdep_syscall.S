@@ -36,9 +36,10 @@ __darling_machdep_syscall:
 2:
 	movl	L___machdep_syscall_table$non_lazy_ptr-1b(%ecx), %ecx
 	andl	$0xffff, %eax // Because there is some extra stuff in upper bytes we don't need
-	movl	(%ecx,%eax,4), %eax
-	test	%eax, %eax
-	jz		.no_sys
+	movl	(%ecx,%eax,4), %ecx
+	test	%ecx, %ecx
+	jz		.no_sys // with the trap number still in %eax
+	movl	%ecx, %eax
 	// Copy arguments
 	copy_arg(0)
 	copy_arg(4)
@@ -51,7 +52,7 @@ __darling_machdep_syscall:
 	addl	$24, %esp
 	ret
 .no_sys:
-	pushl	%ecx
+	pushl	%eax // the trap number
 	call	___unknown_syscall_machdep
 	addl	$4, %esp
 	ret
