@@ -832,7 +832,7 @@ static long _proc_pidfdinfo(int32_t pid, uint32_t flavor, int fd, void* buffer, 
 		case PROC_PIDFDVNODEPATHINFO:
 			return _proc_pidfdinfo_vnodepath(pid, fd, buffer, bufsize);
 		default:
-			__simple_printf("sys_proc_info(): Unsupported pidfdinfo flavor: %d\n",
+			__simple_fprintf(2, "sys_proc_info(): Unsupported pidfdinfo flavor: %d\n",
 					flavor);
 			return -ENOTSUP;
 	}
@@ -847,7 +847,7 @@ static long _proc_pidinfo_pathinfo(int32_t pid, void* buffer, int32_t bufsize)
 
 	if (rv < 0) 
 	{
-		__simple_printf("dserver_rpc_get_executable_path failed internally: %d\n", rv);
+		__simple_fprintf(2, "dserver_rpc_get_executable_path failed internally: %d\n", rv);
 		__simple_abort();
 	}
 	else if (rv > 0) 

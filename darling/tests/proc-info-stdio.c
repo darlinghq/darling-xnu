@@ -21,6 +21,10 @@ int main(void)
         close(output[1]);
         proc_pidinfo(getpid(), 0x7fffffff, 0, NULL, 0);
         proc_pidfdinfo(getpid(), 0, 0x7fffffff, NULL, 0);
+        /* with a buffer the flavor is looked at, which is where the pidfdinfo diagnostic is printed */
+        char scratch[256];
+        proc_pidinfo(getpid(), 0x7fffffff, 0, scratch, sizeof(scratch));
+        proc_pidfdinfo(getpid(), 0, 0x7fffffff, scratch, sizeof(scratch));
         _exit(0);
     }
     close(output[1]);
