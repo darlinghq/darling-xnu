@@ -200,6 +200,166 @@ mach_msg_size_t rcv_scatter_size;
 }
 
 
+/*
+ *	Routine:	mach_msg2_internal
+ *	Purpose:
+ *		The mach_msg2 trap has no Darling counterpart, so rebuild the
+ *		message mach_msg_overwrite takes from the register-packed
+ *		arguments (layout and error codes follow mach_msg2_trap in XNU's
+ *		osfmk/ipc/mach_msg.c, documented at mach_msg2_internal in
+ *		mach/message.h) and send and receive it through that.
+ */
+#define MSG2_STACK_SIZE 1024
+/* XNU's IPC_KMSG_MAX_BODY_SPACE (osfmk/ipc/ipc_policy.h): the largest message body it accepts */
+#define MSG2_MAX_BODY_SPACE ((64 * 1024 * 1024 * 3) / 4 - MAX_TRAILER_SIZE)
+
+mach_msg_return_t
+mach_msg2_internal(
+	void *data,
+	mach_msg_option64_t option64,
+	uint64_t msgh_bits_and_send_size,
+	uint64_t msgh_remote_and_local_port,
+	uint64_t msgh_voucher_and_id,
+	uint64_t desc_count_and_rcv_name,
+	uint64_t rcv_size_and_priority,
+	uint64_t timeout)
+{
+	/* each packed word holds the first value of its name in the low half and the second in the high half */
+	mach_msg_option_t option = (mach_msg_option_t)(uint32_t)option64;
+	boolean_t sending = (option & MACH_SEND_MSG) != 0;
+	boolean_t receiving = (option & MACH_RCV_MSG) != 0;
+	mach_msg_bits_t bits = (mach_msg_bits_t)msgh_bits_and_send_size;
+	mach_msg_size_t send_size = (mach_msg_size_t)(msgh_bits_and_send_size >> 32);
+	mach_msg_size_t rcv_size = (mach_msg_size_t)rcv_size_and_priority;
+	mach_msg_priority_t priority = (mach_msg_priority_t)(rcv_size_and_priority >> 32);
+	mach_port_name_t rcv_name = (mach_port_name_t)(desc_count_and_rcv_name >> 32);
+	mach_port_t remote = (mach_port_t)msgh_remote_and_local_port;
+	/* XNU casts the 64-bit timeout to 32 bits */
+	mach_msg_timeout_t timeout32 = (mach_msg_timeout_t)timeout;
+	void *msg = data;
+	void *rcv_buf = data;
+	mach_msg_return_t rcv_err = MACH_MSG_SUCCESS;
+	mach_msg_return_t mr;
+
+	if (option64 & MACH64_MSG_VECTOR) {
+		/*
+		 * data is an array of MAX(send count, receive count) vectors, at most two (message, auxiliary data).
+		 * The send count is the high half of the first word and the receive count the low half of the
+		 * last. Auxiliary data is not supported: a send or receive that needs it fails loudly instead of
+		 * dropping the data or leaving the receive buffer stale.
+		 */
+		mach_msg_size_t snd_count = send_size;
+		mach_msg_size_t rcv_count = rcv_size;
+		mach_msg_size_t count = snd_count > rcv_count ? snd_count : rcv_count;
+		const mach_msg_vector_t *vec = (const mach_msg_vector_t *)data;
+
+		if (count > 2) {
+			return sending ? MACH_SEND_INVALID_DATA : MACH_RCV_INVALID_ARGUMENTS;
+		}
+		if (count == 0) {
+			return sending ? MACH_SEND_MSG_TOO_SMALL : MACH_RCV_INVALID_ARGUMENTS;
+		}
+		if (vec == NULL) {
+			return sending ? MACH_SEND_INVALID_DATA : MACH_RCV_INVALID_ARGUMENTS;
+		}
+
+		msg = (void *)(uintptr_t)vec[0].msgv_data;
+		if (sending) {
+			if (snd_count == 0) {
+				return MACH_SEND_MSG_TOO_SMALL;
+			}
+			send_size = vec[0].msgv_send_size;
+			if (snd_count == 2 && vec[1].msgv_send_size != 0) {
+				/* data we cannot deliver: the message would arrive without it */
+				return MACH_SEND_INVALID_DATA;
+			}
+		}
+		if (receiving) {
+			/*
+			 * XNU validates only the send arguments before sending and the receive vector after the send, so
+			 * these errors are returned once the message has gone out. A receive count of two is an auxiliary
+			 * receive vector asking for data we cannot provide (XNU treats a missing or too small one as
+			 * MACH_RCV_INVALID_ARGUMENTS, so does this).
+			 */
+			if (rcv_count == 0 || rcv_count == 2) {
+				rcv_err = MACH_RCV_INVALID_ARGUMENTS;
+			}
+			rcv_buf = vec[0].msgv_rcv_addr != 0 ? (void *)(uintptr_t)vec[0].msgv_rcv_addr : msg;
+			rcv_size = vec[0].msgv_rcv_size;
+		} else {
+			rcv_size = 0;
+		}
+	}
+
+	if (sending) {
+		boolean_t complex = (bits & MACH_MSGH_BITS_COMPLEX) != 0;
+		mach_msg_size_t desc_count = (mach_msg_size_t)desc_count_and_rcv_name;
+		mach_msg_size_t overhead = complex ? sizeof(mach_msg_base_t) : sizeof(mach_msg_header_t);
+		char stack_buf[MSG2_STACK_SIZE] __attribute__((aligned(8)));
+		mach_vm_address_t heap_buf = 0;
+		mach_msg_header_t *hdr;
+
+		if (msg == NULL) {
+			return MACH_SEND_INVALID_DATA;
+		}
+		if (send_size < overhead || (send_size & 3)) {
+			return MACH_SEND_MSG_TOO_SMALL;
+		}
+		if (send_size > MSG2_MAX_BODY_SPACE) {
+			return MACH_SEND_TOO_LARGE;
+		}
+		if (complex) {
+			/* the descriptors must fit in the message (a user descriptor is at least as large as the base one) */
+			if (desc_count > (send_size - sizeof(mach_msg_base_t)) / sizeof(mach_msg_type_descriptor_t)) {
+				return MACH_SEND_MSG_TOO_SMALL;
+			}
+		} else if (desc_count != 0) {
+			/* mach_msg2_trap: a simple message cannot carry descriptors */
+			return MACH_SEND_TOO_LARGE;
+		}
+
+		if (send_size <= sizeof(stack_buf)) {
+			hdr = (mach_msg_header_t *)stack_buf;
+		} else if (mach_vm_allocate(mach_task_self(), &heap_buf, send_size, VM_FLAGS_ANYWHERE) == KERN_SUCCESS) {
+			hdr = (mach_msg_header_t *)(uintptr_t)heap_buf;
+		} else {
+			return MACH_SEND_NO_BUFFER;
+		}
+
+		/* the message in the caller's buffer starts with its header, but the header fields travel in registers */
+		__builtin_memcpy(hdr, msg, send_size);
+		hdr->msgh_bits = bits;
+		hdr->msgh_size = send_size;
+		hdr->msgh_remote_port = remote;
+		hdr->msgh_local_port = (mach_port_t)(msgh_remote_and_local_port >> 32);
+		hdr->msgh_voucher_port = (mach_port_name_t)msgh_voucher_and_id;
+		hdr->msgh_id = (mach_msg_id_t)(msgh_voucher_and_id >> 32);
+		if (complex) {
+			((mach_msg_base_t *)hdr)->body.msgh_descriptor_count = desc_count;
+		}
+
+		/* a bad receive vector does not stop the send: send alone, then report the receive error */
+		mr = mach_msg_overwrite(hdr, rcv_err ? (option & ~MACH_RCV_MSG) : option, send_size, rcv_size,
+		    rcv_name, timeout32, priority, rcv_buf, 0);
+		if (mr == MACH_MSG_SUCCESS) {
+			mr = rcv_err;
+		}
+
+		if (heap_buf != 0) {
+			mach_vm_deallocate(mach_task_self(), heap_buf, send_size);
+		}
+		return mr;
+	}
+
+	if (rcv_err != MACH_MSG_SUCCESS) {
+		return rcv_err;
+	}
+
+	/* receive only: the notify argument of mach_msg is the sync-send port, which mach_msg2 takes from msgh_remote_port */
+	return mach_msg_overwrite(rcv_buf, option, 0, rcv_size, rcv_name, timeout32,
+	           (option & MACH_RCV_SYNC_WAIT) ? remote : MACH_PORT_NULL, rcv_buf, 0);
+}
+
 mach_msg_return_t
 mach_msg_send(mach_msg_header_t *msg)
 {
