@@ -4,8 +4,19 @@
 #include <dlfcn.h>
 
 #include <darling/emulation/common/simple.h>
+#include <darling/emulation/conversion/duct_errno.h>
 
 extern struct elf_calls* _elfcalls;
+
+#if defined(__aarch64__)
+// On ARM64 the loader states how large its table is (see elfcalls_size.h), and
+// members past that size are not used: a loader built without a member leaves
+// whatever follows its table in that slot.
+extern size_t _elfcalls_size;
+
+#define ELFCALLS_HAS_FIELD(field) (_elfcalls && \
+	_elfcalls_size >= __builtin_offsetof(struct elf_calls, field) + sizeof(_elfcalls->field))
+#endif
 
 struct elf_calls* elfcalls(void)
 {
@@ -40,7 +51,14 @@ long native_sysconf(int name)
 
 int native_fork(void)
 {
+#if defined(__aarch64__)
+	// The caller reports the error like any failed fork.
+	if (!ELFCALLS_HAS_FIELD(native_fork) || !_elfcalls->native_fork)
+		return -LINUX_ENOSYS;
+	return _elfcalls->native_fork();
+#else
 	return elfcalls()->native_fork();
+#endif
 }
 
 void* __darling_thread_create(unsigned long stack_size, unsigned long pthobj_size,
