@@ -51,6 +51,8 @@ __darling_bsd_syscall_exit:
 
 #elif defined(__i386__)
 
+#include <darling/emulation/xnu_syscall/bsd/bsd_syscall_table.h>
+
 // Darwin's i386 syscall entries preserve every register except %eax and %edx
 // (the result) - libplatform's setjmp relies on %ecx surviving ___sigaltstack -
 // so the table lookup and the argument copy use %edx as scratch, and %ecx is
@@ -68,9 +70,14 @@ Lentry_hook:
 2:
 	movl	L___bsd_syscall_table$non_lazy_ptr-1b(%edx), %edx
 	andl	$0xffff, %eax // Because there is some extra stuff in upper bytes we don't need
-	movl	(%edx,%eax,4), %eax
-	test	%eax, %eax
+	// The masked number can be up to 65535: check it against the table size
+	// before the lookup, and keep it in %eax for .no_sys.
+	cmpl	$BSD_SYSCALL_TABLE_SIZE, %eax
+	jae		.no_sys
+	movl	(%edx,%eax,4), %edx
+	test	%edx, %edx
 	jz		.no_sys
+	movl	%edx, %eax
 	// Copy arguments
 	copy_arg(0)
 	copy_arg(4)
@@ -96,7 +103,7 @@ Lexit_hook:
 	.space 7, 0x90
 	ret
 .no_sys:
-	pushl	%edx
+	pushl	%eax // the syscall number
 	call	___unknown_syscall
 	addl	$4, %esp
 	jmp .std_ret
