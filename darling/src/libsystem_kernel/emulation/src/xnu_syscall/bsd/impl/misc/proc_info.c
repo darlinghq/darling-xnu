@@ -279,8 +279,6 @@ long _proc_pidinfo(int32_t pid, uint32_t flavor, uint64_t arg, void* buffer, int
 	}
 }
 
-static char fakeuuid[16];
-
 static long _proc_pidonfo_uniqinfo(int32_t pid, void* buffer, int32_t bufsize)
 {
 #ifndef VARIANT_DYLD
@@ -297,8 +295,13 @@ static long _proc_pidonfo_uniqinfo(int32_t pid, void* buffer, int32_t bufsize)
 
 	memset(buffer, 0, bufsize);
 
-#warning Get UUID from kernel
-	memcpy(info->p_uuid, fakeuuid, sizeof(info->p_uuid));
+	// p_uuid is the LC_UUID of the target's main executable, which the loader
+	// recorded with darlingserver when it started the image
+	int uuid_rv = dserver_rpc_get_executable_uuid(pid, info->p_uuid);
+	if (uuid_rv > 0)
+		return -uuid_rv; // ESRCH: no such process
+	if (uuid_rv < 0)
+		memset(info->p_uuid, 0, sizeof(info->p_uuid));
 
 	//////////////////////////
 	// Read info for pid    //
