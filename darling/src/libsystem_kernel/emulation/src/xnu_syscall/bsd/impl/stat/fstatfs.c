@@ -12,7 +12,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/readlink.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/fdpath.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
-#include <darling/emulation/xnu_syscall/bsd/impl/stat/mount_table.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/stat/guest_mount.h>
 
 extern char *strtok_r(char *str, const char *delim, char **saveptr);
 extern __SIZE_TYPE__ strlcpy(char* dst, const char* src, __SIZE_TYPE__ size);
@@ -34,6 +34,7 @@ long sys_fstatfs64(int fd, struct bsd_statfs64* buf)
 {
 	int ret;
 	struct linux_statfs64 lbuf;
+	char proc[32];
 	char path[1024];
 
 #ifdef __NR_fstatfs64
@@ -47,15 +48,14 @@ long sys_fstatfs64(int fd, struct bsd_statfs64* buf)
 
 	statfs_linux_to_bsd64(&lbuf, buf);
 
-	ret = fdpath(fd, path, sizeof(path));
-
+	// the mount table holds host paths, so look the descriptor up by its host path
+	__simple_sprintf(proc, "/proc/self/fd/%d", fd);
+	ret = LINUX_SYSCALL4(__NR_readlinkat, -100, proc, path, sizeof(path) - 1);
 	if (ret < 0)
-		return ret;
+		return errno_linux_to_bsd(ret);
+	path[ret] = '\0';
 
 	buf->f_iosize = 512;
 
-	return mount_table_lookup(path,
-		buf->f_mntonname, sizeof(buf->f_mntonname),
-		buf->f_fstypename, sizeof(buf->f_fstypename),
-		buf->f_mntfromname, sizeof(buf->f_mntfromname));
+	return guest_mount_describe(path, buf);
 }
