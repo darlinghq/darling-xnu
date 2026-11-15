@@ -1,10 +1,12 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/conf/fpathconf.h>
 
 #include <sys/errno.h>
+#include <sys/stat.h>
 
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/fstat.h>
 
 enum {
 	BSD_PC_LINK_MAX = 1,
@@ -36,57 +38,103 @@ enum {
 	BSD_PC_MIN_HOLE_SIZE
 };
 
-// The _PC_ names 10 to 27 (sys/unistd.h) are answered the way macOS answers them for a path on an APFS volume.
-// Observed with pathconf() and fpathconf() on a directory and a regular file on macOS 26.7.3 and 10.14.4
-// (both APFS, black-box; the two agree except for names 18 and 26, which are 56 on 26.7.3 and 64 on 10.14.4: the
-// wider value is used), and name 27 (_PC_MIN_HOLE_SIZE) too. Names above 27 are EINVAL on both.
-static long pathconf_darwin_name(int name)
+// _PC_ answers (sys/unistd.h), observed with pathconf() and fpathconf() on macOS 26.7.3 and 10.14.4 (APFS,
+// black-box; the two agree except for names 18 and 26 on a regular file or directory, which are 56 on 26.7.3 and
+// 64 on 10.14.4: the wider value is used). The answers depend on what the descriptor or path refers to, so there is
+// one table per kind. INV marks a name that is EINVAL for that kind. Names 0 and above 27 are EINVAL for every kind.
+#define INV (-1)
+#define MAX_NAME BSD_PC_MIN_HOLE_SIZE
+
+// Directories and regular files (and symlinks, which pathconf follows).
+// Deliberate difference: macOS reports 1 for _PC_EXTENDED_SECURITY_NP, but the guest has no access control lists, so
+// the truthful answer is 0 (here and in the FIFO and device tables). The default APFS format is case insensitive and
+// case preserving, and the vchroot lookup falls back to case-insensitive matching (vchroot_userspace.c), so the guest
+// namespace behaves the same.
+static const long values_file[MAX_NAME + 1] = {
+	[BSD_PC_LINK_MAX] = 32767, [BSD_PC_MAX_CANON] = INV, [BSD_PC_MAX_INPUT] = INV, [BSD_PC_NAME_MAX] = 255,
+	[BSD_PC_PATH_MAX] = 1024, [BSD_PC_PIPE_BUF] = 512, [BSD_PC_CHOWN_RESTRICTED] = 200112,
+	[BSD_PC_NO_TRUNC] = 200112, [BSD_PC_VDISABLE] = INV,
+	[BSD_PC_NAME_CHARS_MAX] = 255, [BSD_PC_CASE_SENSITIVE] = 0, [BSD_PC_CASE_PRESERVING] = 1,
+	[BSD_PC_EXTENDED_SECURITY_NP] = 0, [BSD_PC_AUTH_OPAQUE_NP] = 0, [BSD_PC_2_SYMLINKS] = 1,
+	[BSD_PC_ALLOC_SIZE_MIN] = 1, [BSD_PC_ASYNC_IO] = 1, [BSD_PC_FILESIZEBITS] = 64, [BSD_PC_PRIO_IO] = 0,
+	[BSD_PC_REC_INCR_XFER_SIZE] = 4096, [BSD_PC_REC_MAX_XFER_SIZE] = 65536, [BSD_PC_REC_MIN_XFER_SIZE] = 4096,
+	[BSD_PC_REC_XFER_ALIGN] = 4096, [BSD_PC_SYMLINK_MAX] = 255, [BSD_PC_SYNC_IO] = 0,
+	[BSD_PC_XATTR_SIZE_BITS] = 64, [BSD_PC_MIN_HOLE_SIZE] = 4096
+};
+
+// Named pipes (FIFOs).
+static const long values_fifo[MAX_NAME + 1] = {
+	[BSD_PC_LINK_MAX] = 32767, [BSD_PC_MAX_CANON] = INV, [BSD_PC_MAX_INPUT] = INV, [BSD_PC_NAME_MAX] = INV,
+	[BSD_PC_PATH_MAX] = INV, [BSD_PC_PIPE_BUF] = 512, [BSD_PC_CHOWN_RESTRICTED] = 200112,
+	[BSD_PC_NO_TRUNC] = INV, [BSD_PC_VDISABLE] = INV,
+	[BSD_PC_NAME_CHARS_MAX] = INV, [BSD_PC_CASE_SENSITIVE] = INV, [BSD_PC_CASE_PRESERVING] = INV,
+	[BSD_PC_EXTENDED_SECURITY_NP] = 0, [BSD_PC_AUTH_OPAQUE_NP] = 0, [BSD_PC_2_SYMLINKS] = 1,
+	[BSD_PC_ALLOC_SIZE_MIN] = 1, [BSD_PC_ASYNC_IO] = 1, [BSD_PC_FILESIZEBITS] = INV, [BSD_PC_PRIO_IO] = 0,
+	[BSD_PC_REC_INCR_XFER_SIZE] = 4096, [BSD_PC_REC_MAX_XFER_SIZE] = 65536, [BSD_PC_REC_MIN_XFER_SIZE] = 4096,
+	[BSD_PC_REC_XFER_ALIGN] = 4096, [BSD_PC_SYMLINK_MAX] = 255, [BSD_PC_SYNC_IO] = 0,
+	[BSD_PC_XATTR_SIZE_BITS] = INV, [BSD_PC_MIN_HOLE_SIZE] = INV
+};
+
+// Character devices (a terminal and /dev/null answer alike); block devices are treated the same, which is checked
+// only for _PC_LINK_MAX and _PC_PATH_MAX (32767 and EINVAL, as for a character device).
+static const long values_device[MAX_NAME + 1] = {
+	[BSD_PC_LINK_MAX] = 32767, [BSD_PC_MAX_CANON] = 1024, [BSD_PC_MAX_INPUT] = 1024, [BSD_PC_NAME_MAX] = INV,
+	[BSD_PC_PATH_MAX] = INV, [BSD_PC_PIPE_BUF] = 512, [BSD_PC_CHOWN_RESTRICTED] = 200112,
+	[BSD_PC_NO_TRUNC] = INV, [BSD_PC_VDISABLE] = 255,
+	[BSD_PC_NAME_CHARS_MAX] = INV, [BSD_PC_CASE_SENSITIVE] = INV, [BSD_PC_CASE_PRESERVING] = INV,
+	[BSD_PC_EXTENDED_SECURITY_NP] = 0, [BSD_PC_AUTH_OPAQUE_NP] = 0, [BSD_PC_2_SYMLINKS] = 1,
+	[BSD_PC_ALLOC_SIZE_MIN] = 1, [BSD_PC_ASYNC_IO] = 1, [BSD_PC_FILESIZEBITS] = INV, [BSD_PC_PRIO_IO] = 0,
+	[BSD_PC_REC_INCR_XFER_SIZE] = 4096, [BSD_PC_REC_MAX_XFER_SIZE] = 65536, [BSD_PC_REC_MIN_XFER_SIZE] = 4096,
+	[BSD_PC_REC_XFER_ALIGN] = 4096, [BSD_PC_SYMLINK_MAX] = 255, [BSD_PC_SYNC_IO] = 0,
+	[BSD_PC_XATTR_SIZE_BITS] = 31, [BSD_PC_MIN_HOLE_SIZE] = INV
+};
+
+// Anonymous pipes and sockets: only _PC_PIPE_BUF is answered.
+static const long values_anonymous[MAX_NAME + 1] = {
+	[BSD_PC_PIPE_BUF] = 512,
+	[BSD_PC_LINK_MAX] = INV, [BSD_PC_MAX_CANON] = INV, [BSD_PC_MAX_INPUT] = INV, [BSD_PC_NAME_MAX] = INV,
+	[BSD_PC_PATH_MAX] = INV, [BSD_PC_CHOWN_RESTRICTED] = INV, [BSD_PC_NO_TRUNC] = INV, [BSD_PC_VDISABLE] = INV,
+	[BSD_PC_NAME_CHARS_MAX] = INV, [BSD_PC_CASE_SENSITIVE] = INV, [BSD_PC_CASE_PRESERVING] = INV,
+	[BSD_PC_EXTENDED_SECURITY_NP] = INV, [BSD_PC_AUTH_OPAQUE_NP] = INV, [BSD_PC_2_SYMLINKS] = INV,
+	[BSD_PC_ALLOC_SIZE_MIN] = INV, [BSD_PC_ASYNC_IO] = INV, [BSD_PC_FILESIZEBITS] = INV, [BSD_PC_PRIO_IO] = INV,
+	[BSD_PC_REC_INCR_XFER_SIZE] = INV, [BSD_PC_REC_MAX_XFER_SIZE] = INV, [BSD_PC_REC_MIN_XFER_SIZE] = INV,
+	[BSD_PC_REC_XFER_ALIGN] = INV, [BSD_PC_SYMLINK_MAX] = INV, [BSD_PC_SYNC_IO] = INV,
+	[BSD_PC_XATTR_SIZE_BITS] = INV, [BSD_PC_MIN_HOLE_SIZE] = INV
+};
+
+long pathconf_for_mode(unsigned int mode, int name)
 {
-	switch (name) {
-	case BSD_PC_NAME_CHARS_MAX: return 255;
-	// The default APFS format is case insensitive and case preserving, and the vchroot lookup falls back to
-	// case-insensitive matching (vchroot_userspace.c), so the guest namespace behaves the same.
-	case BSD_PC_CASE_SENSITIVE: return 0;
-	case BSD_PC_CASE_PRESERVING: return 1;
-	// Deliberate difference: macOS reports 1 on APFS, but the guest has no access control lists, so the
-	// truthful answer is 0.
-	case BSD_PC_EXTENDED_SECURITY_NP: return 0;
-	case BSD_PC_AUTH_OPAQUE_NP: return 0;
-	case BSD_PC_2_SYMLINKS: return 1;
-	case BSD_PC_ALLOC_SIZE_MIN: return 1;
-	case BSD_PC_ASYNC_IO: return 1;
-	case BSD_PC_FILESIZEBITS: return 64;
-	case BSD_PC_PRIO_IO: return 0;
-	case BSD_PC_REC_INCR_XFER_SIZE: return 4096;
-	case BSD_PC_REC_MAX_XFER_SIZE: return 65536;
-	case BSD_PC_REC_MIN_XFER_SIZE: return 4096;
-	case BSD_PC_REC_XFER_ALIGN: return 4096;
-	case BSD_PC_SYMLINK_MAX: return 255;
-	case BSD_PC_SYNC_IO: return 0;
-	case BSD_PC_XATTR_SIZE_BITS: return 64;
-	case BSD_PC_MIN_HOLE_SIZE: return 4096;
-	default: return -EINVAL;
+	const long* table;
+
+	if (name < 1 || name > MAX_NAME)
+		return -EINVAL;
+	switch (mode & S_IFMT) {
+	case S_IFREG:
+	case S_IFDIR:
+	case S_IFLNK:
+		table = values_file;
+		break;
+	case S_IFIFO:
+		table = values_fifo;
+		break;
+	case S_IFCHR:
+	case S_IFBLK:
+		table = values_device;
+		break;
+	default:
+		table = values_anonymous;
+		break;
 	}
+	return table[name] == INV ? -EINVAL : table[name];
 }
 
 long sys_fpathconf(int fd, int name)
 {
-	static const short values[] = {
-		[BSD_PC_LINK_MAX] = 8,
-		[BSD_PC_MAX_CANON] = 255,
-		[BSD_PC_MAX_INPUT] = 255,
-		[BSD_PC_NAME_MAX] = 255,
-		[BSD_PC_PATH_MAX] = 4096,
-		[BSD_PC_PIPE_BUF] = 4096,
-		[BSD_PC_CHOWN_RESTRICTED] = 1,
-		[BSD_PC_NO_TRUNC] = 1,
-		[BSD_PC_VDISABLE] = 0
-	};
-	
-	if (name >= BSD_PC_NAME_CHARS_MAX)
-		return pathconf_darwin_name(name);
-	if (name < 1 || name >= sizeof(values) / sizeof(values[0]))
-		return -EINVAL;
-	else
-		return values[name];
+	darling_stat64_t st;
+	long ret = sys_fstat64(fd, &st);
+
+	// An invalid descriptor is EBADF whatever the name.
+	if (ret < 0)
+		return ret;
+	return pathconf_for_mode(st.st_mode, name);
 }
