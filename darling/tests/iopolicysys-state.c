@@ -1,5 +1,6 @@
-// getiopolicy_np() must return what setiopolicy_np() stored, in the scope it was stored for, and refuse what
-// xnu refuses (bsd/kern/kern_resource.c iopolicysys): unknown types, scopes and policies.
+// getiopolicy_np() must return what setiopolicy_np() stored, in the scope it was stored for, and refuse what macOS
+// refuses: unknown types, scopes and policies, and (for a process that is not root) the privileged types. Every
+// expectation was observed on macOS 26.7.3 with a non-root process, where this program passes.
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -47,8 +48,10 @@ int main(void)
 {
 	const int materialize = IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES;
 
-	// process scope: the default is not to materialize; a default request means that too
-	expect(get(materialize, IOPOL_SCOPE_PROCESS) == IOPOL_MATERIALIZE_DATALESS_FILES_OFF, "process default is OFF");
+	// process scope: a process that has not set it reads ON; setting DEFAULT for the process reads back as OFF
+	expect(get(materialize, IOPOL_SCOPE_PROCESS) == IOPOL_MATERIALIZE_DATALESS_FILES_ON, "process default reads ON");
+	expect(set(materialize, IOPOL_SCOPE_PROCESS, IOPOL_MATERIALIZE_DATALESS_FILES_OFF) == 0, "set process OFF");
+	expect(get(materialize, IOPOL_SCOPE_PROCESS) == IOPOL_MATERIALIZE_DATALESS_FILES_OFF, "get process OFF");
 	expect(set(materialize, IOPOL_SCOPE_PROCESS, IOPOL_MATERIALIZE_DATALESS_FILES_ON) == 0, "set process ON");
 	expect(get(materialize, IOPOL_SCOPE_PROCESS) == IOPOL_MATERIALIZE_DATALESS_FILES_ON, "get process ON");
 	expect(set(materialize, IOPOL_SCOPE_PROCESS, IOPOL_MATERIALIZE_DATALESS_FILES_DEFAULT) == 0, "set process DEFAULT");
@@ -101,10 +104,23 @@ int main(void)
 		errno = 0;
 		expect(syscall(SYS_iopolicysys, 99, &param) == -1 && errno == EINVAL, "unknown command");
 	}
-	if (geteuid() != 0) {
+	{
 		struct { int scope; int type; int policy; } mtime = { IOPOL_SCOPE_PROCESS, 8 /* IOPOL_TYPE_VFS_SKIP_MTIME_UPDATE */, 0 };
 		errno = 0;
-		expect(syscall(SYS_iopolicysys, 99, &mtime) == -1 && errno == EPERM, "an unknown command for the mtime type is refused as unprivileged (EPERM)");
+		expect(syscall(SYS_iopolicysys, 99, &mtime) == -1 && errno == EINVAL, "unknown command for the mtime type");
+	}
+	if (geteuid() != 0) {
+		// the checks run in this order: scope (EINVAL), then policy (EINVAL), then privilege (EPERM); the permissions type
+		// refuses with EPERM before it looks at the policy, and the permissions and mtime types accept the thread scope
+		expect(set(IOPOL_TYPE_VFS_IGNORE_PERMISSIONS, IOPOL_SCOPE_PROCESS, 5) == -1 && errno == EPERM, "permissions: privilege before policy");
+		expect(set(IOPOL_TYPE_VFS_IGNORE_PERMISSIONS, IOPOL_SCOPE_THREAD, 1) == -1 && errno == EPERM, "permissions: thread scope is valid");
+		expect(set(IOPOL_TYPE_VFS_IGNORE_PERMISSIONS, IOPOL_SCOPE_DARWIN_BG, 1) == -1 && errno == EINVAL, "permissions: background scope is invalid");
+		expect(set(IOPOL_TYPE_VFS_SKIP_MTIME_UPDATE, IOPOL_SCOPE_PROCESS, 5) == -1 && errno == EINVAL, "mtime: policy before privilege");
+		expect(set(IOPOL_TYPE_VFS_SKIP_MTIME_UPDATE, IOPOL_SCOPE_PROCESS, 1) == -1 && errno == EPERM, "mtime: privilege");
+		expect(set(IOPOL_TYPE_VFS_SKIP_MTIME_UPDATE, IOPOL_SCOPE_THREAD, 1) == -1 && errno == EPERM, "mtime: thread scope is valid");
+		expect(set(IOPOL_TYPE_VFS_HFS_CASE_SENSITIVITY, IOPOL_SCOPE_PROCESS, 5) == -1 && errno == EINVAL, "case sensitivity: policy before privilege");
+		expect(set(IOPOL_TYPE_VFS_HFS_CASE_SENSITIVITY, IOPOL_SCOPE_PROCESS, 0) == -1 && errno == EPERM, "case sensitivity: DEFAULT is privileged too");
+		expect(set(IOPOL_TYPE_VFS_HFS_CASE_SENSITIVITY, IOPOL_SCOPE_THREAD, 1) == -1 && errno == EINVAL, "case sensitivity has no thread scope");
 	}
 	expect(set(IOPOL_TYPE_DISK, 7, IOPOL_THROTTLE) == -1 && errno == EINVAL, "unknown disk scope");
 	expect(set(IOPOL_TYPE_VFS_ATIME_UPDATES, IOPOL_SCOPE_PROCESS, 5) == -1 && errno == EINVAL, "unknown policy for a flag type");
