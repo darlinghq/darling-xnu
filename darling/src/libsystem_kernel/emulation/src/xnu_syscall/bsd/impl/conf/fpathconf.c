@@ -7,6 +7,7 @@
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/fstat.h>
+#include <darling/emulation/conversion/stat/common.h>
 
 enum {
 	BSD_PC_LINK_MAX = 1,
@@ -128,13 +129,33 @@ long pathconf_for_mode(unsigned int mode, int name)
 	return table[name] == INV ? -EINVAL : table[name];
 }
 
+// Linux reports both ends of an anonymous pipe as a FIFO, like macOS does in fstat; the
+// anonymous pipe is told apart from a named FIFO by living on the kernel's pipe filesystem
+// (PIPEFS_MAGIC), and gets the anonymous table.
+static int fd_is_anonymous_pipe(int fd)
+{
+	struct linux_statfs64 lbuf;
+	int ret;
+
+#ifdef __NR_fstatfs64
+	ret = LINUX_SYSCALL3(__NR_fstatfs64, fd, sizeof(lbuf), &lbuf);
+#else
+	ret = LINUX_SYSCALL2(__NR_fstatfs, fd, &lbuf);
+#endif
+	return ret >= 0 && (unsigned long)lbuf.f_type == 0x50495045UL;
+}
+
 long sys_fpathconf(int fd, int name)
 {
 	darling_stat64_t st;
 	long ret = sys_fstat64(fd, &st);
+	unsigned int mode;
 
 	// An invalid descriptor is EBADF whatever the name.
 	if (ret < 0)
 		return ret;
-	return pathconf_for_mode(st.st_mode, name);
+	mode = st.st_mode;
+	if ((mode & S_IFMT) == S_IFIFO && fd_is_anonymous_pipe(fd))
+		mode = (mode & ~S_IFMT) | S_IFSOCK;
+	return pathconf_for_mode(mode, name);
 }
