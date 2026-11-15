@@ -92,6 +92,8 @@ static unsigned int statfs_flags_linux_to_bsd(long linux_flags)
 
 void statfs_linux_to_bsd(const struct linux_statfs64* lstat, struct bsd_statfs* stat)
 {
+	// Fields Linux has no value for (f_owner, f_fssubtype, f_iosize, ...) must not keep the caller's old buffer contents.
+	__builtin_memset(stat, 0, sizeof(*stat));
 	stat->f_type = lstat->f_type;
 	stat->f_bsize = lstat->f_bsize;
 	stat->f_blocks = lstat->f_blocks;
@@ -105,6 +107,7 @@ void statfs_linux_to_bsd(const struct linux_statfs64* lstat, struct bsd_statfs* 
 
 void statfs_linux_to_bsd64(const struct linux_statfs64* lstat, struct bsd_statfs64* stat)
 {
+	__builtin_memset(stat, 0, sizeof(*stat));
 	stat->f_type = lstat->f_type;
 	stat->f_bsize = lstat->f_bsize;
 	stat->f_iosize = lstat->f_bsize;

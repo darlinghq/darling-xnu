@@ -12,7 +12,7 @@
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/common/bsdthread/per_thread_wd.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
-#include <darling/emulation/xnu_syscall/bsd/impl/stat/mount_table.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/stat/guest_mount.h>
 
 #undef strlcpy
 
@@ -56,8 +56,5 @@ long sys_statfs64(const char* path, struct bsd_statfs64* buf)
 
 	statfs_linux_to_bsd64(&lbuf, buf);
 
-	return mount_table_lookup(vc.path,
-		buf->f_mntonname, sizeof(buf->f_mntonname),
-		buf->f_fstypename, sizeof(buf->f_fstypename),
-		buf->f_mntfromname, sizeof(buf->f_mntfromname));
+	return guest_mount_describe(vc.path, buf);
 }

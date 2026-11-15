@@ -17,6 +17,7 @@
 extern char *strtok_r(char *str, const char *delim, char **saveptr);
 extern __SIZE_TYPE__ strlcpy(char* dst, const char* src, __SIZE_TYPE__ size);
 extern __SIZE_TYPE__ strlen(const char* str);
+extern int strcmp(const char* s1, const char* s2);
 extern int strncmp(const char* s1, const char* s2, __SIZE_TYPE__ len);
 extern void* memcpy(void* dst, const void* src, __SIZE_TYPE__ n);
 extern void* memchr(const void* s, int c, __SIZE_TYPE__ n);
@@ -207,12 +208,52 @@ static int mount_table_contains(const char* mnt, int len, const char* path)
 	return len == 1 || path[len] == 0 || path[len] == '/';
 }
 
+// Splits the line of the table starting at *offset into its source, mount point (unescaped) and type, advancing
+// *offset. Returns 0 at the end of the table. Missing fields are NULL.
+static int mount_table_next_locked(size_t* offset, char* line, size_t line_size,
+	char** from, char** on, char** type)
+{
+	const char* start;
+	const char* newline;
+	size_t length;
+	char* saveptr;
+
+	if (*offset >= mount_table_length)
+		return 0;
+
+	start = mount_table_text + *offset;
+	newline = memchr(start, '\n', mount_table_length - *offset);
+	length = newline ? (size_t) (newline - start) : mount_table_length - *offset;
+	*offset += length + 1;
+
+	if (length >= line_size)
+		length = line_size - 1;
+	memcpy(line, start, length);
+	line[length] = 0;
+
+	*on = NULL;
+	*type = NULL;
+	*from = strtok_r(line, " ", &saveptr);
+	if (*from == NULL)
+		return 1;
+	*on = strtok_r(NULL, " ", &saveptr);
+	if (*on == NULL)
+		return 1;
+	mount_table_unescape(*on);
+	*type = strtok_r(NULL, " ", &saveptr);
+	return 1;
+}
+
 long mount_table_lookup(const char* path, char* mnton, size_t mnton_size,
 	char* fstype, size_t fstype_size, char* mntfrom, size_t mntfrom_size)
 {
 	long ret;
 	size_t offset = 0;
 	int max_len = 0;
+	char line[1024 + 512];
+	char* from;
+	char* on;
+	char* type;
 
 	mnton[0] = 0;
 	fstype[0] = 0;
@@ -225,51 +266,80 @@ long mount_table_lookup(const char* path, char* mnton, size_t mnton_size,
 		goto out;
 
 	// the mount point is the longest one that is a prefix of the path; of equal ones the last (the topmost)
-	while (offset < mount_table_length)
+	while (mount_table_next_locked(&offset, line, sizeof(line), &from, &on, &type))
 	{
-		char line[1024 + 512];
-		const char* start = mount_table_text + offset;
-		const char* newline = memchr(start, '\n', mount_table_length - offset);
-		size_t length = newline ? (size_t) (newline - start) : mount_table_length - offset;
-		char* p;
-		char* saveptr;
-		char* from;
 		int len;
 
-		offset += length + 1;
-
-		if (length >= sizeof(line))
-			length = sizeof(line) - 1;
-		memcpy(line, start, length);
-		line[length] = 0;
-
-		p = strtok_r(line, " ", &saveptr);
-		if (p == NULL)
+		if (on == NULL)
 			continue;
 
-		from = p;
-		p = strtok_r(NULL, " ", &saveptr);
-		if (p == NULL)
-			continue;
-
-		mount_table_unescape(p);
-		len = strlen(p);
-		if (!mount_table_contains(p, len, path) || len < max_len)
+		len = strlen(on);
+		if (!mount_table_contains(on, len, path) || len < max_len)
 			continue;
 
 		max_len = len;
-		strlcpy(mnton, p, mnton_size);
+		strlcpy(mnton, on, mnton_size);
 
-		p = strtok_r(NULL, " ", &saveptr);
-		if (p == NULL)
+		if (type == NULL)
 			continue;
 
-		strlcpy(fstype, p, fstype_size);
+		strlcpy(fstype, type, fstype_size);
 		mount_table_unescape(from);
 		strlcpy(mntfrom, from, mntfrom_size);
 	}
 
 	ret = 0;
+
+out:
+	libsimple_lock_unlock(&mount_table_lock);
+	return ret;
+}
+
+long mount_table_enumerate(mount_table_visitor visit, void* context)
+{
+	long ret;
+	size_t offset = 0;
+	char line[1024 + 512];
+	char* from;
+	char* on;
+	char* type;
+
+	libsimple_lock_lock(&mount_table_lock);
+
+	ret = mount_table_update_locked();
+	if (ret < 0)
+		goto out;
+	ret = 0;
+
+	while (mount_table_next_locked(&offset, line, sizeof(line), &from, &on, &type))
+	{
+		size_t later = offset;
+		char later_line[1024 + 512];
+		char* later_from;
+		char* later_on;
+		char* later_type;
+		int hidden = 0;
+
+		if (on == NULL || type == NULL)
+			continue;
+		mount_table_unescape(from);
+
+		// a later mount on the same mount point covers this one
+		while (mount_table_next_locked(&later, later_line, sizeof(later_line), &later_from, &later_on, &later_type))
+		{
+			if (later_on != NULL && strcmp(later_on, on) == 0)
+			{
+				hidden = 1;
+				break;
+			}
+		}
+		if (hidden)
+			continue;
+
+		ret = visit(context, on, type, from);
+		if (ret != 0)
+			break;
+	}
 
 out:
 	libsimple_lock_unlock(&mount_table_lock);
