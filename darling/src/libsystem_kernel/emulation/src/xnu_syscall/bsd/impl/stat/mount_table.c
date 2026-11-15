@@ -121,7 +121,15 @@ static long mount_table_update_locked(void)
 	if (mount_table_fd >= 0)
 	{
 		struct linux_pollfd pfd = { .fd = mount_table_fd, .events = LINUX_POLLPRI, .revents = 0 };
-		long ret = LINUX_SYSCALL(__NR_poll, &pfd, 1, 0);
+		long ret;
+#if defined(__NR_poll)
+		ret = LINUX_SYSCALL(__NR_poll, &pfd, 1, 0);
+#else
+		// __NR_poll is unavailable (arm64); a zero timeout is the same as an
+		// immediately expiring ppoll().
+		struct { long tv_sec; long tv_nsec; } timeout_ts = { 0, 0 };
+		ret = LINUX_SYSCALL(__NR_ppoll, &pfd, 1, &timeout_ts, NULL);
+#endif
 
 		if (ret > 0 && (pfd.revents & LINUX_POLLNVAL))
 		{
