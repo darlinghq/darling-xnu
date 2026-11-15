@@ -24,10 +24,7 @@ extern int strncmp(const char* s1, const char* s2, __SIZE_TYPE__ len);
 
 long sys_statfs(const char* path, struct bsd_statfs* buf)
 {
-#ifdef __x86_64__
-	return sys_statfs64(path, (struct bsd_statfs64*) buf);
-#else
-	// 32-bit processes: the legacy structure
+	// the legacy structure (every architecture has one, with the long fields of its own width)
 	struct bsd_statfs64 wide;
 	long ret = sys_statfs64(path, &wide);
 
@@ -35,7 +32,6 @@ long sys_statfs(const char* path, struct bsd_statfs* buf)
 		return ret;
 	statfs_bsd64_to_bsd(&wide, buf);
 	return 0;
-#endif
 }
 
 long sys_statfs64(const char* path, struct bsd_statfs64* buf)

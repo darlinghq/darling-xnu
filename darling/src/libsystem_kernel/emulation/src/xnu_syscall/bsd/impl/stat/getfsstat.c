@@ -7,12 +7,8 @@
 
 long sys_getfsstat(struct bsd_statfs* buf, int bufsize, int flags)
 {
-#ifdef __x86_64__
-	return sys_getfsstat64((struct bsd_statfs64*) buf, bufsize, flags);
-#else
-	// 32-bit processes: the legacy structure
+	// the legacy structure; bufsize counts bytes of it
 	return guest_mount_list_legacy(buf, bufsize);
-#endif
 }
 
 long sys_getfsstat64(struct bsd_statfs64* buf, int bufsize, int flags)

@@ -6,10 +6,12 @@
 // and the entry points are looked up by symbol name. It checks that the layouts hold the same information, that
 // getfsstat takes its buffer size in bytes of the structure it fills (count with a NULL buffer, whole entries
 // only), and that 32-bit counts that don't fit are all ones (the program also passes on macOS).
-// The legacy checks run for 32-bit processes only (a 64-bit process does not use that layout with 64-bit inodes).
+// The legacy layout is checked in both process widths: `long` is 4 bytes in a 32-bit process (272 bytes in all) and
+// 8 in a 64-bit one (336 bytes, the same field order and name sizes; its counts never need clamping).
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -82,11 +84,12 @@ static size_t untouched(const void* p, size_t n)
 	return c;
 }
 
-#ifndef __LP64__
-// a legacy count against the wide one: equal if it fits 32 bits
+// a legacy count against the wide one: equal if it fits the width of long
 static void check_count_clamp(const char* what, unsigned long long wide, long legacy)
 {
-	if (wide <= 0xffffffffULL) {
+	if (sizeof(long) == 8) {
+		if ((unsigned long long) legacy != wide) { printf("FAIL: %s: %llu became %ld\n", what, wide, legacy); failures++; }
+	} else if (wide <= 0xffffffffULL) {
 		if ((unsigned long) legacy != (unsigned long) wide) { printf("FAIL: %s: %llu became %lu\n", what, wide, (unsigned long) legacy); failures++; }
 	} else if (wide >= (1ULL << 62)) {
 		// QUIRK pinned here: the largest counts (a filesystem without an inode limit) come out as all ones
@@ -114,7 +117,6 @@ static void check_legacy(const struct legacy_statfs* l, const struct wide_statfs
 	CHECK(l->f_mntonname[sizeof l->f_mntonname - 1] == 0);
 	CHECK(l->f_mntfromname[sizeof l->f_mntfromname - 1] == 0);
 }
-#endif
 
 static void check_wide_names(const struct wide_statfs* w)
 {
@@ -181,13 +183,13 @@ int main(void)
 	if (n >= 2)
 		CHECK(getfsstat_i64(wl, 2 * sizeof *wl + 7, MNT_NOWAIT_) == 2);
 
-#ifndef __LP64__
-	// the plain symbols of a 32-bit process: the legacy layout
+	// the plain symbols: the legacy layout
 	statfs_fn statfs_legacy = sym("statfs");
 	fstatfs_fn fstatfs_legacy = sym("fstatfs");
 	getfsstat_fn getfsstat_legacy = sym("getfsstat");
 	struct legacy_statfs l;
-	CHECK(sizeof l == 272);
+	CHECK(sizeof l == (sizeof(long) == 4 ? 272 : 336));
+	CHECK(offsetof(struct legacy_statfs, f_mntonname) == (sizeof(long) == 4 ? 75 : 119));
 	CHECK(statfs_legacy != NULL && fstatfs_legacy != NULL && getfsstat_legacy != NULL);
 
 	memset(&l, 0xAA, sizeof l);
@@ -227,7 +229,6 @@ int main(void)
 		CHECK(untouched(&ll[2], sizeof *ll) == sizeof *ll);
 	}
 	free(ll);
-#endif
 	free(wl);
 	close(fd);
 	if (failures == 0)
