@@ -41,6 +41,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/csrctl.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/fileport_makefd.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/fileport_makeport.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/misc/fsctl.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/fsgetpath.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/getentropy.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/gethostuuid.h>
@@ -379,8 +380,10 @@ void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[239] = sys_fremovexattr,
 	[240] = sys_listxattr,
 	[241] = sys_flistxattr,
+	[242] = sys_fsctl,
 	[243] = sys_initgroups,
 	[244] = sys_posix_spawn,
+	[245] = sys_ffsctl,
 	[254] = sys_semctl,
 	[255] = sys_semget,
 	[256] = sys_semop,
