@@ -29,4 +29,10 @@ long guest_mount_describe(const char* host_path, struct bsd_statfs64* buf);
  */
 long guest_mount_list(struct bsd_statfs64* buf, int bufsize);
 
+/**
+ * Like guest_mount_list(), for the entries of the legacy struct statfs (the one 32-bit processes get from
+ * getfsstat without 64-bit inodes); bufsize is in bytes of that structure.
+ */
+long guest_mount_list_legacy(struct bsd_statfs* buf, int bufsize);
+
 #endif // DARLING_GUEST_MOUNT_H

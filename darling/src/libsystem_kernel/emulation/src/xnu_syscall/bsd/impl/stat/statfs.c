@@ -13,6 +13,7 @@
 #include <darling/emulation/common/bsdthread/per_thread_wd.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/stat/guest_mount.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/stat/linux_statfs.h>
 
 #undef strlcpy
 
@@ -23,12 +24,14 @@ extern int strncmp(const char* s1, const char* s2, __SIZE_TYPE__ len);
 
 long sys_statfs(const char* path, struct bsd_statfs* buf)
 {
-#ifdef __x86_64__
-	return sys_statfs64(path, (struct bsd_statfs64*) buf);
-#else
-#	warning Not implemented
+	// the legacy structure (every architecture has one, with the long fields of its own width)
+	struct bsd_statfs64 wide;
+	long ret = sys_statfs64(path, &wide);
+
+	if (ret < 0)
+		return ret;
+	statfs_bsd64_to_bsd(&wide, buf);
 	return 0;
-#endif
 }
 
 long sys_statfs64(const char* path, struct bsd_statfs64* buf)
@@ -45,11 +48,7 @@ long sys_statfs64(const char* path, struct bsd_statfs64* buf)
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
-#ifdef __NR_statfs64
-	ret = LINUX_SYSCALL2(__NR_statfs64, vc.path, &lbuf);
-#else
-	ret = LINUX_SYSCALL2(__NR_statfs, vc.path, &lbuf);
-#endif
+	ret = linux_statfs_path(vc.path, &lbuf);
 
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
