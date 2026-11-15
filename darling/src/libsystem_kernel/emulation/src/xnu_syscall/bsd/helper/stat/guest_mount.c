@@ -8,6 +8,7 @@
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mount_table.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/stat/linux_statfs.h>
 
 extern __SIZE_TYPE__ strlen(const char* s);
 extern int strcmp(const char* a, const char* b);
@@ -97,7 +98,8 @@ long guest_mount_describe(const char* host_path, struct bsd_statfs64* buf)
 struct list_state
 {
 	const struct guest_root* root;
-	struct bsd_statfs64* buf;
+	void* buf;         // struct bsd_statfs64 entries, or struct bsd_statfs entries if `legacy`
+	int legacy;
 	int capacity;
 	int count;
 	int root_pass;   // 1: only the root volume, 0: everything else
@@ -119,16 +121,13 @@ static long list_visit(void* context, const char* mnton, const char* fstype, con
 		return 0;
 
 	// every mount is queried, with or without a buffer, so that the count and the list agree
-#ifdef __NR_statfs64
-	if (LINUX_SYSCALL2(__NR_statfs64, mnton, &lbuf) < 0)
-#else
-	if (LINUX_SYSCALL2(__NR_statfs, mnton, &lbuf) < 0)
-#endif
+	if (linux_statfs_path(mnton, &lbuf) < 0)
 		return 0;
 
 	if (state->buf != NULL)
 	{
-		struct bsd_statfs64* entry = &state->buf[state->count];
+		struct bsd_statfs64 wide;
+		struct bsd_statfs64* entry = state->legacy ? &wide : &((struct bsd_statfs64*) state->buf)[state->count];
 
 		if (state->count >= state->capacity)
 			return 1;
@@ -137,16 +136,18 @@ static long list_visit(void* context, const char* mnton, const char* fstype, con
 		strlcpy(entry->f_mntonname, name, sizeof(entry->f_mntonname));
 		strlcpy(entry->f_fstypename, fstype, sizeof(entry->f_fstypename));
 		strlcpy(entry->f_mntfromname, mntfrom, sizeof(entry->f_mntfromname));
+		if (state->legacy)
+			statfs_bsd64_to_bsd(&wide, &((struct bsd_statfs*) state->buf)[state->count]);
 	}
 
 	state->count++;
 	return 0;
 }
 
-long guest_mount_list(struct bsd_statfs64* buf, int bufsize)
+static long guest_mount_list_common(void* buf, int legacy, int capacity)
 {
 	struct guest_root root;
-	struct list_state state = { .root = &root, .buf = buf, .capacity = bufsize / (int) sizeof(struct bsd_statfs64) };
+	struct list_state state = { .root = &root, .buf = buf, .legacy = legacy, .capacity = capacity };
 	long ret = guest_root_find(&root);
 
 	if (ret < 0)
@@ -159,4 +160,14 @@ long guest_mount_list(struct bsd_statfs64* buf, int bufsize)
 			return ret;
 	}
 	return state.count;
+}
+
+long guest_mount_list(struct bsd_statfs64* buf, int bufsize)
+{
+	return guest_mount_list_common(buf, 0, bufsize / (int) sizeof(struct bsd_statfs64));
+}
+
+long guest_mount_list_legacy(struct bsd_statfs* buf, int bufsize)
+{
+	return guest_mount_list_common(buf, 1, bufsize / (int) sizeof(struct bsd_statfs));
 }

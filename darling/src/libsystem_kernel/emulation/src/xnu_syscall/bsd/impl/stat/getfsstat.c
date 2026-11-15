@@ -10,8 +10,8 @@ long sys_getfsstat(struct bsd_statfs* buf, int bufsize, int flags)
 #ifdef __x86_64__
 	return sys_getfsstat64((struct bsd_statfs64*) buf, bufsize, flags);
 #else
-#	warning Not implemented
-	return 0;
+	// 32-bit processes: the legacy structure
+	return guest_mount_list_legacy(buf, bufsize);
 #endif
 }
 

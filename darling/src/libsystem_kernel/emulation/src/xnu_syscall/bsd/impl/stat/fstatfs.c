@@ -13,6 +13,7 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/fdpath.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/stat/guest_mount.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/stat/linux_statfs.h>
 
 extern char *strtok_r(char *str, const char *delim, char **saveptr);
 extern __SIZE_TYPE__ strlcpy(char* dst, const char* src, __SIZE_TYPE__ size);
@@ -25,7 +26,13 @@ long sys_fstatfs(int fd, struct bsd_statfs* buf)
 #ifdef __x86_64__
 	return sys_fstatfs64(fd, (struct bsd_statfs64*) buf);
 #else
-#	warning Not implemented
+	// 32-bit processes: the legacy structure
+	struct bsd_statfs64 wide;
+	long ret = sys_fstatfs64(fd, &wide);
+
+	if (ret < 0)
+		return ret;
+	statfs_bsd64_to_bsd(&wide, buf);
 	return 0;
 #endif
 }
@@ -37,11 +44,7 @@ long sys_fstatfs64(int fd, struct bsd_statfs64* buf)
 	char proc[32];
 	char path[1024];
 
-#ifdef __NR_fstatfs64
-	ret = LINUX_SYSCALL3(__NR_fstatfs64, fd, sizeof(lbuf), &lbuf);
-#else
-	ret = LINUX_SYSCALL2(__NR_fstatfs, fd, &lbuf);
-#endif
+	ret = linux_statfs_fd(fd, &lbuf);
 
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
