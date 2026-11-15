@@ -55,7 +55,5 @@ long sys_fstatfs64(int fd, struct bsd_statfs64* buf)
 		return errno_linux_to_bsd(ret);
 	path[ret] = '\0';
 
-	buf->f_iosize = 512;
-
 	return guest_mount_describe(path, buf);
 }
