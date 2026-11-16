@@ -5,12 +5,26 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <net/if_media.h>
+#include <net/if_dl.h>
+#include <net/if_types.h>
+#include <stddef.h>
 #include <netinet/in.h>
 #include <sys/sockio.h>
 #include <netinet6/in6_var.h>
 #include <darling/emulation/conversion/network/ifreq.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/conversion/duct_errno.h>
+
+#define LINUX_ARPHRD_ETHER 1
+#define LINUX_ARPHRD_LOOPBACK 772
+#define LINUX_AF_INET 2
+
+// Linux returns one record per IPv4 address; this bounds the stack buffer for them.
+#define IFCONF_MAX_RECORDS 16
+
+extern void* memset(void* destination, int value, size_t length);
+extern void* memcpy(void* destination, const void* source, size_t n);
+extern size_t strnlen(const char* string, size_t max_length);
 
 int handle_socket(int fd, unsigned int cmd, void* arg, int* retval)
 {
@@ -32,6 +46,93 @@ int handle_socket(int fd, unsigned int cmd, void* arg, int* retval)
                 else
                     request->ifr_mtu = host_request.lifr_mtu;
             }
+            return IOCTL_HANDLED;
+        }
+        case SIOCGIFCONF: {
+            // Darwin returns, per interface, a link-level record and then one record per
+            // address. Linux knows the request under another number and only returns the
+            // IPv4 addresses, so the link records are built here, the way NET_RT_IFLIST
+            // builds them. A caller that sees this request fail may not close its socket.
+            struct ifconf* ifc = (struct ifconf*) arg;
+            char lbuf[IFCONF_MAX_RECORDS * sizeof(struct linux_ifreq)];
+            struct linux_ifconf lifc = {
+                .lifc_len = sizeof(lbuf),
+                .lifc_buf = lbuf,
+            };
+            int status;
+            int space;
+            int written = 0;
+
+            if (ifc == NULL) {
+                *retval = -EFAULT;
+                return IOCTL_HANDLED;
+            }
+
+            status = __real_ioctl(fd, LINUX_SIOCGIFCONF, &lifc);
+            if (status < 0) {
+                *retval = status;
+                return IOCTL_HANDLED;
+            }
+
+            space = (ifc->ifc_buf != NULL && ifc->ifc_len > 0) ? ifc->ifc_len : 0;
+
+            for (int i = 0; i + (int) sizeof(struct linux_ifreq) <= lifc.lifc_len; i += sizeof(struct linux_ifreq)) {
+                struct linux_ifreq* curr = &lifc.lifc_req[i / sizeof(struct linux_ifreq)];
+                struct linux_ifreq hw;
+                size_t name_len = strnlen(curr->lifr_name, LINUX_IFNAMSIZ - 1);
+                size_t dl_len = offsetof(struct sockaddr_dl, sdl_data) + name_len + MAC_LENGTH;
+                size_t record;
+                struct ifreq* ifr;
+                struct sockaddr_dl* dl;
+
+                if (dl_len < sizeof(struct sockaddr_dl))
+                    dl_len = sizeof(struct sockaddr_dl);
+
+                // A record is an ifreq, or longer when its address does not fit in one.
+                record = IFNAMSIZ + dl_len;
+                if (record < sizeof(struct ifreq))
+                    record = sizeof(struct ifreq);
+                if ((size_t) (space - written) < record)
+                    break;
+
+                ifr = (struct ifreq*) (ifc->ifc_buf + written);
+                memset(ifr, 0, record);
+                memcpy(ifr->ifr_name, curr->lifr_name, name_len);
+
+                dl = (struct sockaddr_dl*) &ifr->ifr_addr;
+                dl->sdl_len = dl_len;
+                dl->sdl_family = AF_LINK;
+                dl->sdl_index = (i / sizeof(struct linux_ifreq)) + 1;
+                dl->sdl_nlen = name_len;
+                memcpy(dl->sdl_data, curr->lifr_name, name_len);
+
+                memset(&hw, 0, sizeof(hw));
+                memcpy(hw.lifr_name, curr->lifr_name, LINUX_IFNAMSIZ);
+                if (__real_ioctl(fd, LINUX_SIOCGIFHWADDR, &hw) == 0 && hw.lifr_addr.sa_family == LINUX_ARPHRD_ETHER) {
+                    dl->sdl_type = IFT_ETHER;
+                    dl->sdl_alen = MAC_LENGTH;
+                    memcpy(LLADDR(dl), hw.lifr_addr.sa_data, MAC_LENGTH);
+                } else {
+                    dl->sdl_type = (hw.lifr_addr.sa_family == LINUX_ARPHRD_LOOPBACK) ? IFT_LOOP : IFT_OTHER;
+                }
+                written += record;
+
+                if (curr->lifr_addr.sa_family != LINUX_AF_INET)
+                    continue;
+                if ((size_t) (space - written) < sizeof(struct ifreq))
+                    break;
+
+                ifr = (struct ifreq*) (ifc->ifc_buf + written);
+                memset(ifr, 0, sizeof(struct ifreq));
+                memcpy(ifr->ifr_name, curr->lifr_name, name_len);
+                ifr->ifr_addr.sa_len = sizeof(struct sockaddr_in);
+                ifr->ifr_addr.sa_family = AF_INET;
+                memcpy(ifr->ifr_addr.sa_data, curr->lifr_addr.sa_data, sizeof(curr->lifr_addr.sa_data));
+                written += sizeof(struct ifreq);
+            }
+
+            ifc->ifc_len = written;
+            *retval = 0;
             return IOCTL_HANDLED;
         }
         case SIOCGIFMEDIA:
