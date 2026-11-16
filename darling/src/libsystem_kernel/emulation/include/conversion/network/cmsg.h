@@ -72,4 +72,12 @@ size_t cmsg_linux_space_for_bsd(size_t bsd_len);
 size_t cmsg_linux_to_bsd(const void* linux_control, size_t linux_len,
 		void* bsd_control, size_t bsd_len, int* truncated);
 
+/*
+ * As above, but turns Linux's IP_PKTINFO into Darwin's IP_RECVDSTADDR and IP_RECVIF messages when those options
+ * were set. The IP_PKTINFO message itself is passed through only when the program also asked for it.
+ */
+size_t cmsg_linux_to_bsd_ip_recv(const void* linux_control, size_t linux_len,
+		void* bsd_control, size_t bsd_len, int* truncated,
+		int recvif, int recvdst, int pktuser);
+
 #endif // DARLING_CONVERSION_NETWORK_CMSG_H

@@ -112,6 +112,9 @@ enum
 	BSD_IP_TTL,
 	BSD_IP_RECVOPTS,
 	BSD_IP_RECVRETOPTS,
+	// IP_RECVDSTADDR (netinet/in.h 7) was missing, so IP_RETOPTS and every option after it (the multicast ones:
+	// IF 9, TTL 10, LOOP 11, ADD_MEMBERSHIP 12, DROP_MEMBERSHIP 13) were numbered one too low.
+	BSD_IP_RECVDSTADDR,
 	BSD_IP_RETOPTS,
 	BSD_IP_MULTICAST_IF,
 	BSD_IP_MULTICAST_TTL,

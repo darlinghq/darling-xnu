@@ -141,6 +141,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/helper/misc/sysctl_vm.c
 	src/xnu_syscall/bsd/helper/network/duct.c
 	src/xnu_syscall/bsd/helper/network/nosigpipe.c
+	src/xnu_syscall/bsd/helper/network/sockopt_extra.c
 
 	src/xnu_syscall/bsd/impl/audit/audit_addr.c
 	src/xnu_syscall/bsd/impl/audit/auditon.c
