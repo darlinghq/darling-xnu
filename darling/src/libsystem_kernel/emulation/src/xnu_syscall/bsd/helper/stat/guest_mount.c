@@ -72,6 +72,63 @@ static void guest_mount_name(const struct guest_root* root, const char* mnton, c
 	}
 }
 
+// A FUSE file system may name its kind (e.g. "hfs" for darling-dmg) in the "darling.volume.kind" xattr of its root;
+// that kind replaces the Linux type ("fuse" or "fuse.<subtype>"), as macOS reports the file system in the volume.
+static void guest_mount_kind(const char* mnton, char* fstype, size_t fstype_size)
+{
+	char kind[16];
+	long ret;
+
+	if (strncmp(fstype, "fuse", 4) != 0)
+		return;
+	ret = LINUX_SYSCALL(__NR_lgetxattr, mnton, "darling.volume.kind", kind, sizeof(kind) - 1);
+	if (ret <= 0)
+		return;
+	kind[ret] = 0;
+	strlcpy(fstype, kind, fstype_size);
+}
+
+long guest_mount_volume_name(const char* host_path, char* name, __SIZE_TYPE__ name_size)
+{
+	struct guest_root root;
+	char mnton[1024], fstype[16], from[8], guest_name[1024];
+	const char* last;
+	int listed;
+	long ret = guest_root_find(&root);
+
+	if (ret < 0)
+		return ret;
+	ret = mount_table_lookup(host_path, mnton, sizeof(mnton), fstype, sizeof(fstype), from, sizeof(from));
+	if (ret < 0)
+		return ret;
+
+	if (mnton[0] != 0 && strncmp(fstype, "fuse", 4) == 0 && name_size > 1)
+	{
+		ret = LINUX_SYSCALL(__NR_lgetxattr, mnton, "darling.volume.name", name, name_size - 1);
+		if (ret > 0)
+		{
+			name[ret] = 0;
+			return 0;
+		}
+	}
+
+	if (mnton[0] == 0 || strcmp(mnton, root.volume) == 0)
+	{
+		strlcpy(name, "Macintosh HD", name_size);
+		return 0;
+	}
+
+	guest_mount_name(&root, mnton, guest_name, sizeof(guest_name), &listed);
+	last = guest_name;
+	for (const char* p = guest_name; *p; p++)
+	{
+		if (*p == '/' && p[1] != 0)
+			last = p + 1;
+	}
+	strlcpy(name, last, name_size);
+	return 0;
+}
+
 long guest_mount_describe(const char* host_path, struct bsd_statfs64* buf)
 {
 	struct guest_root root;
@@ -89,7 +146,10 @@ long guest_mount_describe(const char* host_path, struct bsd_statfs64* buf)
 		return ret;
 
 	if (mnton[0] != 0)
+	{
 		guest_mount_name(&root, mnton, buf->f_mntonname, sizeof(buf->f_mntonname), &listed);
+		guest_mount_kind(mnton, buf->f_fstypename, sizeof(buf->f_fstypename));
+	}
 	else
 		buf->f_mntonname[0] = 0;
 	return 0;
@@ -135,6 +195,7 @@ static long list_visit(void* context, const char* mnton, const char* fstype, con
 		statfs_linux_to_bsd64(&lbuf, entry);
 		strlcpy(entry->f_mntonname, name, sizeof(entry->f_mntonname));
 		strlcpy(entry->f_fstypename, fstype, sizeof(entry->f_fstypename));
+		guest_mount_kind(mnton, entry->f_fstypename, sizeof(entry->f_fstypename));
 		strlcpy(entry->f_mntfromname, mntfrom, sizeof(entry->f_mntfromname));
 		if (state->legacy)
 			statfs_bsd64_to_bsd(&wide, &((struct bsd_statfs*) state->buf)[state->count]);
