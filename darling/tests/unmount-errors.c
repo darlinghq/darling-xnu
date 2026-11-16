@@ -1,6 +1,6 @@
 // unmount(2) must report the errors its manual page and macOS give for paths that are not mount points,
 // missing paths and bad pointers, instead of failing with EBUSY for everything.
-// Every expected value was confirmed by running this program on macOS 26.7.3 (25G342), x86_64, as a non-root user.
+// Every value expected for a non-root user was confirmed by running this program on macOS 26.7.3 (25G342), x86_64.
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -12,10 +12,10 @@
 
 static int failures;
 
-static void expect_error(const char* what, const char* path, int expected)
+static void expect_error_flags(const char* what, const char* path, int flags, int expected)
 {
 	errno = 0;
-	int rv = unmount(path, 0);
+	int rv = unmount(path, flags);
 	if (rv == -1 && errno == expected)
 		printf("PASS: %s\n", what);
 	else {
@@ -23,6 +23,11 @@ static void expect_error(const char* what, const char* path, int expected)
 			expected, strerror(expected));
 		failures++;
 	}
+}
+
+static void expect_error(const char* what, const char* path, int expected)
+{
+	expect_error_flags(what, path, 0, expected);
 }
 
 int main(void)
@@ -48,8 +53,15 @@ int main(void)
 	expect_error("NULL path", NULL, EFAULT);
 	expect_error("regular file", file, EINVAL);
 	expect_error("symlink to a directory that is not a mount point", link, EINVAL);
-	if (geteuid() != 0)
+	if (geteuid() != 0) {
 		expect_error("root file system as a non-root user", "/", EPERM);
+		expect_error_flags("root file system, forced, as a non-root user", "/", MNT_FORCE, EPERM);
+	} else {
+		// Not observed on macOS (no root there); the root volume is always in use, which unmount(2) reports as
+		// EBUSY, also when forced.
+		expect_error("root file system as root", "/", EBUSY);
+		expect_error_flags("root file system, forced, as root", "/", MNT_FORCE, EBUSY);
+	}
 
 	unlink(link);
 	unlink(file);

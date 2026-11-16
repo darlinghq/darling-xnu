@@ -11,6 +11,7 @@
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/stat/mount_options.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mount_table.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/geteuid.h>
 
 #ifndef VARIANT_DYLD
 #include <elfcalls.h>
@@ -68,8 +69,11 @@ static const char* const fusermount_paths[] = {
 };
 
 // Unmounts the FUSE mount on `host_path` with the host's fusermount, which lets the user who mounted a FUSE
-// filesystem unmount it without privileges. Returns 0, -EBUSY if fusermount failed, or -EPERM if it can't be run.
-// `force` asks for a lazy unmount (-z), as for umount2 above.
+// filesystem unmount it without privileges. Returns 0, -EBUSY if fusermount failed or its result is unknown (the
+// caller then looks at the mount table), or -EPERM if it can't be run. `force` asks for a lazy unmount (-z), as for
+// umount2 above.
+// The calling program sees a child come and go (SIGCHLD); if it reaps it first (SIGCHLD ignored, a handler that
+// waits for any child, another thread in wait()), wait4 fails and the result is unknown.
 static long unmount_with_fusermount(const char* host_path, int force)
 {
 	typedef int (*posix_spawn_fn)(int* pid, const char* path, const void* file_actions, const void* attr,
@@ -101,7 +105,7 @@ static long unmount_with_fusermount(const char* host_path, int force)
 		ret = LINUX_SYSCALL(__NR_wait4, pid, &status, 0, NULL);
 	while (ret == -LINUX_EINTR);
 	if (ret < 0)
-		return -EPERM;
+		return -EBUSY;
 
 	// exited normally with status 0
 	return (status & 0xffff) == 0 ? 0 : -EBUSY;
@@ -122,6 +126,11 @@ long sys_unmount(const char* path, int flags)
 	if (ret < 0)
 		return ret;
 
+	// The root volume is always in use. Checked first: where the guest may unmount (rootless mode, or Darling
+	// started by root), a lazy unmount of it would take the whole prefix away.
+	if (unmount_is_guest_root(vc.path))
+		return sys_geteuid() == 0 ? -EBUSY : -EPERM;
+
 	ret = LINUX_SYSCALL(__NR_umount2, vc.path, (flags & BSD_MNT_FORCE) ? LINUX_MNT_DETACH : 0);
 	if (ret == 0)
 		return 0;
@@ -131,8 +140,6 @@ long sys_unmount(const char* path, int flags)
 	// Without the privilege to unmount, Linux fails before it checks that the path is a mount point. macOS checks
 	// that first, so look it up.
 	ret = mount_table_mount_at(vc.path, fstype, sizeof(fstype), options, sizeof(options));
-	if (ret == -EINVAL && unmount_is_guest_root(vc.path))
-		return -EPERM; // the root volume, even where the guest's root directory is not a mount of its own
 	if (ret < 0)
 		return ret;
 
@@ -147,7 +154,7 @@ long sys_unmount(const char* path, int flags)
 
 	ret = unmount_with_fusermount(vc.path, (flags & BSD_MNT_FORCE) != 0);
 	if (ret == -EBUSY && mount_table_mount_at(vc.path, fstype, sizeof(fstype), options, sizeof(options)) == -EINVAL)
-		return 0; // gone after all
+		return 0; // gone after all (or the program reaped fusermount before we could)
 	return ret;
 #else
 	return -EPERM;
