@@ -9,6 +9,7 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/duct.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/nosigpipe.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/network/sockopt_extra.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/gettimeofday.h>
 
 extern void* memcpy(void*, const void*, __SIZE_TYPE__);
@@ -36,6 +37,14 @@ long sys_getsockopt(int fd, int level, int optname, void* optval, int* optlen)
 		memcpy(optval, &value, *optlen);
 		return 0;
 	}
+
+	// XNU keeps these options itself; Linux has no equivalent with the same numbering or scale.
+	if (level == BSD_SOL_SOCKET && (optname == BSD_SO_TRAFFIC_CLASS ||
+		optname == BSD_SO_RECV_TRAFFIC_CLASS || optname == BSD_SO_NET_SERVICE_TYPE))
+		return sockopt_extra_get_tc(fd, optname, optval, optlen);
+	if ((level == BSD_SOL_SOCKET && optname == BSD_SO_RECV_ANYIF) ||
+		(level == 0 && (optname == BSD_IP_RECVIF || optname == BSD_IP_RECVDSTADDR_OPT)))
+		return sockopt_extra_get_flag(fd, level, optname, optval, optlen);
 
 	linux_level = level;
 	linux_optname = optname;

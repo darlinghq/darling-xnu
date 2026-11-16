@@ -10,6 +10,7 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/duct.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/network/sockopt_extra.h>
 
 extern void *malloc(__SIZE_TYPE__ size);
 extern void free(void* ptr);
@@ -89,8 +90,11 @@ static long sys_recvmsg_common(int socket, struct bsd_msghdr* msg, int flags, bo
 		{
 			int truncated = 0;
 
-			msg->msg_controllen = cmsg_linux_to_bsd(lmsg.msg_control, lmsg.msg_control ? lmsg.msg_controllen : 0,
-					msg->msg_control, msg->msg_controllen, &truncated);
+			msg->msg_controllen = cmsg_linux_to_bsd_ip_recv(lmsg.msg_control,
+					lmsg.msg_control ? lmsg.msg_controllen : 0,
+					msg->msg_control, msg->msg_controllen, &truncated,
+					sockopt_extra_recvif(socket), sockopt_extra_recvdst(socket),
+					sockopt_extra_pktinfo_user(socket));
 			if (truncated)
 				bsd_flags |= BSD_MSG_CTRUNC;
 		}
