@@ -9,6 +9,7 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mount_table.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/stat/linux_statfs.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/stat/mount_options.h>
 
 extern __SIZE_TYPE__ strlen(const char* s);
 extern int strcmp(const char* a, const char* b);
@@ -129,6 +130,17 @@ long guest_mount_volume_name(const char* host_path, char* name, __SIZE_TYPE__ na
 	return 0;
 }
 
+// The user who mounted a volume: for a FUSE mount the user_id Linux records (in the guest's user namespace, as
+// /proc/self/mounts shows it), otherwise root, as on macOS for the volumes the system mounts.
+static unsigned int guest_mount_owner(const char* fstype, const char* options)
+{
+	unsigned int owner = 0;
+
+	if (strncmp(fstype, "fuse", 4) == 0)
+		mount_options_fuse_user_id(options, &owner);
+	return owner;
+}
+
 long guest_mount_describe(const char* host_path, struct bsd_statfs64* buf)
 {
 	struct guest_root root;
@@ -147,6 +159,12 @@ long guest_mount_describe(const char* host_path, struct bsd_statfs64* buf)
 
 	if (mnton[0] != 0)
 	{
+		char fstype[sizeof(buf->f_fstypename)];
+		char options[1024];
+
+		buf->f_owner = 0;
+		if (mount_table_mount_at(mnton, fstype, sizeof(fstype), options, sizeof(options)) == 0)
+			buf->f_owner = guest_mount_owner(fstype, options);
 		guest_mount_name(&root, mnton, buf->f_mntonname, sizeof(buf->f_mntonname), &listed);
 		guest_mount_kind(mnton, buf->f_fstypename, sizeof(buf->f_fstypename));
 	}
@@ -165,7 +183,8 @@ struct list_state
 	int root_pass;   // 1: only the root volume, 0: everything else
 };
 
-static long list_visit(void* context, const char* mnton, const char* fstype, const char* mntfrom)
+static long list_visit(void* context, const char* mnton, const char* fstype, const char* mntfrom,
+	const char* options)
 {
 	struct list_state* state = context;
 	struct linux_statfs64 lbuf;
@@ -197,6 +216,7 @@ static long list_visit(void* context, const char* mnton, const char* fstype, con
 		strlcpy(entry->f_fstypename, fstype, sizeof(entry->f_fstypename));
 		guest_mount_kind(mnton, entry->f_fstypename, sizeof(entry->f_fstypename));
 		strlcpy(entry->f_mntfromname, mntfrom, sizeof(entry->f_mntfromname));
+		entry->f_owner = guest_mount_owner(fstype, options);
 		if (state->legacy)
 			statfs_bsd64_to_bsd(&wide, &((struct bsd_statfs*) state->buf)[state->count]);
 	}

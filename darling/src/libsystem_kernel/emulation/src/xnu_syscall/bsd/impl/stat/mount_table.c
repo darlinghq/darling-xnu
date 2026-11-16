@@ -307,6 +307,7 @@ long mount_table_enumerate(mount_table_visitor visit, void* context)
 	char* from;
 	char* on;
 	char* type;
+	char* options;
 
 	libsimple_lock_lock(&mount_table_lock);
 
@@ -315,7 +316,7 @@ long mount_table_enumerate(mount_table_visitor visit, void* context)
 		goto out;
 	ret = 0;
 
-	while (mount_table_next_locked(&offset, line, sizeof(line), &from, &on, &type, NULL))
+	while (mount_table_next_locked(&offset, line, sizeof(line), &from, &on, &type, &options))
 	{
 		size_t later = offset;
 		char later_line[1024 + 512];
@@ -340,7 +341,7 @@ long mount_table_enumerate(mount_table_visitor visit, void* context)
 		if (hidden)
 			continue;
 
-		ret = visit(context, on, type, from);
+		ret = visit(context, on, type, from, options ? options : "");
 		if (ret != 0)
 			break;
 	}

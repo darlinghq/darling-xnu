@@ -1,7 +1,8 @@
 // Copyright (C) 2026 Lubos Dolezel
 // getattrlist(ATTR_VOL_NAME) names the volume that holds an object, whichever object on the volume is asked about,
 // with or without ATTR_CMN_RETURNED_ATTRS, and ATTR_VOL_ATTRIBUTES reports it as supported; statfs and getfsstat
-// report the volume's file system kind. "/" has a name too.
+// report the volume's file system kind. "/" has a name too. statfs and getfsstat give the volume's owner as the
+// user who mounted it (the caller, who attached the image), and root as the owner of "/".
 //
 // Usage: volume-name-kind <mount point> <expected volume name> <expected kind> [<a file on that volume>]
 // The program also passes on macOS (e.g. with a mounted disk image: /Volumes/X X hfs).
@@ -89,7 +90,12 @@ int main(int argc, char** argv)
 	struct statfs sfs;
 	CHECK(statfs(mp, &sfs) == 0);
 	CHECK(strcmp(sfs.f_fstypename, argv[3]) == 0);
-	printf("kind of %s: %s\n", mp, sfs.f_fstypename);
+	CHECK(sfs.f_owner == geteuid());
+	printf("kind of %s: %s, owner %u\n", mp, sfs.f_fstypename, (unsigned) sfs.f_owner);
+
+	struct statfs root;
+	CHECK(statfs("/", &root) == 0);
+	CHECK(root.f_owner == 0);
 
 	struct statfs all[64];
 	int count = getfsstat(all, sizeof(all), MNT_NOWAIT);
@@ -98,6 +104,7 @@ int main(int argc, char** argv)
 		if (strcmp(all[i].f_mntonname, mp) == 0) {
 			found = 1;
 			CHECK(strcmp(all[i].f_fstypename, argv[3]) == 0);
+			CHECK(all[i].f_owner == geteuid());
 		}
 	}
 	CHECK(found);
