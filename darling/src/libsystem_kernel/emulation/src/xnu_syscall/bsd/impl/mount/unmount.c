@@ -23,7 +23,11 @@ extern int strcmp(const char* a, const char* b);
 extern int strncmp(const char* a, const char* b, __SIZE_TYPE__ n);
 
 #define BSD_MNT_FORCE 0x00080000
-#define LINUX_MNT_FORCE 1
+#define LINUX_MNT_DETACH 2
+
+// MNT_FORCE unmounts a volume even if it is in use. Linux's MNT_FORCE doesn't (for FUSE it breaks the connection
+// and still fails with EBUSY), so a forced unmount is a lazy one: the volume is detached at once and is gone for
+// good when the last file on it is closed. The fusermount path does the same with -z.
 
 // the host path `path` expands to, without trailing slashes, as /proc/self/mounts names mount points
 static long unmount_host_path(const char* path, struct vchroot_expand_args* vc)
@@ -65,8 +69,7 @@ static const char* const fusermount_paths[] = {
 
 // Unmounts the FUSE mount on `host_path` with the host's fusermount, which lets the user who mounted a FUSE
 // filesystem unmount it without privileges. Returns 0, -EBUSY if fusermount failed, or -EPERM if it can't be run.
-// With MNT_FORCE it asks for a lazy unmount (-z): detaching the busy volume is the closest an unprivileged
-// unmount comes to a forced one.
+// `force` asks for a lazy unmount (-z), as for umount2 above.
 static long unmount_with_fusermount(const char* host_path, int force)
 {
 	typedef int (*posix_spawn_fn)(int* pid, const char* path, const void* file_actions, const void* attr,
@@ -119,7 +122,7 @@ long sys_unmount(const char* path, int flags)
 	if (ret < 0)
 		return ret;
 
-	ret = LINUX_SYSCALL(__NR_umount2, vc.path, (flags & BSD_MNT_FORCE) ? LINUX_MNT_FORCE : 0);
+	ret = LINUX_SYSCALL(__NR_umount2, vc.path, (flags & BSD_MNT_FORCE) ? LINUX_MNT_DETACH : 0);
 	if (ret == 0)
 		return 0;
 	if (ret != -LINUX_EPERM && ret != -LINUX_EACCES)
