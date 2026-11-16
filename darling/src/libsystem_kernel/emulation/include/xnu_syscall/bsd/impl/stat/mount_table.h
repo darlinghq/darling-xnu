@@ -30,4 +30,16 @@ typedef long (*mount_table_visitor)(void* context, const char* mnton, const char
  */
 long mount_table_enumerate(mount_table_visitor visit, void* context);
 
+/**
+ * Finds what is mounted exactly on `host_mount_point` (a host path without a trailing slash; the topmost mount if
+ * there are several) and copies its filesystem type and its mount options (the comma-separated fourth field of
+ * /proc/self/mounts) into the buffers.
+ *
+ * @retval `0` on success
+ * @retval `-EINVAL` if nothing is mounted on that path
+ * @retval another negative BSD errno if the mount table can't be read
+ */
+long mount_table_mount_at(const char* host_mount_point, char* fstype, size_t fstype_size,
+	char* options, size_t options_size);
+
 #endif // LINUX_MOUNT_TABLE_H
