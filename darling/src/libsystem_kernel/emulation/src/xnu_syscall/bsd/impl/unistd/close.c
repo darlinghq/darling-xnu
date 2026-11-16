@@ -9,6 +9,7 @@
 #include <darling/emulation/common/guarded/table.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bpf/bpf_device.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/nosigpipe.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/select/select.h>
 #include <_libkernel_init.h>
 
 extern _libkernel_functions_t _libkernel_functions;
@@ -41,6 +42,7 @@ long sys_close_nocancel(int fd)
 	// another thread right after the close is not taken for the device.
 	bpf_device_close(fd);
 	nosigpipe_close(fd);
+	select_fd_closed(fd);
 
 	ret = LINUX_SYSCALL1(__NR_close, fd);
 	if (ret < 0)
