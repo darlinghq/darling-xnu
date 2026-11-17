@@ -17,6 +17,14 @@ void sigexc_setup(void);
 void darling_sigexc_self(void);
 void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt);
 
+// Whether sigexc_handler is the Linux handler of this signal (as opposed to signals the kernel
+// does not allow handling, and SIGCHLD, which sigaction() installs itself).
+bool sigexc_handles_signal(int linux_signum);
+
+// Sets whether the kernel restarts blocking syscalls interrupted by this signal's sigexc_handler.
+// sigaction() uses it to apply the application's SA_RESTART.
+void sigexc_set_restart(int linux_signum, bool restart);
+
 // Registers an eventfd that counts each delivery of the signal (for kqueue
 // signal filters); returns 0 or a negative BSD errno.
 int sigexc_kqueue_watch(int linux_signum, int fd);
