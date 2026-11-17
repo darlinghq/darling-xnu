@@ -17,6 +17,12 @@ extern int strncmp(const char* a, const char* b, __SIZE_TYPE__ n);
 extern char* strcpy(char* dst, const char* src);
 extern __SIZE_TYPE__ strlcpy(char* dst, const char* src, __SIZE_TYPE__ size);
 
+// <sys/mount.h> values
+#define BSD_MNT_DONTBROWSE 0x00100000
+#define BSD_MNT_LOCAL      0x00001000
+#define BSD_MNT_REMOVABLE  0x00000200
+#define BSD_MNT_ROOTFS     0x00004000
+
 // the host's tree below the guest's /Volumes (the vchroot "exit path")
 #define HOST_ROOT_ALIAS "/Volumes/SystemRoot"
 
@@ -75,18 +81,57 @@ static void guest_mount_name(const struct guest_root* root, const char* mnton, c
 
 // A FUSE file system may name its kind (e.g. "hfs" for darling-dmg) in the "darling.volume.kind" xattr of its root;
 // that kind replaces the Linux type ("fuse" or "fuse.<subtype>"), as macOS reports the file system in the volume.
-static void guest_mount_kind(const char* mnton, char* fstype, size_t fstype_size)
+// Returns 1 when it did.
+static int guest_mount_kind(const char* mnton, char* fstype, size_t fstype_size)
 {
 	char kind[16];
 	long ret;
 
 	if (strncmp(fstype, "fuse", 4) != 0)
-		return;
+		return 0;
 	ret = LINUX_SYSCALL(__NR_lgetxattr, mnton, "darling.volume.kind", kind, sizeof(kind) - 1);
 	if (ret <= 0)
-		return;
+		return 0;
 	kind[ret] = 0;
 	strlcpy(fstype, kind, fstype_size);
+	return 1;
+}
+
+// The mount flags macOS gives a volume and Linux has no counterpart for:
+// - MNT_LOCAL for every volume that is not a network file system;
+// - MNT_ROOTFS for the root volume;
+// - MNT_DONTBROWSE for a volume the user is not meant to see, i.e. one that is neither "/" nor in /Volumes;
+// - MNT_REMOVABLE for a disk image, which is a volume whose kind comes from its marker (as in diskarbitrationd).
+static unsigned int guest_mount_flags(const struct guest_root* root, const char* mnton, const char* guest_name,
+	const char* linux_fstype, int has_kind)
+{
+	static const char* const network_types[] = { "nfs", "nfs4", "cifs", "smb3", "9p", "ceph", "fuse.sshfs" };
+	unsigned int flags = BSD_MNT_LOCAL;
+	int is_root = strcmp(mnton, root->volume) == 0;
+
+	for (size_t i = 0; i < sizeof(network_types) / sizeof(network_types[0]); i++)
+	{
+		if (strcmp(linux_fstype, network_types[i]) == 0)
+			flags = 0;
+	}
+	if (is_root)
+		flags |= BSD_MNT_ROOTFS;
+	else
+	{
+		const char* leaf = guest_name + sizeof("/Volumes/") - 1;
+		int in_volumes = strncmp(guest_name, "/Volumes/", sizeof("/Volumes/") - 1) == 0 && *leaf != 0;
+
+		for (const char* p = leaf; in_volumes && *p; p++)
+		{
+			if (*p == '/')
+				in_volumes = 0;
+		}
+		if (!in_volumes)
+			flags |= BSD_MNT_DONTBROWSE;
+	}
+	if (has_kind)
+		flags |= BSD_MNT_REMOVABLE;
+	return flags;
 }
 
 long guest_mount_volume_name(const char* host_path, char* name, __SIZE_TYPE__ name_size)
@@ -166,7 +211,9 @@ long guest_mount_describe(const char* host_path, struct bsd_statfs64* buf)
 		if (mount_table_mount_at(mnton, fstype, sizeof(fstype), options, sizeof(options)) == 0)
 			buf->f_owner = guest_mount_owner(fstype, options);
 		guest_mount_name(&root, mnton, buf->f_mntonname, sizeof(buf->f_mntonname), &listed);
-		guest_mount_kind(mnton, buf->f_fstypename, sizeof(buf->f_fstypename));
+		strlcpy(fstype, buf->f_fstypename, sizeof(fstype));
+		buf->f_flags |= guest_mount_flags(&root, mnton, buf->f_mntonname, fstype,
+			guest_mount_kind(mnton, buf->f_fstypename, sizeof(buf->f_fstypename)));
 	}
 	else
 		buf->f_mntonname[0] = 0;
@@ -214,7 +261,8 @@ static long list_visit(void* context, const char* mnton, const char* fstype, con
 		statfs_linux_to_bsd64(&lbuf, entry);
 		strlcpy(entry->f_mntonname, name, sizeof(entry->f_mntonname));
 		strlcpy(entry->f_fstypename, fstype, sizeof(entry->f_fstypename));
-		guest_mount_kind(mnton, entry->f_fstypename, sizeof(entry->f_fstypename));
+		entry->f_flags |= guest_mount_flags(state->root, mnton, name, fstype,
+			guest_mount_kind(mnton, entry->f_fstypename, sizeof(entry->f_fstypename)));
 		strlcpy(entry->f_mntfromname, mntfrom, sizeof(entry->f_mntfromname));
 		entry->f_owner = guest_mount_owner(fstype, options);
 		if (state->legacy)
