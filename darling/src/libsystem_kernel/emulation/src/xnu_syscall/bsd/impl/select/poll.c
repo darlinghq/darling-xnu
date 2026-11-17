@@ -12,18 +12,25 @@ struct ppoll_timespec {
     long    tv_nsec;        /* nanoseconds */
 };
 
+static long sys_poll_common(struct pollfd* fds, unsigned int nfds, int timeout, bool cancelable);
+
 long sys_poll(struct pollfd* fds, unsigned int nfds, int timeout)
 {
 	CANCELATION_POINT();
-	return sys_poll_nocancel(fds, nfds, timeout);
+	return sys_poll_common(fds, nfds, timeout, true);
 }
 
 long sys_poll_nocancel(struct pollfd* fds, unsigned int nfds, int timeout)
 {
+	return sys_poll_common(fds, nfds, timeout, false);
+}
+
+static long sys_poll_common(struct pollfd* fds, unsigned int nfds, int timeout, bool cancelable)
+{
 	int ret;
 
 	#if defined(__NR_poll)
-		ret = LINUX_SYSCALL(__NR_poll, fds, nfds, timeout);
+		ret = LINUX_SYSCALL_C(cancelable, __NR_poll, fds, nfds, timeout);
 	#else
 		// Bug fix: tv_sec / tv_nsec were swapped. Linux uses ppoll() when
 		// __NR_poll is unavailable (arm64). The poll() timeout argument is in
@@ -33,7 +40,7 @@ long sys_poll_nocancel(struct pollfd* fds, unsigned int nfds, int timeout)
 			.tv_nsec = (long)(timeout % 1000) * 1000000L
 		};
 
-		ret = LINUX_SYSCALL(__NR_ppoll, fds, nfds, (timeout < 0) ? NULL : &timeout_ts, NULL);
+		ret = LINUX_SYSCALL_C(cancelable, __NR_ppoll, fds, nfds, (timeout < 0) ? NULL : &timeout_ts, NULL);
 	#endif
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);

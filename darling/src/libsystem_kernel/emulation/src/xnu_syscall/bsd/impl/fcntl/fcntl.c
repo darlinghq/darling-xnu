@@ -256,13 +256,20 @@ fail:
 	return ret;
 }
 
+static long sys_fcntl_common(int fd, int cmd, long arg, bool cancelable);
+
 long sys_fcntl(int fd, int cmd, long arg)
 {
 	CANCELATION_POINT();
-	return sys_fcntl_nocancel(fd, cmd, arg);
+	return sys_fcntl_common(fd, cmd, arg, true);
 }
 
 long sys_fcntl_nocancel(int fd, int cmd, long arg)
+{
+	return sys_fcntl_common(fd, cmd, arg, false);
+}
+
+static long sys_fcntl_common(int fd, int cmd, long arg, bool cancelable)
 {
 	int ret, linux_cmd = cmd_bsd_to_linux(cmd);
 	long original_arg = arg;
@@ -339,9 +346,9 @@ long sys_fcntl_nocancel(int fd, int cmd, long arg)
 	}
 
 #ifdef __NR_fcntl64
-	ret = LINUX_SYSCALL(__NR_fcntl64, fd, linux_cmd, arg);
+	ret = LINUX_SYSCALL_C(cancelable && cmd == F_SETLKW, __NR_fcntl64, fd, linux_cmd, arg);
 #else
-	ret = LINUX_SYSCALL(__NR_fcntl, fd, linux_cmd, arg);
+	ret = LINUX_SYSCALL_C(cancelable && cmd == F_SETLKW, __NR_fcntl, fd, linux_cmd, arg);
 #endif
 	if (ret < 0)
 	{

@@ -16,22 +16,29 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 
+static long sys_accept_common(int fd, void* from, int* socklen, bool cancelable);
+
 long sys_accept(int fd, void* from, int* socklen)
 {
 	CANCELATION_POINT();
-	return sys_accept_nocancel(fd, from, socklen);
+	return sys_accept_common(fd, from, socklen, true);
 }
 
 long sys_accept_nocancel(int fd, void* from, int* socklen)
+{
+	return sys_accept_common(fd, from, socklen, false);
+}
+
+static long sys_accept_common(int fd, void* from, int* socklen, bool cancelable)
 {
 	int ret;
 	struct sockaddr_fixup* fixed;
 	int capacity = (from != NULL && socklen != NULL) ? *socklen : 0;
 
 #ifdef __NR_socketcall
-	ret = LINUX_SYSCALL(__NR_socketcall, LINUX_SYS_ACCEPT, ((long[6]) { fd, from, socklen }));
+	ret = LINUX_SYSCALL_C(cancelable, __NR_socketcall, LINUX_SYS_ACCEPT, ((long[6]) { fd, from, socklen }));
 #else
-	ret = LINUX_SYSCALL(__NR_accept, fd, from, socklen);
+	ret = LINUX_SYSCALL_C(cancelable, __NR_accept, fd, from, socklen);
 #endif
 
 	if (ret < 0)

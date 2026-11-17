@@ -12,20 +12,27 @@
 
 static void siginfo_linux_to_bsd(const linux_siginfo_t* linux_si, siginfo_t* si);
 
+static long sys_waitid_common(int idtype, int id, siginfo_t* si, int options, bool cancelable);
+
 long sys_waitid(int idtype, int id, siginfo_t* si, int options)
 {
     CANCELATION_POINT();
-    return sys_waitid_nocancel(idtype, id, si, options);
+    return sys_waitid_common(idtype, id, si, options, true);
 }
 
 long sys_waitid_nocancel(int idtype, int id, siginfo_t* si, int options)
+{
+	return sys_waitid_common(idtype, id, si, options, false);
+}
+
+static long sys_waitid_common(int idtype, int id, siginfo_t* si, int options, bool cancelable)
 {
 	int ret, linux_options;
 
 	linux_options = waitopts_bsd_to_linux(options);
 
 	linux_siginfo_t linux_si = {0};
-	ret = LINUX_SYSCALL(__NR_waitid, idtype, id, &linux_si, linux_options);
+	ret = LINUX_SYSCALL_C(cancelable, __NR_waitid, idtype, id, &linux_si, linux_options);
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 

@@ -17,13 +17,20 @@ extern void free(void* ptr);
 // Control buffers up to this size are converted on the stack.
 #define SENDMSG_STACK_CONTROL 256
 
+static long sys_sendmsg_common(int socket, const struct bsd_msghdr* msg, int flags, bool cancelable);
+
 long sys_sendmsg(int socket, const struct bsd_msghdr* msg, int flags)
 {
 	CANCELATION_POINT();
-	return sys_sendmsg_nocancel(socket, msg, flags);
+	return sys_sendmsg_common(socket, msg, flags, true);
 }
 
 long sys_sendmsg_nocancel(int socket, const struct bsd_msghdr* msg, int flags)
+{
+	return sys_sendmsg_common(socket, msg, flags, false);
+}
+
+static long sys_sendmsg_common(int socket, const struct bsd_msghdr* msg, int flags, bool cancelable)
 {
 	int ret, linux_flags;
 	struct linux_msghdr lmsg;
@@ -87,10 +94,10 @@ long sys_sendmsg_nocancel(int socket, const struct bsd_msghdr* msg, int flags)
 	linux_flags = msgflags_bsd_to_linux(flags);
 
 #ifdef __NR_socketcall
-	ret = LINUX_SYSCALL(__NR_socketcall, LINUX_SYS_SENDMSG,
+	ret = LINUX_SYSCALL_C(cancelable, __NR_socketcall, LINUX_SYS_SENDMSG,
 			((long[6]) { socket, &lmsg, linux_flags }));
 #else
-	ret = LINUX_SYSCALL(__NR_sendmsg, socket, &lmsg, linux_flags);
+	ret = LINUX_SYSCALL_C(cancelable, __NR_sendmsg, socket, &lmsg, linux_flags);
 #endif
 
 	if (ret < 0)

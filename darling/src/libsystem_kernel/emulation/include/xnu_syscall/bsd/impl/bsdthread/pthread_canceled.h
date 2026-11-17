@@ -13,6 +13,11 @@ bool pthread_testcancel_presyscall(void);
 // it returns -LINUX_EINTR, unless cancellation is disabled
 long pthread_cancelable_syscall(long a1, long a2, long a3, long a4, long a5, long a6, int nr);
 
+// like pthread_cancelable_syscall(), for the blocking calls of the BSD syscall layer: if the syscall is
+// interrupted but the thread is not to be cancelled and no handler of the guest has run (e.g. cancellation
+// is disabled, or the thread has already acted on the cancel), it makes the syscall again
+long pthread_cancelable_syscall_restart(long a1, long a2, long a3, long a4, long a5, long a6, int nr);
+
 // for the handler of the signal that darlingserver interrupts a cancelable syscall with:
 // takes the interrupted instruction pointer and returns the one to resume at
 uintptr_t pthread_cancelable_syscall_interrupted(uintptr_t ip);

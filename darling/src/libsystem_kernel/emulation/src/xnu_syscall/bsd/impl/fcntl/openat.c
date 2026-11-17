@@ -32,10 +32,15 @@ extern char* strcpy(char* dst, const char* src);
 long sys_openat(int fd, const char* filename, int flags, unsigned int mode)
 {
 	CANCELATION_POINT();
-	return sys_openat_nocancel(fd, filename, flags, mode);
+	return sys_openat_common(fd, filename, flags, mode, true);
 }
 
 long sys_openat_nocancel(int fd, const char* filename, int flags, unsigned int mode)
+{
+	return sys_openat_common(fd, filename, flags, mode, false);
+}
+
+long sys_openat_common(int fd, const char* filename, int flags, unsigned int mode, bool cancelable)
 {
 	int ret, linux_flags;
 	if (!filename)
@@ -90,7 +95,7 @@ long sys_openat_nocancel(int fd, const char* filename, int flags, unsigned int m
 	// that for other syscalls, we either have to check for this and use an
 	// `l` variant (e.g. `llistxattr` instead of `listxatrr`) or we're screwed
 
-	ret = LINUX_SYSCALL(__NR_openat, vc.dfd, vc.path, linux_flags, mode);
+	ret = LINUX_SYSCALL_C(cancelable, __NR_openat, vc.dfd, vc.path, linux_flags, mode);
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
 

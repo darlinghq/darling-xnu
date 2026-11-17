@@ -10,13 +10,20 @@
 
 #define LINUX_TCGETA 0x5405
 
+static long sys_read_common(int fd, void* mem, int len, bool cancelable);
+
 long sys_read(int fd, void* mem, int len)
 {
 	CANCELATION_POINT();
-	return sys_read_nocancel(fd, mem, len);
+	return sys_read_common(fd, mem, len, true);
 }
 
 long sys_read_nocancel(int fd, void* mem, int len)
+{
+	return sys_read_common(fd, mem, len, false);
+}
+
+static long sys_read_common(int fd, void* mem, int len, bool cancelable)
 {
 	int ret;
 	long bpf_ret;
@@ -24,7 +31,7 @@ long sys_read_nocancel(int fd, void* mem, int len)
 	if (bpf_device_fd_count && bpf_device_read(fd, mem, len, &bpf_ret))
 		return bpf_ret;
 
-	ret = LINUX_SYSCALL3(__NR_read, fd, mem, len);
+	ret = LINUX_SYSCALL_C(cancelable, __NR_read, fd, mem, len);
 	if (ret < 0)
 	{
 		// When the slave side of a PTY is closed, Linux produces -EIO on the master side.
