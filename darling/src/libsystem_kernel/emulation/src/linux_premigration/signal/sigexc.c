@@ -237,6 +237,39 @@ void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext
 }
 
 
+// Makes sigexc_handler the Linux handler of a signal. Whether the kernel restarts a
+// blocking syscall that this handler interrupted is what the application asked for with
+// SA_RESTART (see sigexc_set_restart()); the handler is installed with restarting
+// until the application says otherwise.
+static void install_sigexc_handler(int linux_signum, bool restart)
+{
+	struct linux_sigaction sa;
+	sa.sa_sigaction = (linux_sig_handler*) sigexc_handler;
+	sa.sa_mask = 0x7fffffff; // all other standard Unix signals should be blocked while the handler is run
+	sa.sa_mask |= (1ull << (SIGNAL_SIGEXC_SUSPEND-1));
+	sa.sa_flags = LINUX_SA_RESTORER | LINUX_SA_SIGINFO | LINUX_SA_ONSTACK;
+	if (restart)
+		sa.sa_flags |= LINUX_SA_RESTART;
+	sa.sa_restorer = sig_restorer;
+
+	LINUX_SYSCALL(__NR_rt_sigaction, linux_signum,
+			&sa, NULL,
+			sizeof(sa.sa_mask));
+}
+
+bool sigexc_handles_signal(int linux_signum)
+{
+	return linux_signum >= 1 && linux_signum <= 31
+		&& linux_signum != LINUX_SIGSTOP && linux_signum != LINUX_SIGKILL
+		&& linux_signum != LINUX_SIGCHLD;
+}
+
+void sigexc_set_restart(int linux_signum, bool restart)
+{
+	if (sigexc_handles_signal(linux_signum))
+		install_sigexc_handler(linux_signum, restart);
+}
+
 void darling_sigexc_self(void)
 {
 	am_i_ptraced = true;
@@ -248,16 +281,7 @@ void darling_sigexc_self(void)
 		if (i == LINUX_SIGSTOP || i == LINUX_SIGKILL || i == LINUX_SIGCHLD)
 			continue;
 
-		struct linux_sigaction sa;
-		sa.sa_sigaction = (linux_sig_handler*) sigexc_handler;
-		sa.sa_mask = 0x7fffffff; // all other standard Unix signals should be blocked while the handler is run
-		sa.sa_mask |= (1ull << (SIGNAL_SIGEXC_SUSPEND-1));
-		sa.sa_flags = LINUX_SA_RESTORER | LINUX_SA_SIGINFO | LINUX_SA_RESTART | LINUX_SA_ONSTACK;
-		sa.sa_restorer = sig_restorer;
-
-		LINUX_SYSCALL(__NR_rt_sigaction, i,
-				&sa, NULL,
-				sizeof(sa.sa_mask));
+		install_sigexc_handler(i, true);
 	}
 
 #if SIGALTSTACK_GUARD

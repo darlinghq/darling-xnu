@@ -101,6 +101,16 @@ long sys_sigaction(int signum, const struct bsd___sigaction* nsa, struct bsd_sig
 		sig_tramps[linux_signum] = nsa->sa_tramp;
 		sig_flags[linux_signum] = nsa->sa_flags;
 		sig_masks[linux_signum] = nsa->sa_mask;
+
+		// Blocking syscalls interrupted by a handler return EINTR unless the application
+		// asked for SA_RESTART. SIG_DFL and SIG_IGN never interrupt a syscall, so they keep
+		// the restarting default of the Linux handler.
+		if (sigexc_handles_signal(linux_signum))
+		{
+			bool has_handler = nsa->sa_sigaction != XNU_SIG_DFL && nsa->sa_sigaction != XNU_SIG_IGN
+					&& nsa->sa_sigaction != XNU_SIG_ERR;
+			sigexc_set_restart(linux_signum, !has_handler || (nsa->sa_flags & BSD_SA_RESTART));
+		}
 	}
 
 	return 0;

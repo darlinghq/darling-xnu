@@ -61,8 +61,10 @@ bool pthread_testcancel_presyscall(void)
 // linux_syscall_cancelable() is linux_syscall() with an extra argument, the address of the marked byte.
 // It checks the byte, then makes the syscall. The signal handler moves a thread that it interrupts
 // between the check and the syscall instruction to an exit that returns -LINUX_EINTR, if the thread
-// has been marked. That includes a thread blocked in the syscall: our handlers use SA_RESTART, so for
-// a syscall that the kernel restarts (e.g. a futex wait without a timeout), it points the thread back
+// has been marked. That includes a thread blocked in the syscall: darlingserver interrupts it with a
+// real-time signal, and the handlers of those signals use SA_RESTART (unlike the handlers of the
+// application's signals, which follow the application's SA_RESTART). So for a syscall that the kernel
+// restarts (e.g. a futex wait without a timeout), the handler points the thread back
 // at the syscall instruction before the handler runs. A signal that arrives before the check leaves
 // it to the check to see the mark.
 
