@@ -16,13 +16,20 @@
 
 extern int getpid(void);
 
+static long sys_wait4_common(int pid, int* status, int options, void* rusage, bool cancelable);
+
 long sys_wait4(int pid, int* status, int options, void* rusage)
 {
 	CANCELATION_POINT();
-	return sys_wait4_nocancel(pid, status, options, rusage);
+	return sys_wait4_common(pid, status, options, rusage, true);
 }
 
 long sys_wait4_nocancel(int pid, int* status, int options, void* rusage)
+{
+	return sys_wait4_common(pid, status, options, rusage, false);
+}
+
+static long sys_wait4_common(int pid, int* status, int options, void* rusage, bool cancelable)
 {
 	int ret, linux_options;
 	int mystatus;
@@ -34,7 +41,7 @@ long sys_wait4_nocancel(int pid, int* status, int options, void* rusage)
 	linux_options = waitopts_bsd_to_linux(options);
 
 restart:
-	ret = LINUX_SYSCALL(__NR_wait4, pid, status, linux_options, rusage);
+	ret = LINUX_SYSCALL_C(cancelable, __NR_wait4, pid, status, linux_options, rusage);
 	if (ret == -LINUX_ECHILD)
 	{
 		// A process this one attached to with ptrace is not a Linux child,

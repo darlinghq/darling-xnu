@@ -10,6 +10,8 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/bsdthread_register.h>
 
+#include <darling/emulation/linux_premigration/signal/sigexc.h>
+
 #include <darlingserver/rpc.h>
 
 // The TSD slot __PTK_DARLING_CANCEL_MARKED is shared with darlingserver (see set_thread_handles()).
@@ -219,6 +221,25 @@ long pthread_cancelable_syscall(long a1, long a2, long a3, long a4, long a5, lon
 	__atomic_store_n(&slot[CANCEL_WAITING_BYTE], was_waiting, __ATOMIC_RELAXED);
 
 	return ret;
+}
+
+long pthread_cancelable_syscall_restart(long a1, long a2, long a3, long a4, long a5, long a6, int nr)
+{
+	// without libpthread's TSD there is no way to tell what interrupted the syscall
+	bool track_handlers = bsdthread_registered();
+
+	for (;;)
+	{
+		unsigned long handlers = track_handlers ? sigexc_handlers_run() : 0;
+		long ret = pthread_cancelable_syscall(a1, a2, a3, a4, a5, a6, nr);
+
+		if (ret != -LINUX_EINTR || !track_handlers)
+			return ret;
+
+		// a handler of the guest ran, or the thread is to act on its cancellation: EINTR it is
+		if (sigexc_handlers_run() != handlers || pthread_testcancel_presyscall())
+			return ret;
+	}
 }
 
 uintptr_t pthread_cancelable_syscall_interrupted(uintptr_t ip)

@@ -18,13 +18,20 @@ extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/common/bsdthread/per_thread_wd.h>
 
+static long sys_connect_common(int fd, const void* name, int socklen, bool cancelable);
+
 long sys_connect(int fd, const void* name, int socklen)
 {
 	CANCELATION_POINT();
-	return sys_connect_nocancel(fd, name, socklen);
+	return sys_connect_common(fd, name, socklen, true);
 }
 
 long sys_connect_nocancel(int fd, const void* name, int socklen)
+{
+	return sys_connect_common(fd, name, socklen, false);
+}
+
+static long sys_connect_common(int fd, const void* name, int socklen, bool cancelable)
 {
 	int ret;
 	struct sockaddr_fixup* fixed;
@@ -52,9 +59,9 @@ long sys_connect_nocancel(int fd, const void* name, int socklen)
 	}
 
 #ifdef __NR_socketcall
-	ret = LINUX_SYSCALL(__NR_socketcall, LINUX_SYS_CONNECT, ((long[6]) { fd, fixed, socklen }));
+	ret = LINUX_SYSCALL_C(cancelable, __NR_socketcall, LINUX_SYS_CONNECT, ((long[6]) { fd, fixed, socklen }));
 #else
-	ret = LINUX_SYSCALL(__NR_connect, fd, fixed, socklen);
+	ret = LINUX_SYSCALL_C(cancelable, __NR_connect, fd, fixed, socklen);
 #endif
 
 	if (was_nonblock) {

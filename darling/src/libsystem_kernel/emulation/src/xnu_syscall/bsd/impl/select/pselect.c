@@ -1,5 +1,6 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/select/pselect.h>
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -33,7 +34,7 @@ static void fd_set_bit(int fd, uint32_t* set)
 long sys_pselect(int nfds, void* rfds, void* wfds, void* efds, const struct bsd_timespec* timeout, const sigset_t* mask)
 {
 	CANCELATION_POINT();
-	return sys_pselect_nocancel(nfds, rfds, wfds, efds, timeout, mask);
+	return sys_pselect_common(nfds, rfds, wfds, efds, timeout, mask, true);
 }
 
 struct pselect_epoll_event {
@@ -48,7 +49,7 @@ __attribute__((packed))
 /* Keep ordinary descriptors in native pselect; epoll supplies PTY wakeups. */
 static long pselect_pty_wait(int nfds, uint32_t* rfds, uint32_t* wfds,
 		uint32_t* efds, const struct bsd_timespec* timeout, const sigset_t* mask,
-		const unsigned char* tty)
+		const unsigned char* tty, bool cancelable)
 {
 	/* Do not let the internal descriptor occupy a requested invalid fd. */
 	for (int fd = 0; fd < nfds; ++fd) {
@@ -108,7 +109,7 @@ static long pselect_pty_wait(int nfds, uint32_t* rfds, uint32_t* wfds,
 			exceptions[nfds / 32] &= valid;
 		}
 		fd_set_bit(ep, reads);
-		result = LINUX_SYSCALL(__NR_pselect6, limit, reads, wfds ? writes : NULL,
+		result = LINUX_SYSCALL_C(cancelable, __NR_pselect6, limit, reads, wfds ? writes : NULL,
 				exceptions, wait, mask ? mask_data : NULL);
 		if (result < 0) goto cleanup;
 		if (fd_is_set(ep, reads)) {
@@ -147,6 +148,13 @@ static int is_pty_master(int fd)
 
 long sys_pselect_nocancel(int nfds, void* rfds, void* wfds, void* efds, const struct bsd_timespec* timeout, const sigset_t* mask)
 {
+	return sys_pselect_common(nfds, rfds, wfds, efds, timeout, mask, false);
+}
+
+// shared with select(), which goes through it
+__attribute__((visibility("hidden")))
+long sys_pselect_common(int nfds, void* rfds, void* wfds, void* efds, const struct bsd_timespec* timeout, const sigset_t* mask, bool cancelable)
+{
 	// QUIRK: a pseudo-terminal master is reported in exceptfds once its
 	// slave side has been closed (also when it is readable with read()
 	// returning 0), and in packet mode when a status byte is pending. A
@@ -163,7 +171,7 @@ long sys_pselect_nocancel(int nfds, void* rfds, void* wfds, void* efds, const st
 			if (fd_is_set(fd, efds) && is_pty_master(fd))
 				has_tty = tty[fd] = 1;
 		}
-		if (has_tty) return pselect_pty_wait(nfds, rfds, wfds, efds, timeout, mask, tty);
+		if (has_tty) return pselect_pty_wait(nfds, rfds, wfds, efds, timeout, mask, tty, cancelable);
 	}
 	int ret;
 	struct linux_timespec { long tv_sec; long tv_nsec; } lts;
@@ -182,7 +190,7 @@ long sys_pselect_nocancel(int nfds, void* rfds, void* wfds, void* efds, const st
 		data[1] = sizeof(lmask);
 	}
 
-	ret = LINUX_SYSCALL(__NR_pselect6, nfds, rfds, wfds, efds,
+	ret = LINUX_SYSCALL_C(cancelable, __NR_pselect6, nfds, rfds, wfds, efds,
 			(timeout != NULL) ? &lts : NULL,
 			(mask != NULL) ? data : NULL);
 
