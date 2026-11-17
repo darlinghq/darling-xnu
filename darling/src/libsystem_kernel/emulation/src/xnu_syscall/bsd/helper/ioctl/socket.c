@@ -20,7 +20,7 @@
 #define LINUX_AF_INET 2
 
 // Linux returns one record per IPv4 address; this bounds the stack buffer for them.
-#define IFCONF_MAX_RECORDS 16
+#define IFCONF_MAX_RECORDS 64
 
 extern void* memset(void* destination, int value, size_t length);
 extern void* memcpy(void* destination, const void* source, size_t n);
