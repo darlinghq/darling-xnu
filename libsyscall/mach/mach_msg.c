@@ -299,7 +299,13 @@ mach_msg2_internal(
 		mach_vm_address_t heap_buf = 0;
 		mach_msg_header_t *hdr;
 
-		if (msg == NULL) {
+		/*
+		 * QUIRK: a message that is only a header may be sent with no data pointer, since all of its
+		 * header fields travel in registers; a longer message needs its bytes and without them is
+		 * MACH_SEND_INVALID_DATA. Evidence: black-box observation on macOS 26.7.3 (tier 2), a header
+		 * only send with NULL data succeeds. Test: darling/tests/mach-msg2.c ("a send with no data").
+		 */
+		if (msg == NULL && send_size != sizeof(mach_msg_header_t)) {
 			return MACH_SEND_INVALID_DATA;
 		}
 		if (send_size < overhead || (send_size & 3)) {
@@ -327,7 +333,9 @@ mach_msg2_internal(
 		}
 
 		/* the message in the caller's buffer starts with its header, but the header fields travel in registers */
-		__builtin_memcpy(hdr, msg, send_size);
+		if (msg != NULL) {
+			__builtin_memcpy(hdr, msg, send_size);
+		}
 		hdr->msgh_bits = bits;
 		hdr->msgh_size = send_size;
 		hdr->msgh_remote_port = remote;

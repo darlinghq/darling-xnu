@@ -9,6 +9,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+// Newer SDKs declare only the new name.
+extern kern_return_t host_get_io_master(host_t, mach_port_t*);
+
 #define IO_KIT "/System/Library/Frameworks/IOKit.framework/IOKit"
 
 static void expect(int condition, const char* what)

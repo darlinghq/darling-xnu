@@ -10,7 +10,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef mach_msg_return_t (*msg2_fn)(void*, mach_msg_option64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+// The mach_msg2 option word and vector as XNU lays them out. Declared here, under names of their own, so the
+// test builds against SDKs that do not declare them and against Darling's, which does.
+typedef uint64_t msg2_option64_t;
+#define MSG2_MSG_VECTOR 0x0000000100000000ull
+#define MSG2_SEND_MQ_CALL 0x0000000400000000ull
+typedef struct {
+	mach_vm_address_t msgv_data;
+	mach_vm_address_t msgv_rcv_addr;
+	mach_msg_size_t   msgv_send_size;
+	mach_msg_size_t   msgv_rcv_size;
+} msg2_vector_t;
+
+typedef mach_msg_return_t (*msg2_fn)(void*, msg2_option64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 static msg2_fn msg2_internal;
 
 #define PAD sizeof(mach_msg_max_trailer_t)
@@ -44,6 +56,11 @@ static void expect_rc(mach_msg_return_t got, mach_msg_return_t want, const char*
 static mach_msg_return_t msg2_packed(void* data, uint64_t option64, mach_msg_header_t header, mach_msg_size_t send_size,
     mach_msg_size_t descriptors, mach_msg_size_t rcv_size, mach_port_t rcv_name, uint64_t timeout, uint32_t priority)
 {
+	// Current macOS refuses a send without the message-queue call flag and kills the process (a guard
+	// exception); the flag lies above the 32 bits of mach_msg options, which are all Darling reads.
+	if (option64 & MACH_SEND_MSG) {
+		option64 |= MSG2_SEND_MQ_CALL;
+	}
 	return msg2_internal(data, option64, SHIFT_ARGS(header.msgh_bits, send_size),
 	    SHIFT_ARGS(header.msgh_remote_port, header.msgh_local_port), SHIFT_ARGS(header.msgh_voucher_port, header.msgh_id),
 	    SHIFT_ARGS(descriptors, rcv_name), SHIFT_ARGS(rcv_size, priority), timeout);
@@ -55,8 +72,8 @@ static mach_msg_return_t msg2(void* data, uint64_t option64, mach_msg_header_t h
 {
 	mach_msg_base_t* base;
 	mach_msg_size_t descriptors;
-	if (option64 & MACH64_MSG_VECTOR) {
-		base = (mach_msg_base_t*)(uintptr_t)((mach_msg_vector_t*)data)->msgv_data;
+	if (option64 & MSG2_MSG_VECTOR) {
+		base = (mach_msg_base_t*)(uintptr_t)((msg2_vector_t*)data)->msgv_data;
 	} else {
 		base = (mach_msg_base_t*)data;
 	}
@@ -100,8 +117,13 @@ static int filled(const char* p, size_t n, unsigned seed)
 	return 1;
 }
 
-int main(void)
+// Darling cannot carry the auxiliary data of a vector send or receive and refuses it; macOS delivers it. The checks of
+// that refusal run only with the argument "darling" (the guest runs), the rest of the program is the same on both.
+static int darling_limits;
+
+int main(int argc, char** argv)
 {
+	darling_limits = argc > 1 && !strcmp(argv[1], "darling");
 	msg2_internal = dlsym(RTLD_DEFAULT, "mach_msg2_internal");
 	expect(msg2_internal != NULL, "libsystem_kernel exports mach_msg2_internal");
 
@@ -162,14 +184,14 @@ int main(void)
 	} vsend;
 	vsend.header = garbage();
 	fill(vsend.body, sizeof vsend.body, 11);
-	mach_msg_vector_t vec = {
+	msg2_vector_t vec = {
 		.msgv_data = (mach_vm_address_t)(uintptr_t)&vsend,
 		.msgv_rcv_addr = (mach_vm_address_t)(uintptr_t)&in,
 		.msgv_send_size = sizeof vsend,
 		.msgv_rcv_size = sizeof in,
 	};
 	memset(&in, 0, sizeof in);
-	expect_rc(msg2(&vec, MACH64_MSG_VECTOR | MACH_SEND_MSG | MACH_RCV_MSG, mkhdr(copy_send, port, MACH_PORT_NULL, 0x4d35), 1, 1, port,
+	expect_rc(msg2(&vec, MSG2_MSG_VECTOR | MACH_SEND_MSG | MACH_RCV_MSG, mkhdr(copy_send, port, MACH_PORT_NULL, 0x4d35), 1, 1, port,
 	              MACH_MSG_TIMEOUT_NONE, 0),
 	    MACH_MSG_SUCCESS, "vector mode send and receive");
 	expect(in.header.msgh_id == 0x4d35 && in.header.msgh_size == sizeof vsend, "vector receive buffer holds the message");
@@ -205,32 +227,42 @@ int main(void)
 	    MACH_SEND_TOO_LARGE, "a simple message with a descriptor count is refused");
 	expect_rc(msg2(&in, MACH_SEND_MSG, mkhdr(copy_send, port, MACH_PORT_NULL, 0), hdr + 2, 0, MACH_PORT_NULL, 0, 0),
 	    MACH_SEND_MSG_TOO_SMALL, "a send_size that is not a multiple of 4 is refused");
+	// A header-only message needs no data pointer (all its fields are in registers); a longer one does.
 	expect_rc(msg2_packed(NULL, MACH_SEND_MSG, mkhdr(copy_send, port, MACH_PORT_NULL, 0), hdr, 0, 0, MACH_PORT_NULL, 0, 0),
-	    MACH_SEND_INVALID_DATA, "a send with no data is refused");
+	    MACH_MSG_SUCCESS, "a header-only send with no data is accepted");
+	memset(&in, 0, sizeof in);
+	expect_rc(mach_msg(&in.header, MACH_RCV_MSG | MACH_RCV_TIMEOUT, 0, sizeof in, port, 1000, MACH_PORT_NULL), MACH_MSG_SUCCESS,
+	    "the header-only message arrived");
+	expect_rc(msg2_packed(NULL, MACH_SEND_MSG, mkhdr(copy_send, port, MACH_PORT_NULL, 0), hdr + 8, 0, 0, MACH_PORT_NULL, 0, 0),
+	    MACH_SEND_INVALID_DATA, "a longer send with no data is refused");
 
 	// vector counts as mach_msg2_trap validates them; auxiliary data is refused, never dropped
-	mach_msg_vector_t vv[2] = { { .msgv_data = (mach_vm_address_t)(uintptr_t)&vsend, .msgv_send_size = sizeof vsend,
+	msg2_vector_t vv[2] = { { .msgv_data = (mach_vm_address_t)(uintptr_t)&vsend, .msgv_send_size = sizeof vsend,
 	                                .msgv_rcv_size = sizeof in },
 		{ .msgv_data = (mach_vm_address_t)(uintptr_t)&in, .msgv_send_size = 16, .msgv_rcv_size = 16 } };
 	const mach_msg_header_t vh = mkhdr(copy_send, port, MACH_PORT_NULL, 0x4d37);
-	expect_rc(msg2_packed(vv, MACH64_MSG_VECTOR | MACH_SEND_MSG, vh, 0, 0, 0, MACH_PORT_NULL, 0, 0), MACH_SEND_MSG_TOO_SMALL,
+	expect_rc(msg2_packed(vv, MSG2_MSG_VECTOR | MACH_SEND_MSG, vh, 0, 0, 0, MACH_PORT_NULL, 0, 0), MACH_SEND_MSG_TOO_SMALL,
 	    "a send vector count of zero is refused");
-	expect_rc(msg2_packed(vv, MACH64_MSG_VECTOR | MACH_SEND_MSG, vh, 3, 0, 0, MACH_PORT_NULL, 0, 0), MACH_SEND_INVALID_DATA,
+	expect_rc(msg2_packed(vv, MSG2_MSG_VECTOR | MACH_SEND_MSG, vh, 3, 0, 0, MACH_PORT_NULL, 0, 0), MACH_SEND_INVALID_DATA,
 	    "a send vector count above two is refused");
-	expect_rc(msg2_packed(vv, MACH64_MSG_VECTOR | MACH_SEND_MSG, vh, 2, 0, 2, MACH_PORT_NULL, 0, 0), MACH_SEND_INVALID_DATA,
+	if (darling_limits) {
+		expect_rc(msg2_packed(vv, MSG2_MSG_VECTOR | MACH_SEND_MSG, vh, 2, 0, 2, MACH_PORT_NULL, 0, 0), MACH_SEND_INVALID_DATA,
 	    "an auxiliary send vector with data is refused");
-	expect_rc(msg2_packed(vv, MACH64_MSG_VECTOR | MACH_RCV_MSG | MACH_RCV_TIMEOUT, vh, 0, 0, 0, other, 10, 0),
+	}
+	expect_rc(msg2_packed(vv, MSG2_MSG_VECTOR | MACH_RCV_MSG | MACH_RCV_TIMEOUT, vh, 0, 0, 0, other, 10, 0),
 	    MACH_RCV_INVALID_ARGUMENTS, "a receive vector count of zero is refused");
-	expect_rc(msg2_packed(vv, MACH64_MSG_VECTOR | MACH_RCV_MSG | MACH_RCV_TIMEOUT, vh, 0, 0, 2, other, 10, 0),
+	if (darling_limits) {
+		expect_rc(msg2_packed(vv, MSG2_MSG_VECTOR | MACH_RCV_MSG | MACH_RCV_TIMEOUT, vh, 0, 0, 2, other, 10, 0),
 	    MACH_RCV_INVALID_ARGUMENTS, "an auxiliary receive vector is refused");
+	}
 	expect_rc(msg2(&in, MACH_RCV_MSG | MACH_RCV_TIMEOUT, mkhdr(0, 0, 0, 0), 0, sizeof in, other, 10, 0x1234), MACH_RCV_TIMED_OUT,
 	    "an empty queue times out");
 
 	// a bad receive vector does not stop the send (mach_msg2_trap validates it after the send): the message arrives and
 	// the call reports the receive error
 	static const struct { mach_msg_size_t rcv_count; mach_msg_id_t id; } rcv_cases[] = { { 0, 0x4d38 }, { 2, 0x4d39 } };
-	for (int i = 0; i < 2; i++) {
-		expect_rc(msg2_packed(vv, MACH64_MSG_VECTOR | MACH_SEND_MSG | MACH_RCV_MSG,
+	for (int i = 0; i < (darling_limits ? 2 : 1); i++) {
+		expect_rc(msg2_packed(vv, MSG2_MSG_VECTOR | MACH_SEND_MSG | MACH_RCV_MSG,
 		              mkhdr(copy_send, port, MACH_PORT_NULL, rcv_cases[i].id), 1, 0, rcv_cases[i].rcv_count, port,
 		              MACH_MSG_TIMEOUT_NONE, 0),
 		    MACH_RCV_INVALID_ARGUMENTS, "a send and receive call with a bad receive vector reports the receive error");
@@ -257,8 +289,11 @@ int main(void)
 	const uint64_t sync_rcv = MACH_RCV_MSG | MACH_RCV_TIMEOUT | MACH_RCV_SYNC_WAIT;
 	expect_rc(msg2_packed(&in, sync_rcv, mkhdr(0, port, 0, 0), 0, 0, sizeof in, special, 10, 0), MACH_RCV_TIMED_OUT,
 	    "the sync port in msgh_remote_port is used");
-	expect_rc(msg2_packed(&in, sync_rcv, mkhdr(0, MACH_PORT_NULL, 0, 0), 0, 0, sizeof in, special, 10, port), MACH_RCV_INVALID_NOTIFY,
-	    "a valid port in the priority half is not the sync port");
+	// macOS 26.7.3 times out here instead of refusing the call, so this check is Darling's translation to mach_msg
+	if (darling_limits) {
+		expect_rc(msg2_packed(&in, sync_rcv, mkhdr(0, MACH_PORT_NULL, 0, 0), 0, 0, sizeof in, special, 10, port), MACH_RCV_INVALID_NOTIFY,
+		    "a valid port in the priority half is not the sync port");
+	}
 
 	printf("PASS: mach_msg2_internal sends and receives, plain, one-call, vector and complex messages\n");
 	return 0;
