@@ -418,6 +418,9 @@ static long _proc_pidinfo_tbsdinfo(int32_t pid, void* buffer, int32_t bufsize)
 	info->pbi_start_tvusec = start_usec;
 
 	memcpy(info->pbi_comm, shortinfo.pbsi_comm, sizeof(info->pbi_comm));
+	// pbi_name holds the full basename (up to 2 * MAXCOMLEN - 1 characters), which
+	// proc_name() prefers over pbi_comm
+	darling_process_name(pid, info->pbi_name, sizeof(info->pbi_name));
 
 	return sizeof(struct proc_bsdinfo);
 reterr:
@@ -480,7 +483,9 @@ static long _proc_pidinfo_shortbsdinfo(int32_t pid, void* buffer, int32_t bufsiz
 
 	// comm
 	READELEM();
-	strncpy(info->pbsi_comm, elem, sizeof(info->pbsi_comm));
+	// the executable's basename, keeping MAXCOMLEN - 1 characters
+	if (!darling_process_name(pid, info->pbsi_comm, sizeof(info->pbsi_comm)))
+		strncpy(info->pbsi_comm, elem, sizeof(info->pbsi_comm));
 
 	// process state
 	READELEM();
