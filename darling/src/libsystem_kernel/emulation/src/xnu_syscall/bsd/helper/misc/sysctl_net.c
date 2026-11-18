@@ -34,15 +34,6 @@ static sysctl_handler(handle_route);
 static int do_iflist(void* old, unsigned long* oldlen, int modern, unsigned int index);
 
 #define IFC_MAX_BYTES (1024 * 1024)
-#define LINUX_SIOCGIFINDEX 0x8933
-
-struct linux_ifconf {
-	int lifc_len;
-	union {
-		char* lifc_buf;
-		struct linux_ifreq* lifc_req;
-	};
-};
 
 enum {
 	_NET_ROUTE = 17,

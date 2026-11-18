@@ -46,6 +46,15 @@ struct linux_ifreq {
 };
 
 #define LINUX_SIOCGIFMTU 0x8921
+#define LINUX_SIOCGIFINDEX 0x8933
+
+struct linux_ifconf {
+	int lifc_len;
+	union {
+		char* lifc_buf;
+		struct linux_ifreq* lifc_req;
+	};
+};
 
 static inline unsigned int if_flags_linux_to_bsd(unsigned short flags)
 {
