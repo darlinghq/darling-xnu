@@ -5,6 +5,7 @@
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/posix_ipc_name.h>
 
 #include <elfcalls.h>
 
@@ -14,8 +15,13 @@ long sys_sem_unlink(const char* name)
 {
 #ifndef VARIANT_DYLD
 	int ret;
+	char host_name[POSIX_IPC_HOST_NAME_SIZE];
 
-	ret = elfcalls()->sem_unlink(name);
+	ret = posix_ipc_name_to_host(name, POSIX_IPC_SEM_NAME_MAX, host_name, sizeof(host_name));
+	if (ret != 0)
+		return -ret;
+
+	ret = elfcalls()->sem_unlink(host_name);
 	if (ret == -1)
 		ret = -errno_linux_to_bsd(elfcalls()->get_errno());
 
