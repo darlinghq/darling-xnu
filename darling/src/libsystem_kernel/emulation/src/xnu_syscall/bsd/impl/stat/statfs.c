@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <sys/fcntl.h>
+#include <sys/errno.h>
 
 #include <darling/emulation/conversion/stat/common.h>
 #include <darling/emulation/common/base.h>
@@ -43,6 +44,10 @@ long sys_statfs64(const char* path, struct bsd_statfs64* buf)
 	vc.flags = VCHROOT_FOLLOW;
 	vc.dfd = get_perthread_wd();
 
+	// statfs(NULL) is EFAULT on Darwin; strcpy from NULL killed the caller (the Files app opened by a
+	// shareddocuments: URL statfs'es a path it never got)
+	if (!path)
+		return -EFAULT;
 	strcpy(vc.path, path);
 	ret = vchroot_expand(&vc);
 	if (ret < 0)
