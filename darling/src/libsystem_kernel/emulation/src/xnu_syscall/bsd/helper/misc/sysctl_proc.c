@@ -165,6 +165,49 @@ int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* bufl
 	return ret;
 }
 
+static const char* path_basename(const char* path)
+{
+	const char* base = path;
+	for (const char* p = path; *p != '\0'; ++p) {
+		if (*p == '/')
+			base = p + 1;
+	}
+	return base;
+}
+
+bool darling_process_name(int pid, char* out, unsigned long size)
+{
+	char path[1024];
+	uint64_t fullLength = 0;
+	const char* base = "";
+
+	if (size == 0)
+		return false;
+	// The Mach-O executable darlingserver recorded for the process (inherited by forked children)...
+	if (dserver_rpc_get_executable_path(pid, path, sizeof(path), &fullLength) == 0) {
+		path[sizeof(path) - 1] = '\0';
+		base = path_basename(path);
+	}
+	// ...or, when it has none, argv[0] from the process's command line.
+	if (*base == '\0') {
+		char cmdpath[48];
+		__simple_sprintf(cmdpath, "/proc/%d/cmdline", pid);
+		if (!read_string(cmdpath, path, sizeof(path)))
+			return false;
+		path[sizeof(path) - 1] = '\0';
+		base = path_basename(path);
+	}
+	// The loader's own name is not a Mach-O process name: keep the caller's fallback.
+	if (*base == '\0' || (base[0] == 'm' && base[1] == 'l' && base[2] == 'd' && base[3] == 'r' && base[4] == '\0'))
+		return false;
+
+	unsigned long i = 0;
+	for (; i + 1 < size && base[i] != '\0'; ++i)
+		out[i] = base[i];
+	out[i] = '\0';
+	return true;
+}
+
 bool read_string(const char* path, char* dst, int maxlen)
 {
 	int fd, rd;
@@ -307,8 +350,11 @@ static struct kinfo_proc_chain* load_proc(const char* name, int what, int flag)
 
 	// comm
 	READELEM();
-	strncpy(kinfo->kinfo.kp_proc.p_comm, elem, sizeof(kinfo->kinfo.kp_proc.p_comm) - 1);
-	kinfo->kinfo.kp_proc.p_comm[sizeof(kinfo->kinfo.kp_proc.p_comm) - 1] = '\0';
+	if (!darling_process_name(kinfo->kinfo.kp_proc.p_pid, kinfo->kinfo.kp_proc.p_comm, sizeof(kinfo->kinfo.kp_proc.p_comm)))
+	{
+		strncpy(kinfo->kinfo.kp_proc.p_comm, elem, sizeof(kinfo->kinfo.kp_proc.p_comm) - 1);
+		kinfo->kinfo.kp_proc.p_comm[sizeof(kinfo->kinfo.kp_proc.p_comm) - 1] = '\0';
+	}
 
 	// process state
 	READELEM();
