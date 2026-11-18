@@ -156,7 +156,14 @@ static int ifconf_from_linux(int fd, struct ifconf* ifc)
 			previous_length = name_len;
 		}
 
-		if ((size_t) (space - written) < sizeof(struct ifreq))
+		// QUIRK: an address record is listed only when more than its own length
+		// remains in the buffer; a link-level record needs exactly its length.
+		// Not documented. Evidence: black-box observation on macOS 26.7.3
+		// (tier 2): with room for the link record plus exactly one ifreq, the
+		// address record is left out, with one byte more it is listed. Callers
+		// that grow their buffer while ifc_len is within an ifreq of it rely on this.
+		// Test: tests/src/ioctl_siocgifconf.c (test_quirk_siocgifconf_address_record_needs_spare_byte)
+		if ((size_t) (space - written) <= sizeof(struct ifreq))
 			break;
 		ifr = (struct ifreq*) (ifc->ifc_buf + written);
 		memset(ifr, 0, sizeof(struct ifreq));
