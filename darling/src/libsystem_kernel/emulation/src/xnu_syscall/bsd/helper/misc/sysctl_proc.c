@@ -51,7 +51,9 @@ extern char *strrchr(const char *str, int ch);
 int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* buflen)
 {
 	int fd, ret = 0;
-	char dents[256];
+	// Must be at least as large as the longest directory record, so that
+	// sys_getdirentries never has to drop an entry that does not fit.
+	char dents[1024];
 	long basep = 0;
 	int nproc = 0;
 	struct kinfo_proc_chain *first = NULL, *last = NULL;
