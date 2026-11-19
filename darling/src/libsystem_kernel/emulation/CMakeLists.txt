@@ -77,6 +77,7 @@ set(linux_premigration_sources
 	src/linux_premigration/ext/eventfd_write.c
 	src/linux_premigration/ext/fanotify.c
 	src/linux_premigration/ext/file_handle.c
+	src/linux_premigration/ext/for-iosurface.c
 	src/linux_premigration/ext/for-libelfloader.c
 	src/linux_premigration/ext/for-libkqueue.c
 	src/linux_premigration/ext/for-platform-identity.c
