@@ -85,8 +85,12 @@ static long int dserver_rpc_hooks_send_message(int socket, const dserver_rpc_hoo
 
 static long int dserver_rpc_hooks_receive_message(int socket, dserver_rpc_hooks_msghdr_t* out_message) {
 	long int ret = 0;
+	// recvmsg() shrinks msg_controllen to the size of the control data it received. after an S2C call, restore it
+	// for the next message, or a descriptor that comes with it (an S2C mmap after an S2C munmap) would be dropped.
+	__typeof__(out_message->msg_controllen) controllen = out_message->msg_controllen;
 
 retry:
+	out_message->msg_controllen = controllen;
 #ifdef __NR_socketcall
 	ret = LINUX_SYSCALL(__NR_socketcall, LINUX_SYS_RECVMSG, ((long[6]) { socket, out_message, 0 }));
 #else
