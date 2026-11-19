@@ -42,22 +42,35 @@ static inline void round_to_4(unsigned short* reclen)
 	}
 }
 
+// A BSD record (8-byte header, name, NUL, rounded to 4) is never larger than
+// the Linux record it is made from (19-byte header, name, NUL, rounded to 8).
+// Reading at most len bytes of Linux records therefore always fits in len
+// bytes of BSD records. Entries read from the kernel but not returned cannot
+// be handed back, so reading more than fits would silently drop the entries
+// at the end of every call.
+// The host read must still be able to return the longest Linux record
+// (255-byte name), so callers with a buffer smaller than that can still lose
+// entries; callers that enumerate a directory should pass a larger one.
+#define LINUX_DIRENT64_LARGEST_RECORD 280
+#define GETDIRENTRIES_HOST_BUF_MAX 2048
+
 long sys_getdirentries(int fd, char* ibuf, unsigned int len, long* basep)
 {
 	int ret, bpos = 0, opos = 0;
 
-	unsigned int max_entry_count = len / BSD_DIRENT_MIN_SIZE;
+	unsigned int hostlen = len;
+	if (hostlen < LINUX_DIRENT64_LARGEST_RECORD)
+		hostlen = LINUX_DIRENT64_LARGEST_RECORD;
+	if (hostlen > GETDIRENTRIES_HOST_BUF_MAX)
+		hostlen = GETDIRENTRIES_HOST_BUF_MAX;
 
-	// don't want to blow up the stack
-	if (max_entry_count > 20)
-		max_entry_count = 20;
-
-	char buf[max_entry_count * LINUX_DIRENT64_MIN_SIZE];
+	// bounded, so this doesn't blow up the stack
+	char buf[GETDIRENTRIES_HOST_BUF_MAX];
 
 	if (basep)
 		*basep = 0;
 
-	ret = LINUX_SYSCALL(__NR_getdents64, fd, buf, sizeof(buf));
+	ret = LINUX_SYSCALL(__NR_getdents64, fd, buf, hostlen);
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 

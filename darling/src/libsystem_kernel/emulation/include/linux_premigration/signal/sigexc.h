@@ -36,6 +36,10 @@ void sigexc_kqueue_unwatch(int linux_signum, int fd);
 // Only valid once libpthread has registered (bsdthread_registered()).
 unsigned long sigexc_handlers_run(void);
 
+// Tells darlingserver that the calling thread has entered a signal handler (dserver_rpc_interrupt_enter()),
+// with every other signal that could run a handler blocked until the server has answered.
+int sigexc_interrupt_enter(void);
+
 void sigexc_thread_setup(void);
 void sigexc_thread_exit(void);
 
