@@ -17,8 +17,11 @@ void sigexc_setup(void);
 void darling_sigexc_self(void);
 void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt);
 
-// Whether sigexc_handler is the Linux handler of this signal (as opposed to signals the kernel
-// does not allow handling, and SIGCHLD, which sigaction() installs itself).
+// Whether sigexc_handler is the Linux handler of this signal once the application has called
+// sigaction() for it (as opposed to signals the kernel does not allow handling, and SIGCHLD,
+// SIGTTOU and SIGTTIN, whose Linux disposition sigaction() sets itself, because the kernel acts
+// on them being ignored: an ignored SIGTTOU lets a background process group call tcsetpgrp(),
+// an ignored SIGTTIN makes its read() from the terminal fail with EIO instead of looping).
 bool sigexc_handles_signal(int linux_signum);
 
 // Sets whether the kernel restarts blocking syscalls interrupted by this signal's sigexc_handler.

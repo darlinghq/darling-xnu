@@ -50,7 +50,11 @@ long sys_sigaction(int signum, const struct bsd___sigaction* nsa, struct bsd_sig
 		return 0;
 	}
 
-	if (nsa != NULL && (linux_signum == LINUX_SIGCHLD || linux_signum == LINUX_SIGTTOU))
+	// The kernel itself acts on whether these signals are ignored (SIGCHLD: children are
+	// reaped; SIGTTOU and SIGTTIN: a background process group may call tcsetpgrp() and gets
+	// EIO from read()), so their Linux disposition is what the application asked for.
+	if (nsa != NULL && (linux_signum == LINUX_SIGCHLD || linux_signum == LINUX_SIGTTOU
+			|| linux_signum == LINUX_SIGTTIN))
 	{
 		sa_tramp = nsa->sa_tramp;
 		if (nsa->sa_sigaction != XNU_SIG_DFL && nsa->sa_sigaction != XNU_SIG_IGN
