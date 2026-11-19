@@ -278,6 +278,11 @@ long _proc_pidinfo(int32_t pid, uint32_t flavor, uint64_t arg, void* buffer, int
 		{
 			return _proc_pidinfo_listfds(pid, buffer, bufsize);
 		}
+		case PROC_PIDLISTFILEPORTS:
+		{
+			// Linux has no fileports, so the list is always empty.
+			return 0;
+		}
 		default:
 		{
 			__simple_fprintf(2, "sys_proc_info(): Unsupported pidinfo flavor: %d\n",
@@ -389,6 +394,12 @@ static long _proc_pidinfo_tbsdinfo(int32_t pid, void* buffer, int32_t bufsize)
 	// info->pbi_xstatus
 	info->pbi_pid = shortinfo.pbsi_pid;
 	info->pbi_ppid = shortinfo.pbsi_ppid;
+
+	// Callers size their PROC_PIDLISTFDS buffer from pbi_nfiles, so report how many descriptors are open.
+	long fdbytes = _proc_pidinfo_listfds(pid, NULL, 0);
+	if (fdbytes > 0)
+		info->pbi_nfiles = fdbytes / sizeof(struct proc_fdinfo);
+
 	info->pbi_uid = shortinfo.pbsi_uid;
 	info->pbi_gid = shortinfo.pbsi_gid;
 	info->pbi_ruid = shortinfo.pbsi_ruid;
