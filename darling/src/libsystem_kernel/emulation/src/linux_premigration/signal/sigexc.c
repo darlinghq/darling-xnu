@@ -287,7 +287,8 @@ bool sigexc_handles_signal(int linux_signum)
 {
 	return linux_signum >= 1 && linux_signum <= 31
 		&& linux_signum != LINUX_SIGSTOP && linux_signum != LINUX_SIGKILL
-		&& linux_signum != LINUX_SIGCHLD;
+		&& linux_signum != LINUX_SIGCHLD && linux_signum != LINUX_SIGTTOU
+		&& linux_signum != LINUX_SIGTTIN;
 }
 
 void sigexc_set_restart(int linux_signum, bool restart)
