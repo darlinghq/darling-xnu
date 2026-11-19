@@ -105,6 +105,32 @@ void sigexc_setup2(void)
 		&set, NULL, sizeof(linux_sigset_t));
 }
 
+int sigexc_interrupt_enter(void)
+{
+	// a handler that ran while we wait for this reply would call interrupt_enter as well and take our reply for
+	// its own (they're indistinguishable); from then on, every call of both handlers would receive the reply meant
+	// for the call before it. so block the signals that run such handlers (all but the ones the kernel raises for
+	// a fault, which are synchronous and can't be held back) until the server has answered.
+	linux_sigset_t block = ~0ull;
+	block &= ~(1ull << (LINUX_SIGSEGV - 1));
+	block &= ~(1ull << (LINUX_SIGBUS - 1));
+	block &= ~(1ull << (LINUX_SIGILL - 1));
+	block &= ~(1ull << (LINUX_SIGFPE - 1));
+	block &= ~(1ull << (LINUX_SIGTRAP - 1));
+	block &= ~(1ull << (LINUX_SIGSYS - 1));
+	linux_sigset_t previous;
+
+	LINUX_SYSCALL(__NR_rt_sigprocmask, 0 /* LINUX_SIG_BLOCK */,
+		&block, &previous, sizeof(linux_sigset_t));
+
+	int status = dserver_rpc_interrupt_enter();
+
+	LINUX_SYSCALL(__NR_rt_sigprocmask, 2 /* LINUX_SIG_SETMASK */,
+		&previous, NULL, sizeof(linux_sigset_t));
+
+	return status;
+}
+
 static void dump_gregs(const struct linux_gregset* regs)
 {
 	unsigned long long* p = (unsigned long long*) regs;
@@ -181,7 +207,7 @@ static void cancel_interrupted_syscall(struct linux_ucontext* ctxt)
 void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
 
-	int status = dserver_rpc_interrupt_enter();
+	int status = sigexc_interrupt_enter();
 
 	if (status != 0) {
 		__simple_printf("*** dserver_rpc_interrupt_enter failed with code %d ***\n", status);
@@ -586,7 +612,7 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 				(void*)(uintptr_t)linux_signum);
 	}
 
-	int status = dserver_rpc_interrupt_enter();
+	int status = sigexc_interrupt_enter();
 
 	if (status != 0) {
 		handle_signal_without_server(linux_signum, info, ctxt);
