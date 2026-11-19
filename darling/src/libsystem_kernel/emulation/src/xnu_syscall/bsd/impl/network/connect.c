@@ -20,6 +20,31 @@ extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
 
 static long sys_connect_common(int fd, const void* name, int socklen, bool cancelable);
 
+#include <darling/emulation/xnu_syscall/bsd/impl/network/getsockopt.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/network/getpeername.h>
+
+// QUIRK: on a non-blocking stream socket whose connection attempt has
+// completed, a further connect() fails with EISCONN. Linux instead reports
+// success once, because it treats the call as confirming the pending attempt.
+// Evidence: black-box observation on macOS 26.7.3 (tier 2): the repeated call
+// returns EALREADY while the attempt is pending and EISCONN afterwards, never 0;
+// connect(2) documents EISCONN for an already connected socket.
+// Test: tests/src/socket_nonblocking_connect.c (check_repeat_done and the
+// repeated connect right after the connect started).
+static int stream_already_connected(int fd)
+{
+	int type = 0, typelen = sizeof(type);
+	long flags = LINUX_SYSCALL(__NR_fcntl, fd, 3 /*F_GETFL*/, 0);
+	char peer[128];
+	int peerlen = sizeof(peer);
+
+	if (flags < 0 || !(flags & 0x800 /*O_NONBLOCK*/))
+		return 0;
+	if (sys_getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &typelen) < 0 || type != SOCK_STREAM)
+		return 0;
+	return sys_getpeername(fd, peer, &peerlen) == 0;
+}
+
 long sys_connect(int fd, const void* name, int socklen)
 {
 	CANCELATION_POINT();
@@ -44,29 +69,14 @@ static long sys_connect_common(int fd, const void* name, int socklen, bool cance
 	if (ret < 0)
 		return ret;
 
-	// DARLING workaround: Darwin clients on Darling-arm64 often set
-	// O_NONBLOCK on the socket and then wait for connect completion via
-	// Mach kqueue paths that Darling's kqueue plumbing doesn't yet wire
-	// through to Linux socket-fd readiness events. Temporarily clear
-	// O_NONBLOCK so the underlying Linux connect() blocks until the TCP
-	// handshake completes, then restore the original flags. The caller
-	// sees ret=0 instead of EINPROGRESS — close enough for the typical
-	// "connect then send" sequence to work without polling.
-	long flags = LINUX_SYSCALL(__NR_fcntl, fd, 3 /*F_GETFL*/, 0);
-	int was_nonblock = (flags >= 0) && (flags & 0x800 /*O_NONBLOCK*/);
-	if (was_nonblock) {
-		LINUX_SYSCALL(__NR_fcntl, fd, 4 /*F_SETFL*/, flags & ~0x800L);
-	}
+	if (((const struct sockaddr*) name)->sa_family != AF_UNSPEC && stream_already_connected(fd))
+		return -EISCONN;
 
 #ifdef __NR_socketcall
 	ret = LINUX_SYSCALL_C(cancelable, __NR_socketcall, LINUX_SYS_CONNECT, ((long[6]) { fd, fixed, socklen }));
 #else
 	ret = LINUX_SYSCALL_C(cancelable, __NR_connect, fd, fixed, socklen);
 #endif
-
-	if (was_nonblock) {
-		LINUX_SYSCALL(__NR_fcntl, fd, 4 /*F_SETFL*/, flags);  // restore O_NONBLOCK
-	}
 
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
@@ -111,10 +121,12 @@ long sys_connectx(int fd, const void* endpoints_arg, unsigned int associd, unsig
 
 	if (iov && iovcnt > 0)
 	{
-		long bytes = sys_writev(fd, iov, iovcnt);
-		if (bytes > 0 && len)
+		// While the connection is still being established nothing can be
+		// sent yet, and the number of bytes sent is reported as 0.
+		long bytes = (ret == -EINPROGRESS) ? 0 : sys_writev(fd, iov, iovcnt);
+		if (len)
 		{
-			*((__SIZE_TYPE__*) len) = bytes;
+			*((__SIZE_TYPE__*) len) = (bytes > 0) ? bytes : 0;
 		}
 	}
 	else if (len)
