@@ -285,9 +285,8 @@ long _proc_pidinfo(int32_t pid, uint32_t flavor, uint64_t arg, void* buffer, int
 		}
 		default:
 		{
-			__simple_fprintf(2, "sys_proc_info(): Unsupported pidinfo flavor: %d\n",
-					flavor);
-			return -ENOTSUP;
+			// Unknown flavors fail with EINVAL, silently (see _proc_pidfdinfo).
+			return -EINVAL;
 		}
 	}
 }
@@ -1463,6 +1462,53 @@ static long _proc_pidfdinfo_pipe(int32_t pid, int fd, void* buffer, int32_t bufs
 	return sizeof(*info);
 }
 
+static long _proc_pidfdinfo_kqueue(int32_t pid, int fd, void* buffer, int32_t bufsize)
+{
+	struct kqueue_fdinfo* info = (struct kqueue_fdinfo*) buffer;
+	char target[512], name[16];
+	struct linux_stat st;
+	uint64_t inode;
+	long type;
+	int dfd, ret;
+
+	if (bufsize < (int32_t) sizeof(*info))
+		return -ENOMEM;
+
+	type = _proc_fd_lookup(pid, fd, target, sizeof(target), &inode, &dfd);
+	if (type < 0)
+		return type;
+	if (type != PROX_FDTYPE_KQUEUE)
+	{
+		LINUX_SYSCALL(__NR_close, dfd);
+		return -EBADF;
+	}
+
+	_proc_fdname(name, fd);
+#ifdef __NR_newfstatat
+	ret = LINUX_SYSCALL(__NR_newfstatat, dfd, name, &st, 0);
+#else
+	ret = LINUX_SYSCALL(__NR_fstatat64, dfd, name, &st, 0);
+#endif
+	LINUX_SYSCALL(__NR_close, dfd);
+	if (ret < 0)
+		return errno_linux_to_bsd(ret);
+
+	memset(info, 0, sizeof(*info));
+	info->pfi.fi_type = PROX_FDTYPE_KQUEUE;
+	// A kqueue descriptor is always open for reading and writing, is
+	// close-on-exec and is not inherited by fork.
+	info->pfi.fi_openflags = PROC_FREAD | PROC_FWRITE;
+	info->pfi.fi_status = PROC_FP_CLEXEC | PROC_FP_CLFORK;
+	// The kqueue is described as an anonymous FIFO-like object. The epoll
+	// descriptor behind it has no device or inode number to offer, and the
+	// number of queued events is not visible from outside the process.
+	info->kqueueinfo.kq_stat.vst_mode = S_IFIFO;
+	info->kqueueinfo.kq_stat.vst_blksize = 32;
+	info->kqueueinfo.kq_stat.vst_uid = st.st_uid;
+	info->kqueueinfo.kq_stat.vst_gid = st.st_gid;
+	return sizeof(*info);
+}
+
 static long _proc_pidfdinfo(int32_t pid, uint32_t flavor, int fd, void* buffer, int32_t bufsize)
 {
 	if (!buffer)
@@ -1476,10 +1522,12 @@ static long _proc_pidfdinfo(int32_t pid, uint32_t flavor, int fd, void* buffer, 
 			return _proc_pidfdinfo_socket(pid, fd, buffer, bufsize);
 		case PROC_PIDFDPIPEINFO:
 			return _proc_pidfdinfo_pipe(pid, fd, buffer, bufsize);
+		case PROC_PIDFDKQUEUEINFO:
+			return _proc_pidfdinfo_kqueue(pid, fd, buffer, bufsize);
 		default:
-			__simple_fprintf(2, "sys_proc_info(): Unsupported pidfdinfo flavor: %d\n",
-					flavor);
-			return -ENOTSUP;
+			// Unknown flavors fail with EINVAL, silently: callers may try
+			// them very often and stderr is no place for that.
+			return -EINVAL;
 	}
 }
 
