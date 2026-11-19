@@ -17,6 +17,7 @@
 #include <darling/emulation/conversion/duct_errno.h>
 
 #include <darlingserver/rpc.h>
+#include <darlingserver/rpc-supplement.h>
 
 #define UNIMPLEMENTED_TRAP() { char msg[] = "Called unimplemented Mach trap: "; write(2, msg, sizeof(msg)-1); write(2, __FUNCTION__, sizeof(__FUNCTION__)-1); write(2, "\n", 1); }
 
@@ -79,6 +80,12 @@ retry:
 	code = dserver_rpc_mach_msg_overwrite(msg, option, send_size, rcv_size, rcv_name, timeout, notify, rcv_msg);
 
 	if (code < 0) {
+		if (code == -DSERVER_RPC_RESTART) {
+			// the server could not perform the call because a signal arrived while it needed this thread
+			// (e.g. to map memory for a kernel object). nothing was sent and the message is back in our buffer;
+			// the signal has been handled by now, so send it again. the caller never sees this, whatever its options.
+			goto retry;
+		}
 		if (code == -LINUX_EINTR) {
 			// when the RPC call returns EINTR, it means we didn't manage to send the RPC message to the server;
 			// when the RPC receive operation receives EINTR, it retries the call, meaning we should never see EINTR from an RPC receive.
