@@ -10,10 +10,13 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 add_subdirectory(emulation)
 
-# DARLING: -msse* is x86-only; gate by target arch.
-if (TARGET_i386 OR TARGET_x86_64)
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -msse -msse2 -msse3")
-endif()
+# DARLING: -msse* is x86-only; scope it to the Intel slices, so it also works next to an arm64 slice
+# and for the objects that are built without an architecture of their own.
+foreach (arch IN ITEMS i386 x86_64)
+	if (TARGET_${arch})
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Xarch_${arch} -msse -Xarch_${arch} -msse2 -Xarch_${arch} -msse3")
+	endif ()
+endforeach (arch)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w -fblocks -ffreestanding")
 
 # Why -bind_at_load is necessary:
