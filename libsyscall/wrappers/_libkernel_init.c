@@ -76,6 +76,11 @@ __attribute__((visibility("hidden")))
 _libkernel_functions_t _libkernel_functions;
 
 
+#ifdef DARLING
+// reads the kill switch of in-process psynch (emulation/.../psynch/psynch_inproc.c)
+extern void psynch_inproc_init(const char* envp[]);
+#endif
+
 void
 __libkernel_init(_libkernel_functions_t fns,
     const char *envp[] __attribute__((unused)),
@@ -90,6 +95,7 @@ __libkernel_init(_libkernel_functions_t fns,
 #ifdef DARLING
 	mach_init(apple);
 	sigexc_setup();
+	psynch_inproc_init(envp);
 #else
 	mach_init();
 #endif

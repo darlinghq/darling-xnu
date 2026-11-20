@@ -232,6 +232,9 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/psynch/psynch_cvclrprepost.c
 	src/xnu_syscall/bsd/impl/psynch/psynch_cvsignal.c
 	src/xnu_syscall/bsd/impl/psynch/psynch_cvwait.c
+	src/xnu_syscall/bsd/impl/psynch/psynch_inproc.c
+	src/xnu_syscall/bsd/impl/psynch/ksyn/kern_synch.c
+	src/xnu_syscall/bsd/impl/psynch/ksyn/ksyn_kern.c
 	src/xnu_syscall/bsd/impl/psynch/psynch_mutexdrop.c
 	src/xnu_syscall/bsd/impl/psynch/psynch_mutexwait.c
 	src/xnu_syscall/bsd/impl/psynch/psynch_rw_rdlock.c

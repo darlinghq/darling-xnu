@@ -11,6 +11,7 @@
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
 #include <darling/emulation/common/guarded/table.h>
 #include <darling/emulation/other/mach/lkm.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/psynch/psynch_inproc.h>
 
 int bsdthread_terminate_trap(
                 uintptr_t stackaddr,
@@ -29,6 +30,10 @@ long sys_bsdthread_terminate(void* stackaddr, unsigned long freesize, int port,
 	// Implemented in libdyld
 	extern int __darling_thread_terminate(void* stackaddr,
 			unsigned long freesize, unsigned long pthobj_size);
+
+	// the in-process psynch state of this thread can go to the next thread;
+	// before the joiner is woken, as it may free our TSD
+	psynch_inproc_thread_exit();
 
 	semaphore_signal_trap_impl(join_sem);
 
