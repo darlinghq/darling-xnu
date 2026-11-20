@@ -921,22 +921,61 @@ void mcontext_to_thread_state(const struct linux_gregset* regs, x86_thread_state
 	s->__gs = regs->gs;
 }
 
+// Linux gives an i386 signal handler the x87 state in the legacy FSAVE layout
+// (full tag word, packed 10-byte registers, opcode in the top of the CS
+// selector word), followed by an FXSAVE image unless `magic` says it's
+// missing. On sigreturn the kernel takes the x87 state from the legacy part
+// and MXCSR and the XMM registers from the FXSAVE image. Darwin's float state
+// is in the FXSAVE layout (abridged tag word, 16-byte register slots).
+#define LINUX_FPSTATE_MAGIC_NO_FXSR 0xffff
+
+static uint8_t x87_tag_to_abridged(unsigned long tag)
+{
+	uint8_t abridged = 0;
+	for (int i = 0; i < 8; i++) {
+		// 11 marks an empty register
+		if (((tag >> (2 * i)) & 3) != 3)
+			abridged |= 1 << i;
+	}
+	return abridged;
+}
+
+static unsigned long x87_tag_from_abridged(uint8_t abridged)
+{
+	// the kernel only distinguishes empty registers from the others
+	unsigned long tag = 0;
+	for (int i = 0; i < 8; i++) {
+		if (!(abridged & (1 << i)))
+			tag |= 3UL << (2 * i);
+	}
+	return tag;
+}
+
 void mcontext_to_float_state(const linux_fpregset_t fx, x86_float_state32_t* s)
 {
+	memset(s, 0, sizeof(*s));
+	if (fx == NULL)
+		return;
+
 	*((uint16_t*)&s->__fpu_fcw) = fx->cw;
 	*((uint16_t*)&s->__fpu_fsw) = fx->sw;
-	s->__fpu_ftw = fx->tag;
-	s->__fpu_fop = 0;
+	s->__fpu_ftw = x87_tag_to_abridged(fx->tag);
+	s->__fpu_fop = (fx->cssel >> 16) & 0x7ff;
 	s->__fpu_ip = fx->ipoff;
-	s->__fpu_cs = fx->cssel;
+	s->__fpu_cs = fx->cssel & 0xffff;
 	s->__fpu_dp = fx->dataoff;
-	s->__fpu_ds = fx->datasel;
-	s->__fpu_mxcsr = fx->mxcsr;
-	s->__fpu_mxcsrmask = 0;
+	s->__fpu_ds = fx->datasel & 0xffff;
 
-	memcpy(&s->__fpu_stmm0, fx->_st, 128);
-	memcpy(&s->__fpu_xmm0, fx->_xmm, 128);
-	memset(((char*) &s->__fpu_xmm0) + 128, 0, 128);
+	struct __darwin_mmst_reg* st = &s->__fpu_stmm0;
+	for (int i = 0; i < 8; i++)
+		memcpy(st[i].__mmst_reg, &fx->_st[i], sizeof(fx->_st[i]));
+
+	if (fx->magic != LINUX_FPSTATE_MAGIC_NO_FXSR) {
+		s->__fpu_mxcsr = fx->mxcsr;
+		memcpy(&s->__fpu_xmm0, fx->_xmm, sizeof(fx->_xmm));
+	} else {
+		s->__fpu_mxcsr = 0x1f80;
+	}
 }
 
 void thread_state_to_mcontext(const x86_thread_state32_t* s, struct linux_gregset* regs)
@@ -961,17 +1000,38 @@ void thread_state_to_mcontext(const x86_thread_state32_t* s, struct linux_gregse
 
 void float_state_to_mcontext(const x86_float_state32_t* s, linux_fpregset_t fx)
 {
-	fx->cw = *((uint16_t*)&s->__fpu_fcw);
-	fx->sw = *((uint16_t*)&s->__fpu_fsw);
-	fx->tag = s->__fpu_ftw;
+	if (fx == NULL)
+		return;
+
+	const uint16_t fcw = *((const uint16_t*)&s->__fpu_fcw);
+	const uint16_t fsw = *((const uint16_t*)&s->__fpu_fsw);
+	const struct __darwin_mmst_reg* st = &s->__fpu_stmm0;
+
+	fx->cw = fcw;
+	fx->sw = fsw;
+	fx->tag = x87_tag_from_abridged(s->__fpu_ftw);
 	fx->ipoff = s->__fpu_ip;
-	fx->cssel = s->__fpu_cs;
+	fx->cssel = s->__fpu_cs | ((unsigned long)(s->__fpu_fop & 0x7ff) << 16);
 	fx->dataoff = s->__fpu_dp;
 	fx->datasel = s->__fpu_ds;
-	fx->mxcsr = s->__fpu_mxcsr;
+	for (int i = 0; i < 8; i++)
+		memcpy(&fx->_st[i], st[i].__mmst_reg, sizeof(fx->_st[i]));
 
-	memcpy(fx->_st, &s->__fpu_stmm0, 128);
-	memcpy(fx->_xmm, &s->__fpu_xmm0, 128);
+	if (fx->magic != LINUX_FPSTATE_MAGIC_NO_FXSR) {
+		// keep the FXSAVE image consistent with the legacy part
+		fx->_fxsr_env[0] = fcw | ((uint32_t)fsw << 16);
+		fx->_fxsr_env[1] = s->__fpu_ftw | ((uint32_t)s->__fpu_fop << 16);
+		fx->_fxsr_env[2] = s->__fpu_ip;
+		fx->_fxsr_env[3] = s->__fpu_cs;
+		fx->_fxsr_env[4] = s->__fpu_dp;
+		fx->_fxsr_env[5] = s->__fpu_ds;
+		fx->mxcsr = s->__fpu_mxcsr;
+		for (int i = 0; i < 8; i++) {
+			memset(&fx->_fxsr_st[i], 0, sizeof(fx->_fxsr_st[i]));
+			memcpy(&fx->_fxsr_st[i], st[i].__mmst_reg, 10);
+		}
+		memcpy(fx->_xmm, &s->__fpu_xmm0, sizeof(fx->_xmm));
+	}
 }
 #endif
 
