@@ -4,10 +4,15 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/common/simple.h>
 
+#include <darling/emulation/xnu_syscall/bsd/impl/psynch/psynch_inproc.h>
+
 #include <darlingserver/rpc.h>
 
 long sys_psynch_cvclrprepost(void* cv, uint32_t cvgen, uint32_t cvugen, uint32_t cvsgen, uint32_t prepocnt, uint32_t preposeq, uint32_t flags)
 {
+	if (psynch_inproc_handles(flags))
+		return psynch_inproc_cvclrprepost(cv, cvgen, cvugen, cvsgen, prepocnt, preposeq, flags);
+
 	uint32_t retval;
 	int ret = dserver_rpc_psynch_cvclrprepost(cv, cvgen, cvugen, cvsgen, prepocnt, preposeq, flags, &retval);
 

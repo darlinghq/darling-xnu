@@ -6,10 +6,15 @@
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/conversion/duct_errno.h>
 
+#include <darling/emulation/xnu_syscall/bsd/impl/psynch/psynch_inproc.h>
+
 #include <darlingserver/rpc.h>
 
 long sys_psynch_mutexwait(void* mutex, uint32_t mgen, uint32_t ugen, uint64_t tid, uint32_t flags)
 {
+	if (psynch_inproc_handles(flags))
+		return psynch_inproc_mutexwait(mutex, mgen, ugen, tid, flags);
+
 	uint32_t retval;
 	int ret = dserver_rpc_psynch_mutexwait(mutex, mgen, ugen, tid, flags, &retval);
 

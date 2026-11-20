@@ -14,12 +14,10 @@
 
 #include <darlingserver/rpc.h>
 
-// The TSD slot __PTK_DARLING_CANCEL_MARKED is shared with darlingserver (see set_thread_handles()).
-// darlingserver sets its first byte when it marks the thread for cancellation.
-// The thread sets its second byte while it blocks in a cancelable syscall, which tells darlingserver
-// to interrupt the syscall (with SIGNAL_SIGEXC_SUSPEND) when it marks the thread.
-#define CANCEL_MARKED_BYTE  0
-#define CANCEL_WAITING_BYTE 1
+// (the layout of the __PTK_DARLING_CANCEL_MARKED slot is described in pthread_canceled.h)
+#define CANCEL_MARKED_BYTE   PTHREAD_CANCEL_MARKED_BYTE
+#define CANCEL_WAITING_BYTE  PTHREAD_CANCEL_WAITING_BYTE
+#define CANCEL_DISABLED_BYTE PTHREAD_CANCEL_DISABLED_BYTE
 
 static volatile uint8_t* cancel_slot(void)
 {
@@ -43,6 +41,11 @@ long sys_pthread_canceled(int action)
 	int ret = dserver_rpc_pthread_canceled(action);
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
+	else if ((action == 1 || action == 2) && cancel_slot() != NULL)
+	{
+		// enable (1) or disable (2) cancellation
+		__atomic_store_n(&cancel_slot()[CANCEL_DISABLED_BYTE], action == 2, __ATOMIC_RELEASE);
+	}
 	else if (action == 0)
 	{
 		// the mark has been acted on and darlingserver won't mark this thread again,

@@ -30,84 +30,27 @@
  *	pthread_support.c
  */
 
-#ifdef __DARLING__
-#undef _NLINK_T
-#include <sys/proc.h>
-#include <net/if_var.h>
-#include "kern_internal.h"
+/*
+ * Darling: this file is darlingserver's copy of the pthread kext's
+ * synchronizer (duct-tape/pthread/kern_synch.c), modified 2026-11-20 to run
+ * inside the process for process-private objects (see ksyn_kern.h):
+ * - the kernel includes are replaced with ksyn_kern.h;
+ * - __FAILEDUSERTEST__ does not print (it would print into the application);
+ * - the darlingserver-only dtape_psynch_thread_dying() and the stackshot
+ *   helpers _pthread_get_thread_kwq() and _pthread_find_owner() are left out;
+ * - ksyn_postfork_child_reset() is added at the end.
+ * Everything else is unchanged.
+ */
 
-#include <darlingserver/duct-tape/log.h>
-#endif // __DARLING__
-
-#include <sys/param.h>
-#include <sys/queue.h>
-#include <sys/resourcevar.h>
-//#include <sys/proc_internal.h>
-#include <sys/kauth.h>
-#include <sys/systm.h>
-#include <sys/timeb.h>
-#include <sys/times.h>
-#include <sys/time.h>
-#include <sys/acct.h>
-#include <sys/kernel.h>
-#include <sys/wait.h>
-#include <sys/signalvar.h>
-#include <sys/syslog.h>
-#include <sys/stat.h>
-#include <sys/lock.h>
-#include <sys/kdebug.h>
-//#include <sys/sysproto.h>
-//#include <sys/pthread_internal.h>
-#include <sys/vm.h>
-#include <sys/user.h>
-
-#include <mach/mach_types.h>
-#include <mach/vm_prot.h>
-#include <mach/semaphore.h>
-#include <mach/sync_policy.h>
-#include <mach/task.h>
-#include <kern/kern_types.h>
-#include <kern/task.h>
-#include <kern/clock.h>
-#include <mach/kern_return.h>
-#include <kern/thread.h>
-#include <kern/sched_prim.h>
-#include <kern/thread_call.h>
-#include <kern/kalloc.h>
-#include <kern/zalloc.h>
-#include <kern/sched_prim.h>
-#include <kern/processor.h>
-#include <kern/block_hint.h>
-#include <kern/turnstile.h>
-//#include <kern/mach_param.h>
-#include <mach/mach_vm.h>
-#include <mach/mach_param.h>
-#include <mach/thread_policy.h>
-#include <mach/message.h>
-#include <mach/port.h>
-//#include <vm/vm_protos.h>
-#include <vm/vm_map.h>
-#include <mach/vm_region.h>
-
-#include <libkern/OSAtomic.h>
-
-#include <pexpert/pexpert.h>
-
-#include "kern_internal.h"
+#include "ksyn_kern.h"
 #include "synch_internal.h"
-#include "kern_trace.h"
 
 typedef struct uthread *uthread_t;
 
 //#define __FAILEDUSERTEST__(s) do { panic(s); } while (0)
 
-#ifdef __DARLING__
-#define __FAILEDUSERTEST__(s) do { dtape_log_error("PSYNCH: pid[%d]: %s\n", proc_pid(current_proc()), s); } while (0)
-#define __FAILEDUSERTEST2__(s, x...) do { dtape_log_error("PSYNCH: pid[%d]: " s "\n", proc_pid(current_proc()), x); } while (0)
-#else
-#define __FAILEDUSERTEST__(s) do { printf("PSYNCH: pid[%d]: %s\n", proc_pid(current_proc()), s); } while (0)
-#define __FAILEDUSERTEST2__(s, x...) do { printf("PSYNCH: pid[%d]: " s "\n", proc_pid(current_proc()), x); } while (0)
-#endif // __DARLING__
+#define __FAILEDUSERTEST__(s) do { } while (0)
+#define __FAILEDUSERTEST2__(s, x...) do { } while (0)
 
 lck_mtx_t *pthread_list_mlock;
 
@@ -2771,61 +2714,10 @@ psynch_zoneinit(void)
 			8192 * sizeof(struct ksyn_waitq_element), 4096, "ksyn_waitq_element");
 }
 
-void *
-_pthread_get_thread_kwq(thread_t thread)
-{
-	assert(thread);
-	struct uthread * uthread = pthread_kern->get_bsdthread_info(thread);
-	assert(uthread);
-	ksyn_waitq_element_t kwe = pthread_kern->uthread_get_uukwe(uthread);
-	assert(kwe);
-	ksyn_wait_queue_t kwq = kwe->kwe_kwqqueue;
-	return kwq;
-}
-
-/* This function is used by stackshot to determine why a thread is blocked, and report
- * who owns the object that the thread is blocked on. It should *only* be called if the
- * `block_hint' field in the relevant thread's struct is populated with something related
- * to pthread sync objects.
- */
-void
-_pthread_find_owner(thread_t thread,
-		struct stackshot_thread_waitinfo * waitinfo)
-{
-	ksyn_wait_queue_t kwq = _pthread_get_thread_kwq(thread);
-	switch (waitinfo->wait_type) {
-		case kThreadWaitPThreadMutex:
-			assert((kwq->kw_type & KSYN_WQTYPE_MASK) == KSYN_WQTYPE_MTX);
-			waitinfo->owner   = thread_tid(kwq->kw_owner);
-			waitinfo->context = kwq->kw_addr;
-			break;
-		/* Owner of rwlock not stored in kernel space due to races. Punt
-		 * and hope that the userspace address is helpful enough. */
-		case kThreadWaitPThreadRWLockRead:
-		case kThreadWaitPThreadRWLockWrite:
-			assert((kwq->kw_type & KSYN_WQTYPE_MASK) == KSYN_WQTYPE_RWLOCK);
-			waitinfo->owner   = 0;
-			waitinfo->context = kwq->kw_addr;
-			break;
-		/* Condvars don't have owners, so just give the userspace address. */
-		case kThreadWaitPThreadCondVar:
-			assert((kwq->kw_type & KSYN_WQTYPE_MASK) == KSYN_WQTYPE_CVAR);
-			waitinfo->owner   = 0;
-			waitinfo->context = kwq->kw_addr;
-			break;
-		case kThreadWaitNone:
-		default:
-			waitinfo->owner = 0;
-			waitinfo->context = 0;
-			break;
-	}
-}
-
 #ifdef __DARLING__
-void dtape_psynch_thread_dying(thread_t thread, struct ksyn_waitq_element* kwe) {
-	if (kwe->kwe_kwqqueue) {
-		kq_index_t kqi = (thread->block_hint == kThreadWaitPThreadRWLockRead) ? KSYN_QUEUE_READ : KSYN_QUEUE_WRITE;
-		ksyn_queue_remove_item(kwe->kwe_kwqqueue, &((struct ksyn_wait_queue*)kwe->kwe_kwqqueue)->kw_ksynqueues[kqi], kwe);
-	}
-};
+/* the child of a fork starts with no wait queues, like a new XNU process */
+void ksyn_postfork_child_reset(void) {
+	LIST_INIT(&pth_free_list);
+	psynch_cleanupset = 0;
+}
 #endif

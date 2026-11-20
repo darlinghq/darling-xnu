@@ -19,6 +19,7 @@
 #include <darling/emulation/common/tsd.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/bsdthread_register.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/workq_kernreturn.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/psynch/psynch_inproc.h>
 
 #include <darlingserver/rpc.h>
 
@@ -34,6 +35,9 @@ long sys_fork(void)
 {
 	int ret;
 	int wdfd = get_perthread_wd();
+	unsigned long long psynch_sigmask;
+
+	psynch_inproc_prefork(&psynch_sigmask);
 
 	// Fork through the host libc rather than with a raw syscall. Its fork()
 	// runs the atfork handlers of host libraries, takes the host allocator's
@@ -42,11 +46,15 @@ long sys_fork(void)
 	// the cached thread ID). The child code below and the RPC socket refresh
 	// in the loader both use the host allocator.
 	ret = native_fork();
+	if (ret != 0)
+		psynch_inproc_postfork_parent(&psynch_sigmask);
+
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
 	else if (ret == 0)
 	{
 		// in the child
+		psynch_inproc_postfork_child(&psynch_sigmask);
 
 		// the old RPC FD will be closed in `guard_table_postfork_child`;
 		// we don't need to close it ourselves.
