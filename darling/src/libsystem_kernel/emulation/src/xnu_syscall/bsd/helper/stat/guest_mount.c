@@ -10,6 +10,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/mount_table.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/stat/linux_statfs.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/stat/mount_options.h>
+#include <darling/emulation/conversion/common_at.h>
 
 extern __SIZE_TYPE__ strlen(const char* s);
 extern int strcmp(const char* a, const char* b);
@@ -186,6 +187,25 @@ static unsigned int guest_mount_owner(const char* fstype, const char* options)
 	return owner;
 }
 
+// QUIRK: f_fsid's first value is the volume's device number, the st_dev that stat() reports for the files on it, so no
+// two mounted volumes share it. statfs(2) only calls it the file system ID. Evidence: black-box observation on macOS
+// 26.7.3 and 10.14.4, x86_64 (tier 2), on APFS, HFS+ and devfs volumes. Linux's f_fsid can't stand in for it: an
+// overlay reports the one of the file system under it, so the guest's root and the host's root looked like one volume.
+// Test: darling/tests/statfs-fsid.c (run by the darling repo's tests/volume-attributes.sh)
+static void guest_mount_set_fsid(const char* host_path, struct bsd_statfs64* buf)
+{
+	struct linux_stat lstat;
+	int ret;
+
+#ifdef __NR_newfstatat
+	ret = LINUX_SYSCALL(__NR_newfstatat, LINUX_AT_FDCWD, host_path, &lstat, 0);
+#else
+	ret = LINUX_SYSCALL(__NR_fstatat64, LINUX_AT_FDCWD, host_path, &lstat, 0);
+#endif
+	if (ret == 0)
+		buf->f_fsid = (buf->f_fsid & 0xffffffff00000000ULL) | (unsigned int) lstat.st_dev; // val[0] is the low half
+}
+
 long guest_mount_describe(const char* host_path, struct bsd_statfs64* buf)
 {
 	struct guest_root root;
@@ -214,9 +234,13 @@ long guest_mount_describe(const char* host_path, struct bsd_statfs64* buf)
 		strlcpy(fstype, buf->f_fstypename, sizeof(fstype));
 		buf->f_flags |= guest_mount_flags(&root, mnton, buf->f_mntonname, fstype,
 			guest_mount_kind(mnton, buf->f_fstypename, sizeof(buf->f_fstypename)));
+		guest_mount_set_fsid(mnton, buf);
 	}
 	else
+	{
 		buf->f_mntonname[0] = 0;
+		guest_mount_set_fsid(host_path, buf);
+	}
 	return 0;
 }
 
@@ -265,6 +289,7 @@ static long list_visit(void* context, const char* mnton, const char* fstype, con
 			guest_mount_kind(mnton, entry->f_fstypename, sizeof(entry->f_fstypename)));
 		strlcpy(entry->f_mntfromname, mntfrom, sizeof(entry->f_mntfromname));
 		entry->f_owner = guest_mount_owner(fstype, options);
+		guest_mount_set_fsid(mnton, entry);
 		if (state->legacy)
 			statfs_bsd64_to_bsd(&wide, &((struct bsd_statfs*) state->buf)[state->count]);
 	}
