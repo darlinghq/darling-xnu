@@ -1,5 +1,6 @@
 
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
+#include "name_equivalence.h"
 #ifdef TEST
 #	include <unistd.h>
 #	include <sys/stat.h>
@@ -56,7 +57,6 @@ extern char* strcpy(char* dest, const char* src);
 extern int strcmp(const char* str1, const char* str2);
 extern int strncmp(const char* str1, const char* str2, __SIZE_TYPE__ n);
 extern int strncasecmp_l(const char* str1, const char* str2, __SIZE_TYPE__ n, locale_t locale);
-extern int strcasecmp(const char* str1, const char* str2);
 extern char* strcat(char* dest, const char* src);
 extern char *strchr(const char *s, int c);
 extern void *memcpy(void *dest, const void *src, __SIZE_TYPE__ n);
@@ -329,7 +329,8 @@ static int vchroot_run(const char* input_path, struct context* ctxt)
 
 					if (icase_enabled && status == -LINUX_ENOENT)
 					{
-						// Case insensitive search
+						// Look for a name that is the same to a case- and normalization-insensitive file system, as
+						// APFS is (see name_equivalence.c)
 
 						// Examine the directory above
 						ctxt->current_path[prevlen-1] = '\0';
@@ -357,11 +358,17 @@ static int vchroot_run(const char* input_path, struct context* ctxt)
 							while (pos < len)
 							{
 								struct linux_dirent64* de = (struct linux_dirent64*) &dirents[pos];
-								if (strcasecmp(de->d_name, ctxt->current_path + prevlen) == 0)
+								if (darling_names_equivalent(de->d_name, ctxt->current_path + prevlen))
 								{
-									// Fix up the case and be done with it
-									strcpy(ctxt->current_path + prevlen, de->d_name);
-									goto done_getdents;
+									// Use the name as stored and be done with it. Canonically equivalent names can
+									// differ in length.
+									const int stored_len = strlen(de->d_name);
+									if (prevlen + stored_len + 2 <= sizeof(ctxt->current_path))
+									{
+										strcpy(ctxt->current_path + prevlen, de->d_name);
+										ctxt->current_path_len = prevlen + stored_len;
+										goto done_getdents;
+									}
 								}
 								pos += de->d_reclen;
 							}

@@ -106,6 +106,7 @@ set(linux_premigration_sources
 	src/linux_premigration/signal/sigexc.c
 	src/linux_premigration/elfcalls_wrapper.c
 	src/linux_premigration/linux-syscall.S
+	src/linux_premigration/name_equivalence.c
 	src/linux_premigration/vchroot_userspace.c
 )
 
