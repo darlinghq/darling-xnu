@@ -166,11 +166,6 @@ set(syscall_dynamic_sources
 	wrappers/_libc_funcptr.c
 	wrappers/_libkernel_init.c)
 
-# select-pre1050 conflicts with select-cancel on ARM64 (duplicate symbols);
-# pre-1050 legacy wrappers are only needed for i386/x86_64 compatibility
-if (NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-	set(syscall_select_pre1050_source wrappers/legacy/select-pre1050.c)
-endif()
 
 set(syscall_sources
 	mach/mach_traps.S
@@ -244,7 +239,6 @@ set(syscall_sources
 	wrappers/cancelable/sigsuspend-cancel.c
 
 	${syscall_legacy_sources}
-	${syscall_select_pre1050_source}
 
 	wrappers/libproc/libproc.c
 	wrappers/libproc/proc_listpidspath.c
@@ -740,9 +734,7 @@ set(syscall_sources
 )
 
 set_source_files_properties(${syscall_legacy_sources} PROPERTIES COMPILE_FLAGS "-U_DARWIN_C_SOURCE -U__DARWIN_UNIX03 -D__DARWIN_UNIX03=0 -U__DARWIN_C_LEVEL")
-if (syscall_select_pre1050_source)
-	set_source_files_properties(wrappers/legacy/select-pre1050.c PROPERTIES COMPILE_FLAGS "-U_DARWIN_C_SOURCE -DSYSCALL_PRE1050")
-endif()
+set_source_files_properties(wrappers/legacy/select-pre1050.c PROPERTIES COMPILE_FLAGS "-U_DARWIN_C_SOURCE -DSYSCALL_PRE1050")
 set_source_files_properties(wrappers/cancelable/select-cancel.c PROPERTIES COMPILE_FLAGS "-U_DARWIN_C_SOURCE")
 set_source_files_properties(wrappers/cancelable/select.c PROPERTIES COMPILE_FLAGS "-U_DARWIN_C_SOURCE")
 
@@ -759,23 +751,42 @@ add_compile_options(
 	-momit-leaf-frame-pointer
 )
 
-add_darling_object_library(libsyscall_32 32BIT_ONLY ${syscall_mig_sources_32})
-add_dependencies(libsyscall_32
-	libsyscall_generate_mig_headers
-	libsyscall_generate_mig_internal_headers
-)
+# The MIG interfaces of the 32-bit and of the 64-bit slices
+if (BUILD_TARGET_32BIT)
+	add_darling_object_library(libsyscall_32 32BIT_ONLY ${syscall_mig_sources_32})
+	add_dependencies(libsyscall_32
+		libsyscall_generate_mig_headers
+		libsyscall_generate_mig_internal_headers
+	)
+endif()
 
-add_darling_object_library(libsyscall_64 64BIT_ONLY ${syscall_mig_sources_64})
-add_dependencies(libsyscall_64
-	libsyscall_generate_mig_headers
-	libsyscall_generate_mig_internal_headers
-)
+if (BUILD_TARGET_64BIT)
+	add_darling_object_library(libsyscall_64 64BIT_ONLY ${syscall_mig_sources_64})
+	add_dependencies(libsyscall_64
+		libsyscall_generate_mig_headers
+		libsyscall_generate_mig_internal_headers
+	)
+endif()
 
 add_darling_object_library(libsyscall ${syscall_sources})
 add_dependencies(libsyscall
 	libsyscall_generate_mig_headers
 	libsyscall_generate_mig_internal_headers
 )
+
+# The pre-10.5 select() variant exists on the Intel slices only: arm64 has no pre-10.5 variants, and
+# there it would define the plain names select-cancel.c defines (libsyscall_pre1050_objects is empty
+# without an Intel slice)
+darling_archs(syscall_intel_archs FAMILY x86)
+set(libsyscall_pre1050_objects "" PARENT_SCOPE)
+if (syscall_intel_archs)
+	add_darling_object_library(libsyscall_pre1050 ARCHS ${syscall_intel_archs} SOURCES wrappers/legacy/select-pre1050.c)
+	add_dependencies(libsyscall_pre1050
+		libsyscall_generate_mig_headers
+		libsyscall_generate_mig_internal_headers
+	)
+	set(libsyscall_pre1050_objects $<TARGET_OBJECTS:libsyscall_pre1050> PARENT_SCOPE)
+endif()
 
 add_darling_object_library(libsyscall_dynamic ${syscall_dynamic_sources})
 add_dependencies(libsyscall_dynamic
