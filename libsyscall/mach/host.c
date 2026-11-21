@@ -74,6 +74,18 @@ host_check_multiuser_mode(host_t host __unused,
 #endif
 }
 
+/*
+ * macOS 13 (xnu-8792) renamed the MIG routine host_get_io_master to
+ * host_get_io_main (same routine id 205); IOKit's IOMasterPort-to-IOMainPort
+ * rename was macOS 12. Binaries built against newer SDKs, and the IOKit in the
+ * macOS shared cache, import the new name.
+ */
+kern_return_t
+host_get_io_main(host_t host, mach_port_t *io_main)
+{
+	return host_get_io_master(host, io_main);
+}
+
 extern kern_return_t
 _kernelrpc_host_create_mach_voucher(mach_port_name_t host,
     mach_voucher_attr_raw_recipe_array_t recipes,

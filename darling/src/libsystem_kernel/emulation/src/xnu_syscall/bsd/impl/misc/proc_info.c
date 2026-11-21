@@ -4,6 +4,9 @@
 #define PRIVATE 1
 
 #include <sys/errno.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <netinet/in.h>
 #include <sys/proc_info.h>
 #include <mach/vm_prot.h>
 #include <stdbool.h>
@@ -50,6 +53,7 @@ static long _proc_pidinfo(int32_t pid, uint32_t flavor, uint64_t arg, void* buff
 static long _proc_pidinfo_pidrusage(int32_t pid, uint32_t flavor, void* buffer, int32_t bufsize);
 static long _proc_pidinfo_vnodepathinfo(int32_t pid, void* buffer, int32_t bufsize);
 static long _proc_pidfdinfo(int32_t pid, uint32_t flavor, int fd, void* buffer, int32_t bufsize);
+static long _proc_pidinfo_listfds(int32_t pid, void* buffer, int32_t bufsize);
 static long _proc_listpids(uint32_t type, uint32_t typeinfo, void* buffer, int32_t bufsize);
 
 extern __SIZE_TYPE__ strlen(const char *s);
@@ -270,16 +274,22 @@ long _proc_pidinfo(int32_t pid, uint32_t flavor, uint64_t arg, void* buffer, int
 		{
 			return _proc_pidinfo_vnodepathinfo(pid, buffer, bufsize);
 		}
+		case PROC_PIDLISTFDS:
+		{
+			return _proc_pidinfo_listfds(pid, buffer, bufsize);
+		}
+		case PROC_PIDLISTFILEPORTS:
+		{
+			// Linux has no fileports, so the list is always empty.
+			return 0;
+		}
 		default:
 		{
-			__simple_fprintf(2, "sys_proc_info(): Unsupported pidinfo flavor: %d\n",
-					flavor);
-			return -ENOTSUP;
+			// Unknown flavors fail with EINVAL, silently (see _proc_pidfdinfo).
+			return -EINVAL;
 		}
 	}
 }
-
-static char fakeuuid[16];
 
 static long _proc_pidonfo_uniqinfo(int32_t pid, void* buffer, int32_t bufsize)
 {
@@ -297,8 +307,13 @@ static long _proc_pidonfo_uniqinfo(int32_t pid, void* buffer, int32_t bufsize)
 
 	memset(buffer, 0, bufsize);
 
-#warning Get UUID from kernel
-	memcpy(info->p_uuid, fakeuuid, sizeof(info->p_uuid));
+	// p_uuid is the LC_UUID of the target's main executable, which the loader
+	// recorded with darlingserver when it started the image
+	int uuid_rv = dserver_rpc_get_executable_uuid(pid, info->p_uuid);
+	if (uuid_rv > 0)
+		return -uuid_rv; // ESRCH: no such process
+	if (uuid_rv < 0)
+		memset(info->p_uuid, 0, sizeof(info->p_uuid));
 
 	//////////////////////////
 	// Read info for pid    //
@@ -378,6 +393,12 @@ static long _proc_pidinfo_tbsdinfo(int32_t pid, void* buffer, int32_t bufsize)
 	// info->pbi_xstatus
 	info->pbi_pid = shortinfo.pbsi_pid;
 	info->pbi_ppid = shortinfo.pbsi_ppid;
+
+	// Callers size their PROC_PIDLISTFDS buffer from pbi_nfiles, so report how many descriptors are open.
+	long fdbytes = _proc_pidinfo_listfds(pid, NULL, 0);
+	if (fdbytes > 0)
+		info->pbi_nfiles = fdbytes / sizeof(struct proc_fdinfo);
+
 	info->pbi_uid = shortinfo.pbsi_uid;
 	info->pbi_gid = shortinfo.pbsi_gid;
 	info->pbi_ruid = shortinfo.pbsi_ruid;
@@ -415,6 +436,9 @@ static long _proc_pidinfo_tbsdinfo(int32_t pid, void* buffer, int32_t bufsize)
 	info->pbi_start_tvusec = start_usec;
 
 	memcpy(info->pbi_comm, shortinfo.pbsi_comm, sizeof(info->pbi_comm));
+	// pbi_name holds the full basename (up to 2 * MAXCOMLEN - 1 characters), which
+	// proc_name() prefers over pbi_comm
+	darling_process_name(pid, info->pbi_name, sizeof(info->pbi_name));
 
 	return sizeof(struct proc_bsdinfo);
 reterr:
@@ -477,7 +501,9 @@ static long _proc_pidinfo_shortbsdinfo(int32_t pid, void* buffer, int32_t bufsiz
 
 	// comm
 	READELEM();
-	strncpy(info->pbsi_comm, elem, sizeof(info->pbsi_comm));
+	// the executable's basename, keeping MAXCOMLEN - 1 characters
+	if (!darling_process_name(pid, info->pbsi_comm, sizeof(info->pbsi_comm)))
+		strncpy(info->pbsi_comm, elem, sizeof(info->pbsi_comm));
 
 	// process state
 	READELEM();
@@ -822,6 +848,667 @@ static long _proc_pidfdinfo_vnodepath(int32_t pid, int fd, void* buffer, int32_t
 	return sizeof(*info);
 }
 
+// ---- Descriptor listing and per-descriptor info for sockets and pipes ----
+//
+// Descriptors are read from the target's /proc/<pid>/fd directory, the way
+// the vnode path flavour does it. Sockets are matched by inode against the
+// target's /proc/<pid>/net tables.
+
+#define PROC_FREAD 0x1
+#define PROC_FWRITE 0x2
+
+// Not a PROX_FDTYPE_* value; keeps such descriptors out of the list
+#define PROC_FDTYPE_OTHER 0x7fff
+
+// Extra slots a size query adds so that a fill right after it is unlikely to
+// come up short (same idea as proc_listpids())
+#define PROC_FDLIST_SLACK 20
+
+// Opens one of the target's /proc/<pid>/<sub> directories. Returns the
+// Linux descriptor or a negative BSD errno: ESRCH when the process does not
+// exist, EPERM when it may not be inspected.
+static long _proc_pid_opendir(int32_t pid, const char* sub)
+{
+	struct vchroot_expand_args pp;
+	int ret;
+
+	if (pid < 0)
+		return -ESRCH;
+	if (pid == 0)
+		return -EPERM;
+
+	__simple_sprintf(pp.path, "/proc/%d/%s", pid, sub);
+	pp.flags = 0;
+	pp.dfd = LINUX_AT_FDCWD;
+	ret = vchroot_expand(&pp);
+	if (ret < 0)
+		return errno_linux_to_bsd(ret);
+
+	ret = LINUX_SYSCALL(__NR_openat, pp.dfd, pp.path,
+			LINUX_O_RDONLY | LINUX_O_DIRECTORY | LINUX_O_CLOEXEC);
+	if (ret < 0)
+	{
+		if (ret == -LINUX_ENOENT)
+			return -ESRCH;
+		if (ret == -LINUX_EACCES || ret == -LINUX_EPERM)
+			return -EPERM;
+		return errno_linux_to_bsd(ret);
+	}
+	return ret;
+}
+
+// Classifies a /proc/<pid>/fd link target. Returns a PROX_FDTYPE_* value, or
+// PROC_FDTYPE_OTHER for descriptors that have no counterpart in the macOS
+// list (event counters, timers, ...). *inode is set for sockets and pipes.
+static int _proc_fdtype_from_target(const char* t, uint64_t* inode)
+{
+	*inode = 0;
+	if (strncmp(t, "socket:[", 8) == 0)
+	{
+		*inode = __simple_atoi(t + 8, NULL);
+		return PROX_FDTYPE_SOCKET;
+	}
+	if (strncmp(t, "pipe:[", 6) == 0)
+	{
+		*inode = __simple_atoi(t + 6, NULL);
+		return PROX_FDTYPE_PIPE;
+	}
+	if (strncmp(t, "anon_inode:[eventpoll]", 22) == 0)
+		return PROX_FDTYPE_KQUEUE;
+	if (t[0] == '/')
+		return PROX_FDTYPE_VNODE;
+	return PROC_FDTYPE_OTHER;
+}
+
+static void _proc_fdname(char* name, int fd)
+{
+	__simple_sprintf(name, "%d", fd);
+}
+
+// Looks up one descriptor of a process. Returns its PROX_FDTYPE_* (or
+// PROC_FDTYPE_OTHER) and fills `target` with the link text, or returns a negative BSD errno:
+// ESRCH/EPERM for the process, EBADF for a descriptor that is not open.
+// With dfd_out the /proc/<pid>/fd directory stays open for the caller.
+static long _proc_fd_lookup(int32_t pid, int fd, char* target, int size,
+		uint64_t* inode, int* dfd_out)
+{
+	char name[16];
+	long dfd;
+	int ret, type;
+
+	dfd = _proc_pid_opendir(pid, "fd");
+	if (dfd < 0)
+		return dfd;
+	if (fd < 0)
+	{
+		LINUX_SYSCALL(__NR_close, dfd);
+		return -EBADF;
+	}
+
+	_proc_fdname(name, fd);
+	ret = LINUX_SYSCALL(__NR_readlinkat, dfd, name, target, size - 1);
+	if (ret < 0)
+	{
+		LINUX_SYSCALL(__NR_close, dfd);
+		if (ret == -LINUX_ENOENT)
+		{
+			// The process may have exited since the directory was opened
+			return (LINUX_SYSCALL(__NR_kill, pid, 0) == -LINUX_ESRCH) ? -ESRCH : -EBADF;
+		}
+		return errno_linux_to_bsd(ret);
+	}
+	target[ret] = '\0';
+	type = _proc_fdtype_from_target(target, inode);
+
+	if (dfd_out)
+		*dfd_out = dfd;
+	else
+		LINUX_SYSCALL(__NR_close, dfd);
+	return type;
+}
+
+// Returns PROC_FREAD/PROC_FWRITE bits from the descriptor's access mode
+static int _proc_fd_access(int32_t pid, int fd)
+{
+	char name[16], text[256];
+	long dfd;
+	int f, n, i;
+	unsigned long flags = 0;
+
+	dfd = _proc_pid_opendir(pid, "fdinfo");
+	if (dfd < 0)
+		return PROC_FREAD | PROC_FWRITE;
+	_proc_fdname(name, fd);
+	f = LINUX_SYSCALL(__NR_openat, dfd, name, LINUX_O_RDONLY | LINUX_O_CLOEXEC);
+	LINUX_SYSCALL(__NR_close, dfd);
+	if (f < 0)
+		return PROC_FREAD | PROC_FWRITE;
+	n = LINUX_SYSCALL(__NR_read, f, text, sizeof(text) - 1);
+	LINUX_SYSCALL(__NR_close, f);
+	if (n <= 0)
+		return PROC_FREAD | PROC_FWRITE;
+	text[n] = '\0';
+
+	for (i = 0; i + 6 <= n; i++)
+	{
+		if (strncmp(text + i, "flags:", 6) == 0)
+		{
+			const char* p = text + i + 6;
+			while (*p == ' ' || *p == '\t')
+				p++;
+			while (*p >= '0' && *p <= '7')
+				flags = flags * 8 + (*p++ - '0');
+			break;
+		}
+	}
+	switch (flags & 3)
+	{
+		case LINUX_O_WRONLY: return PROC_FWRITE;
+		case LINUX_O_RDWR: return PROC_FREAD | PROC_FWRITE;
+		default: return PROC_FREAD;
+	}
+}
+
+static long _proc_pidinfo_listfds(int32_t pid, void* buffer, int32_t bufsize)
+{
+	struct proc_fdinfo* out = (struct proc_fdinfo*) buffer;
+	char dirents[4096];
+	int* fds = NULL;
+	int count = 0, cap = 0, len, i, j, n = 0, maxout = 0;
+	long dfd;
+	bool is_self;
+
+	if (buffer != NULL)
+	{
+		// macOS answers a buffer smaller than one entry with ENOMEM
+		if (bufsize < (int32_t) sizeof(struct proc_fdinfo))
+			return -ENOMEM;
+		maxout = bufsize / sizeof(struct proc_fdinfo);
+	}
+
+	dfd = _proc_pid_opendir(pid, "fd");
+	if (dfd < 0)
+		return dfd;
+
+	// Gather the numbers of all open descriptors
+	while ((len = LINUX_SYSCALL(__NR_getdents64, dfd, dirents, sizeof(dirents))) > 0)
+	{
+		int pos = 0;
+		while (pos < len)
+		{
+			struct linux_dirent64* de = (struct linux_dirent64*) &dirents[pos];
+			pos += de->d_reclen;
+			if (de->d_name[0] < '0' || de->d_name[0] > '9')
+				continue;
+			if (count == cap)
+			{
+				int ncap = cap ? cap * 2 : 64;
+				int* nfds = (int*) malloc(ncap * sizeof(int));
+				if (nfds == NULL)
+				{
+					free(fds);
+					LINUX_SYSCALL(__NR_close, dfd);
+					return -ENOMEM;
+				}
+				if (fds)
+					memcpy(nfds, fds, count * sizeof(int));
+				free(fds);
+				fds = nfds;
+				cap = ncap;
+			}
+			fds[count++] = __simple_atoi(de->d_name, NULL);
+		}
+	}
+	if (len < 0)
+	{
+		free(fds);
+		LINUX_SYSCALL(__NR_close, dfd);
+		return errno_linux_to_bsd(len);
+	}
+
+	if (buffer == NULL)
+	{
+		free(fds);
+		LINUX_SYSCALL(__NR_close, dfd);
+		return (count + PROC_FDLIST_SLACK) * sizeof(struct proc_fdinfo);
+	}
+
+	// Ascending order (getdents order is arbitrary); insertion sort is fine
+	// for the descriptor counts of a process
+	for (i = 1; i < count; i++)
+	{
+		int v = fds[i];
+		for (j = i - 1; j >= 0 && fds[j] > v; j--)
+			fds[j + 1] = fds[j];
+		fds[j + 1] = v;
+	}
+
+	// Our own handle on the directory is not one of the target's descriptors
+	is_self = (pid == sys_getpid());
+
+	for (i = 0; i < count && n < maxout; i++)
+	{
+		char name[16], target[512];
+		uint64_t inode;
+		int ret, type;
+
+		if (is_self && fds[i] == dfd)
+			continue;
+
+		_proc_fdname(name, fds[i]);
+		ret = LINUX_SYSCALL(__NR_readlinkat, dfd, name, target, sizeof(target) - 1);
+		if (ret < 0)
+			continue; // closed in the meantime
+		target[ret] = '\0';
+		type = _proc_fdtype_from_target(target, &inode);
+		if (type == PROC_FDTYPE_OTHER)
+			continue;
+		out[n].proc_fd = fds[i];
+		out[n].proc_fdtype = type;
+		n++;
+	}
+
+	free(fds);
+	LINUX_SYSCALL(__NR_close, dfd);
+	return n * sizeof(struct proc_fdinfo);
+}
+
+static uint16_t _proc_port_to_net(unsigned int hostport)
+{
+	// /proc prints ports in host order; macOS keeps them in network order.
+	// Darling runs on little-endian hosts only.
+	return (uint16_t) (((hostport & 0xff) << 8) | ((hostport >> 8) & 0xff));
+}
+
+static const char* _proc_next_token(char** p)
+{
+	char* start;
+
+	while (**p == ' ' || **p == '\t')
+		(*p)++;
+	if (**p == '\0')
+		return NULL;
+	start = *p;
+	while (**p != '\0' && **p != ' ' && **p != '\t')
+		(*p)++;
+	if (**p != '\0')
+		*(*p)++ = '\0';
+	return start;
+}
+
+static uint64_t _proc_parse_hex(const char* s, const char** end, int maxdigits)
+{
+	uint64_t v = 0;
+	int n = 0;
+
+	while (n < maxdigits)
+	{
+		char c = s[n];
+		int d;
+		if (c >= '0' && c <= '9')
+			d = c - '0';
+		else if (c >= 'A' && c <= 'F')
+			d = c - 'A' + 10;
+		else if (c >= 'a' && c <= 'f')
+			d = c - 'a' + 10;
+		else
+			break;
+		v = v * 16 + d;
+		n++;
+	}
+	if (end)
+		*end = s + n;
+	return v;
+}
+
+// Parses "ADDR:PORT" of /proc/net/{tcp,udp}{,6}. Addresses are printed as the
+// native words of the in-memory address, so they are stored back unchanged.
+// `addr` is the 16-byte address union of struct in_sockinfo.
+static bool _proc_parse_inet_endpoint(const char* s, bool v6, void* addr, int* port)
+{
+	const char* p = s;
+	uint32_t* words = (uint32_t*) addr;
+
+	memset(addr, 0, sizeof(struct in6_addr));
+	if (v6)
+	{
+		int i;
+		for (i = 0; i < 4; i++)
+		{
+			const char* e;
+			uint32_t w = (uint32_t) _proc_parse_hex(p, &e, 8);
+			if (e - p != 8)
+				return false;
+			words[i] = w;
+			p = e;
+		}
+	}
+	else
+	{
+		const char* e;
+		uint32_t w = (uint32_t) _proc_parse_hex(p, &e, 8);
+		if (e - p != 8)
+			return false;
+		words[3] = w; // i46a_addr4 follows three pad words
+		p = e;
+	}
+	if (*p != ':')
+		return false;
+	*port = _proc_port_to_net((unsigned int) _proc_parse_hex(p + 1, NULL, 4));
+	return true;
+}
+
+static int _proc_tcp_state_from_linux(unsigned int st)
+{
+	switch (st)
+	{
+		case 0x01: return TSI_S_ESTABLISHED;
+		case 0x02: return TSI_S_SYN_SENT;
+		case 0x03: return TSI_S_SYN_RECEIVED;
+		case 0x04: return TSI_S_FIN_WAIT_1;
+		case 0x05: return TSI_S_FIN_WAIT_2;
+		case 0x06: return TSI_S_TIME_WAIT;
+		case 0x07: return TSI_S_CLOSED;
+		case 0x08: return TSI_S__CLOSE_WAIT;
+		case 0x09: return TSI_S_LAST_ACK;
+		case 0x0a: return TSI_S_LISTEN;
+		case 0x0b: return TSI_S_CLOSING;
+		case 0x0c: return TSI_S_SYN_RECEIVED; // NEW_SYN_RECV
+		default: return TSI_S_CLOSED;
+	}
+}
+
+// Finds the socket with the given inode in the target's
+// /proc/<pid>/net/<table> and fills its endpoint. *linux_state is the raw
+// state column.
+static bool _proc_net_lookup_inet(int32_t pid, const char* table, bool v6,
+		uint64_t inode, struct in_sockinfo* ini, unsigned int* linux_state)
+{
+	char path[64];
+	struct rdline_buffer buf;
+	const char* line;
+	int fd;
+	bool found = false;
+
+	__simple_sprintf(path, "/proc/%d/net/%s", pid, table);
+	fd = sys_open_nocancel(path, BSD_O_RDONLY, 0);
+	if (fd < 0)
+		return false;
+
+	_readline_init(&buf);
+	while (!found && (line = _readline(fd, &buf)) != NULL)
+	{
+		// "sl local rem st tx:rx tr:tm retrnsmt uid timeout inode ..."
+		char* p = (char*) line;
+		const char* tok[10];
+		int i;
+
+		for (i = 0; i < 10; i++)
+		{
+			tok[i] = _proc_next_token(&p);
+			if (!tok[i])
+				break;
+		}
+		if (i < 10 || tok[0][0] < '0' || tok[0][0] > '9')
+			continue; // header or short line
+		if ((uint64_t) __simple_atoi(tok[9], NULL) != inode)
+			continue;
+
+		if (!_proc_parse_inet_endpoint(tok[1], v6, &ini->insi_laddr, &ini->insi_lport)
+				|| !_proc_parse_inet_endpoint(tok[2], v6, &ini->insi_faddr, &ini->insi_fport))
+			continue;
+		ini->insi_vflag = v6 ? INI_IPV6 : INI_IPV4;
+		*linux_state = (unsigned int) _proc_parse_hex(tok[3], NULL, 2);
+		found = true;
+	}
+	close_internal(fd);
+	return found;
+}
+
+static bool _proc_net_lookup_unix(int32_t pid, uint64_t inode, struct socket_info* si)
+{
+	char path[64];
+	struct rdline_buffer buf;
+	const char* line;
+	int fd;
+	bool found = false;
+
+	__simple_sprintf(path, "/proc/%d/net/unix", pid);
+	fd = sys_open_nocancel(path, BSD_O_RDONLY, 0);
+	if (fd < 0)
+		return false;
+
+	_readline_init(&buf);
+	while (!found && (line = _readline(fd, &buf)) != NULL)
+	{
+		// "num refcount protocol flags type st inode [path]"
+		char* p = (char*) line;
+		const char* tok[7];
+		const char* upath;
+		int i;
+
+		for (i = 0; i < 7; i++)
+		{
+			tok[i] = _proc_next_token(&p);
+			if (!tok[i])
+				break;
+		}
+		if (i < 7 || (uint64_t) __simple_atoi(tok[6], NULL) != inode)
+			continue;
+
+		si->soi_family = AF_UNIX;
+		si->soi_type = (int) _proc_parse_hex(tok[4], NULL, 4);
+		si->soi_protocol = 0;
+		si->soi_kind = SOCKINFO_UN;
+		if (_proc_parse_hex(tok[3], NULL, 8) & 0x10000) // __SO_ACCEPTCON
+			si->soi_options |= SO_ACCEPTCONN;
+		if (_proc_parse_hex(tok[5], NULL, 2) == 3) // SS_CONNECTED
+			si->soi_state |= SOI_S_ISCONNECTED;
+
+		upath = _proc_next_token(&p);
+		if (upath && upath[0] == '/')
+		{
+			struct vchroot_unexpand_args un;
+			strncpy(un.path, upath, sizeof(un.path) - 1);
+			un.path[sizeof(un.path) - 1] = '\0';
+			if (vchroot_unexpand(&un) != 0)
+				strncpy(un.path, upath, sizeof(un.path) - 1);
+			si->soi_proto.pri_un.unsi_addr.ua_sun.sun_family = AF_UNIX;
+			strncpy(si->soi_proto.pri_un.unsi_addr.ua_sun.sun_path, un.path,
+					sizeof(si->soi_proto.pri_un.unsi_addr.ua_sun.sun_path) - 1);
+			si->soi_proto.pri_un.unsi_addr.ua_sun.sun_len =
+					sizeof(struct sockaddr_un);
+		}
+		found = true;
+	}
+	close_internal(fd);
+	return found;
+}
+
+static long _proc_pidfdinfo_socket(int32_t pid, int fd, void* buffer, int32_t bufsize)
+{
+	struct socket_fdinfo* info = (struct socket_fdinfo*) buffer;
+	static const struct {
+		const char* table;
+		bool v6;
+		int type, protocol;
+	} tables[] = {
+		{ "tcp", false, SOCK_STREAM, IPPROTO_TCP },
+		{ "tcp6", true, SOCK_STREAM, IPPROTO_TCP },
+		{ "udp", false, SOCK_DGRAM, IPPROTO_UDP },
+		{ "udp6", true, SOCK_DGRAM, IPPROTO_UDP },
+	};
+	char target[512];
+	uint64_t inode;
+	long type;
+	unsigned int i;
+
+	if (bufsize < (int32_t) sizeof(*info))
+		return -ENOMEM;
+
+	type = _proc_fd_lookup(pid, fd, target, sizeof(target), &inode, NULL);
+	if (type < 0)
+		return type;
+	if (type != PROX_FDTYPE_SOCKET)
+		return -ENOTSOCK;
+
+	memset(info, 0, sizeof(*info));
+	info->pfi.fi_type = PROX_FDTYPE_SOCKET;
+	info->pfi.fi_openflags = PROC_FREAD | PROC_FWRITE;
+	// Opaque handles: the inode identifies the socket
+	info->psi.soi_so = inode;
+	info->psi.soi_pcb = inode;
+	info->psi.soi_kind = SOCKINFO_GENERIC;
+
+	for (i = 0; i < sizeof(tables) / sizeof(tables[0]); i++)
+	{
+		struct in_sockinfo* ini;
+		unsigned int lst;
+
+		ini = (tables[i].type == SOCK_STREAM)
+				? &info->psi.soi_proto.pri_tcp.tcpsi_ini
+				: &info->psi.soi_proto.pri_in;
+		if (!_proc_net_lookup_inet(pid, tables[i].table, tables[i].v6, inode, ini, &lst))
+			continue;
+
+		info->psi.soi_family = tables[i].v6 ? AF_INET6 : AF_INET;
+		info->psi.soi_type = tables[i].type;
+		info->psi.soi_protocol = tables[i].protocol;
+		if (tables[i].type == SOCK_STREAM)
+		{
+			struct tcp_sockinfo* tcp = &info->psi.soi_proto.pri_tcp;
+			info->psi.soi_kind = SOCKINFO_TCP;
+			tcp->tcpsi_state = _proc_tcp_state_from_linux(lst);
+			tcp->tcpsi_tp = inode;
+			if (tcp->tcpsi_state == TSI_S_LISTEN)
+				info->psi.soi_options |= SO_ACCEPTCONN;
+			else if (tcp->tcpsi_state == TSI_S_ESTABLISHED)
+				info->psi.soi_state |= SOI_S_ISCONNECTED;
+		}
+		else
+		{
+			info->psi.soi_kind = SOCKINFO_IN;
+			if (lst == 0x01) // connected datagram socket
+				info->psi.soi_state |= SOI_S_ISCONNECTED;
+		}
+		return sizeof(*info);
+	}
+
+	if (_proc_net_lookup_unix(pid, inode, &info->psi))
+		return sizeof(*info);
+
+	// Other families (netlink, packet, ...): the generic record only
+	return sizeof(*info);
+}
+
+static void _proc_fill_vinfo_stat(struct vinfo_stat* vst, const struct linux_stat* st)
+{
+	vst->vst_dev = st->st_dev;
+	vst->vst_ino = st->st_ino;
+	vst->vst_mode = st->st_mode;
+	vst->vst_nlink = st->st_nlink;
+	vst->vst_uid = st->st_uid;
+	vst->vst_gid = st->st_gid;
+	vst->vst_size = st->st_size;
+	vst->vst_blocks = st->st_blocks;
+	vst->vst_blksize = st->st_blksize;
+	vst->vst_rdev = st->st_rdev;
+}
+
+static long _proc_pidfdinfo_pipe(int32_t pid, int fd, void* buffer, int32_t bufsize)
+{
+	struct pipe_fdinfo* info = (struct pipe_fdinfo*) buffer;
+	char target[512], name[16];
+	struct linux_stat st;
+	uint64_t inode;
+	long type;
+	int dfd, access, ret;
+
+	if (bufsize < (int32_t) sizeof(*info))
+		return -ENOMEM;
+
+	type = _proc_fd_lookup(pid, fd, target, sizeof(target), &inode, &dfd);
+	if (type < 0)
+		return type;
+	if (type != PROX_FDTYPE_PIPE)
+	{
+		LINUX_SYSCALL(__NR_close, dfd);
+		return -EBADF;
+	}
+
+	_proc_fdname(name, fd);
+#ifdef __NR_newfstatat
+	ret = LINUX_SYSCALL(__NR_newfstatat, dfd, name, &st, 0);
+#else
+	ret = LINUX_SYSCALL(__NR_fstatat64, dfd, name, &st, 0);
+#endif
+	LINUX_SYSCALL(__NR_close, dfd);
+	if (ret < 0)
+		return errno_linux_to_bsd(ret);
+
+	access = _proc_fd_access(pid, fd);
+
+	memset(info, 0, sizeof(*info));
+	info->pfi.fi_type = PROX_FDTYPE_PIPE;
+	info->pfi.fi_openflags = access;
+	_proc_fill_vinfo_stat(&info->pipeinfo.pipe_stat, &st);
+	// The two ends of a pipe are told apart by the low bit of their opaque
+	// handle; each end names the other as its peer.
+	{
+		uint64_t self = (inode << 1) | ((access & PROC_FREAD) ? 0 : 1);
+		info->pipeinfo.pipe_handle = self;
+		info->pipeinfo.pipe_peerhandle = self ^ 1;
+	}
+	return sizeof(*info);
+}
+
+static long _proc_pidfdinfo_kqueue(int32_t pid, int fd, void* buffer, int32_t bufsize)
+{
+	struct kqueue_fdinfo* info = (struct kqueue_fdinfo*) buffer;
+	char target[512], name[16];
+	struct linux_stat st;
+	uint64_t inode;
+	long type;
+	int dfd, ret;
+
+	if (bufsize < (int32_t) sizeof(*info))
+		return -ENOMEM;
+
+	type = _proc_fd_lookup(pid, fd, target, sizeof(target), &inode, &dfd);
+	if (type < 0)
+		return type;
+	if (type != PROX_FDTYPE_KQUEUE)
+	{
+		LINUX_SYSCALL(__NR_close, dfd);
+		return -EBADF;
+	}
+
+	_proc_fdname(name, fd);
+#ifdef __NR_newfstatat
+	ret = LINUX_SYSCALL(__NR_newfstatat, dfd, name, &st, 0);
+#else
+	ret = LINUX_SYSCALL(__NR_fstatat64, dfd, name, &st, 0);
+#endif
+	LINUX_SYSCALL(__NR_close, dfd);
+	if (ret < 0)
+		return errno_linux_to_bsd(ret);
+
+	memset(info, 0, sizeof(*info));
+	info->pfi.fi_type = PROX_FDTYPE_KQUEUE;
+	// A kqueue descriptor is always open for reading and writing, is
+	// close-on-exec and is not inherited by fork.
+	info->pfi.fi_openflags = PROC_FREAD | PROC_FWRITE;
+	info->pfi.fi_status = PROC_FP_CLEXEC | PROC_FP_CLFORK;
+	// The kqueue is described as an anonymous FIFO-like object. The epoll
+	// descriptor behind it has no device or inode number to offer, and the
+	// number of queued events is not visible from outside the process.
+	info->kqueueinfo.kq_stat.vst_mode = S_IFIFO;
+	info->kqueueinfo.kq_stat.vst_blksize = 32;
+	info->kqueueinfo.kq_stat.vst_uid = st.st_uid;
+	info->kqueueinfo.kq_stat.vst_gid = st.st_gid;
+	return sizeof(*info);
+}
+
 static long _proc_pidfdinfo(int32_t pid, uint32_t flavor, int fd, void* buffer, int32_t bufsize)
 {
 	if (!buffer)
@@ -831,10 +1518,16 @@ static long _proc_pidfdinfo(int32_t pid, uint32_t flavor, int fd, void* buffer, 
 	{
 		case PROC_PIDFDVNODEPATHINFO:
 			return _proc_pidfdinfo_vnodepath(pid, fd, buffer, bufsize);
+		case PROC_PIDFDSOCKETINFO:
+			return _proc_pidfdinfo_socket(pid, fd, buffer, bufsize);
+		case PROC_PIDFDPIPEINFO:
+			return _proc_pidfdinfo_pipe(pid, fd, buffer, bufsize);
+		case PROC_PIDFDKQUEUEINFO:
+			return _proc_pidfdinfo_kqueue(pid, fd, buffer, bufsize);
 		default:
-			__simple_fprintf(2, "sys_proc_info(): Unsupported pidfdinfo flavor: %d\n",
-					flavor);
-			return -ENOTSUP;
+			// Unknown flavors fail with EINVAL, silently: callers may try
+			// them very often and stderr is no place for that.
+			return -EINVAL;
 	}
 }
 

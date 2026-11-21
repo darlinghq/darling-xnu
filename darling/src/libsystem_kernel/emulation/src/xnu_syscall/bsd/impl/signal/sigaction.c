@@ -50,7 +50,11 @@ long sys_sigaction(int signum, const struct bsd___sigaction* nsa, struct bsd_sig
 		return 0;
 	}
 
-	if (nsa != NULL && (linux_signum == LINUX_SIGCHLD || linux_signum == LINUX_SIGTTOU))
+	// The kernel itself acts on whether these signals are ignored (SIGCHLD: children are
+	// reaped; SIGTTOU and SIGTTIN: a background process group may call tcsetpgrp() and gets
+	// EIO from read()), so their Linux disposition is what the application asked for.
+	if (nsa != NULL && (linux_signum == LINUX_SIGCHLD || linux_signum == LINUX_SIGTTOU
+			|| linux_signum == LINUX_SIGTTIN))
 	{
 		sa_tramp = nsa->sa_tramp;
 		if (nsa->sa_sigaction != XNU_SIG_DFL && nsa->sa_sigaction != XNU_SIG_IGN
@@ -101,6 +105,16 @@ long sys_sigaction(int signum, const struct bsd___sigaction* nsa, struct bsd_sig
 		sig_tramps[linux_signum] = nsa->sa_tramp;
 		sig_flags[linux_signum] = nsa->sa_flags;
 		sig_masks[linux_signum] = nsa->sa_mask;
+
+		// Blocking syscalls interrupted by a handler return EINTR unless the application
+		// asked for SA_RESTART. SIG_DFL and SIG_IGN never interrupt a syscall, so they keep
+		// the restarting default of the Linux handler.
+		if (sigexc_handles_signal(linux_signum))
+		{
+			bool has_handler = nsa->sa_sigaction != XNU_SIG_DFL && nsa->sa_sigaction != XNU_SIG_IGN
+					&& nsa->sa_sigaction != XNU_SIG_ERR;
+			sigexc_set_restart(linux_signum, !has_handler || (nsa->sa_flags & BSD_SA_RESTART));
+		}
 	}
 
 	return 0;
@@ -176,7 +190,7 @@ long sys_sigaction(int signum, const struct bsd___sigaction* nsa, struct bsd_sig
 #endif
 
 static void handler_linux_to_bsd_wrapper(int linux_signum, struct linux_siginfo* info, void* ctxt) {
-	dserver_rpc_interrupt_enter();
+	sigexc_interrupt_enter();
 	handler_linux_to_bsd(linux_signum, info, ctxt);
 	dserver_rpc_interrupt_exit();
 };

@@ -1111,6 +1111,8 @@ typedef kern_return_t mach_msg_return_t;
 /* Out-of-line overwrite region is not large enough */
 #define MACH_RCV_INVALID_TRAILER        0x1000400f
 /* trailer type or number of trailer elements not supported */
+#define MACH_RCV_INVALID_ARGUMENTS      0x10004013
+/* invalid receive arguments, receive has not started (value from XNU) */
 #define MACH_RCV_IN_PROGRESS_TIMED      0x10004011
 /* Waiting for receive with timeout. (Internal use only.) */
 #define MACH_RCV_INVALID_REPLY          0x10004012
@@ -1173,6 +1175,73 @@ extern mach_msg_return_t        mach_msg(
 	mach_port_name_t rcv_name,
 	mach_msg_timeout_t timeout,
 	mach_port_name_t notify);
+
+/*
+ *	mach_msg2: the register-packed send/receive interface.
+ *
+ *	The low 32 bits of option64 are the mach_msg_option_t of mach_msg.
+ *	The 64-bit words each pack two 32-bit values, the first one named
+ *	in the LOW half (XNU's MACH_MSG2_SHIFT_ARGS(lo, hi)):
+ *	  msgh_bits_and_send_size    msgh_bits, send_size (the whole message,
+ *	                             header included)
+ *	  msgh_remote_and_local_port msgh_remote_port, msgh_local_port
+ *	  msgh_voucher_and_id        msgh_voucher_port, msgh_id
+ *	  desc_count_and_rcv_name    msgh_descriptor_count (complex messages
+ *	                             only), rcv_name
+ *	  rcv_size_and_priority      rcv_size, priority (the send override
+ *	                             priority, what mach_msg passes as notify
+ *	                             with MACH_SEND_OVERRIDE)
+ *	timeout is a plain 64-bit value that XNU casts to 32 bits.
+ *	data points to the whole message, header first: the header fields of
+ *	a message to send travel in the registers (the bytes at data are not
+ *	read for them) and a received message, header first, is written to
+ *	data. A message to send must be at least a header long (a base for a
+ *	complex one) and a multiple of 4 bytes; a simple message has no
+ *	descriptors. A receive-only call with MACH_RCV_SYNC_WAIT takes the
+ *	sync-send port from msgh_remote_port.
+ *	With MACH64_MSG_VECTOR, data instead points to an array of
+ *	mach_msg_vector_t: the message and optionally auxiliary data. The
+ *	send count is the high half of msgh_bits_and_send_size and the
+ *	receive count the low half of rcv_size_and_priority (zero is an
+ *	error, more than two too). msgv_data is the message to send (header
+ *	included, msgv_send_size bytes); msgv_rcv_addr, if non-zero, is where
+ *	a received message goes, msgv_rcv_size bytes. Auxiliary data is not
+ *	supported here: a send count of two with a non-empty auxiliary vector
+ *	returns MACH_SEND_INVALID_DATA, a receive count of two returns
+ *	MACH_RCV_INVALID_ARGUMENTS (after the send, in a send and receive call,
+ *	as XNU validates the receive vector only once the message is out).
+ *	A message of more than XNU's IPC_KMSG_MAX_BODY_SPACE returns
+ *	MACH_SEND_TOO_LARGE; a complex message must hold its descriptors
+ *	(MACH_SEND_MSG_TOO_SMALL).
+ *	Source: XNU's own osfmk/mach/message.h (the mach_msg2 inline wrapper)
+ *	and osfmk/ipc/mach_msg.c (mach_msg2_trap), APSL.
+ */
+typedef uint64_t mach_msg_option64_t;
+
+#define MACH64_MSG_OPTION_NONE      0x0ull
+#define MACH64_MSG_VECTOR           0x0000000100000000ull
+#define MACH64_SEND_KOBJECT_CALL    0x0000000200000000ull
+#define MACH64_SEND_MQ_CALL         0x0000000400000000ull
+#define MACH64_SEND_ANY             0x0000000800000000ull
+#define MACH64_SEND_DK_CALL         0x0000001000000000ull
+
+typedef struct {
+	mach_vm_address_t msgv_data;
+	mach_vm_address_t msgv_rcv_addr;
+	mach_msg_size_t   msgv_send_size;
+	mach_msg_size_t   msgv_rcv_size;
+} mach_msg_vector_t;
+
+__WATCHOS_PROHIBITED __TVOS_PROHIBITED
+extern mach_msg_return_t        mach_msg2_internal(
+	void *data,
+	mach_msg_option64_t option64,
+	uint64_t msgh_bits_and_send_size,
+	uint64_t msgh_remote_and_local_port,
+	uint64_t msgh_voucher_and_id,
+	uint64_t desc_count_and_rcv_name,
+	uint64_t rcv_size_and_priority,
+	uint64_t timeout);
 
 /*
  *	Routine:	mach_voucher_deallocate

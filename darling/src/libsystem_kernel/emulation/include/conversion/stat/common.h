@@ -120,6 +120,9 @@ struct linux_stat {
 
 #endif
 
+// The layout of struct statfs without 64-bit inodes (statfs, fstatfs, getfsstat): short and long fields, names
+// limited to MFSNAMELEN / MNAMELEN (90) bytes. The non-$INODE64 entry points fill it in every process; `long` is
+// 4 bytes in a 32-bit process (272 bytes in all) and 8 in a 64-bit one (336 bytes).
 struct bsd_statfs
 {
 	short f_otype;
@@ -137,12 +140,15 @@ struct bsd_statfs
 	short f_type;
 	long f_flags;
 	long f_reserved2[2];
-	char f_fstypename[16];
-	char f_mntonname[1024];
-	char f_mntfromname[1024];
+	char f_fstypename[15];
+	char f_mntonname[90];
+	char f_mntfromname[90];
 	char f_reserved3;
 	long f_reserved4[4];
 };
+
+_Static_assert(sizeof(long) != 4 || sizeof(struct bsd_statfs) == 272, "legacy statfs layout of a 32-bit process");
+_Static_assert(sizeof(long) != 8 || sizeof(struct bsd_statfs) == 336, "legacy statfs layout of a 64-bit process");
 
 struct bsd_statfs64
 {
@@ -166,6 +172,8 @@ struct bsd_statfs64
 	long long f_reserved4[4];
 };
 
+_Static_assert(sizeof(struct bsd_statfs64) == 2168, "struct statfs64 layout");
+
 struct linux_statfs64
 {
 	long f_type;
@@ -186,7 +194,7 @@ struct linux_statfs64
 
 void stat_linux_to_bsd(const struct linux_stat* lstat, struct stat* stat);
 void stat_linux_to_bsd64(const struct linux_stat* lstat, darling_stat64_t* stat);
-void statfs_linux_to_bsd(const struct linux_statfs64* lstat, struct bsd_statfs* stat);
 void statfs_linux_to_bsd64(const struct linux_statfs64* lstat, struct bsd_statfs64* stat);
+void statfs_bsd64_to_bsd(const struct bsd_statfs64* wide, struct bsd_statfs* stat);
 
 #endif // LINUX_STAT_COMMON_H

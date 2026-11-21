@@ -77,6 +77,7 @@ set(linux_premigration_sources
 	src/linux_premigration/ext/eventfd_write.c
 	src/linux_premigration/ext/fanotify.c
 	src/linux_premigration/ext/file_handle.c
+	src/linux_premigration/ext/for-iosurface.c
 	src/linux_premigration/ext/for-libelfloader.c
 	src/linux_premigration/ext/for-libkqueue.c
 	src/linux_premigration/ext/for-platform-identity.c
@@ -115,6 +116,8 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/helper/bpf/bpf_device.c
 	src/xnu_syscall/bsd/helper/bpf/bpf_program.c
 
+	src/xnu_syscall/bsd/helper/stat/guest_mount.c
+
 	src/xnu_syscall/bsd/helper/ioctl/termios.c
 	src/xnu_syscall/bsd/helper/ioctl/filio.c
 	src/xnu_syscall/bsd/helper/ioctl/socket.c
@@ -122,6 +125,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/helper/misc/readline.c
 	src/xnu_syscall/bsd/helper/misc/fdpath.c
 	src/xnu_syscall/bsd/helper/misc/nofile_limit.c
+	src/xnu_syscall/bsd/helper/misc/posix_ipc_name.c
 	src/xnu_syscall/bsd/helper/misc/host_platform.c
 	src/xnu_syscall/bsd/helper/misc/platform_identity.c
 	src/xnu_syscall/bsd/helper/misc/sysctl_hw.c
@@ -228,6 +232,9 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/psynch/psynch_cvclrprepost.c
 	src/xnu_syscall/bsd/impl/psynch/psynch_cvsignal.c
 	src/xnu_syscall/bsd/impl/psynch/psynch_cvwait.c
+	src/xnu_syscall/bsd/impl/psynch/psynch_inproc.c
+	src/xnu_syscall/bsd/impl/psynch/ksyn/kern_synch.c
+	src/xnu_syscall/bsd/impl/psynch/ksyn/ksyn_kern.c
 	src/xnu_syscall/bsd/impl/psynch/psynch_mutexdrop.c
 	src/xnu_syscall/bsd/impl/psynch/psynch_mutexwait.c
 	src/xnu_syscall/bsd/impl/psynch/psynch_rw_rdlock.c

@@ -5,10 +5,15 @@
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/conversion/duct_errno.h>
 
+#include <darling/emulation/xnu_syscall/bsd/impl/psynch/psynch_inproc.h>
+
 #include <darlingserver/rpc.h>
 
 long sys_psynch_rw_wrlock(void* rwlock, uint32_t lgenval, uint32_t ugenval, uint32_t rw_wc, int flags)
 {
+	if (psynch_inproc_handles(flags))
+		return psynch_inproc_rw_wrlock(rwlock, lgenval, ugenval, rw_wc, flags);
+
 	uint32_t retval;
 	int ret = dserver_rpc_psynch_rw_wrlock(rwlock, lgenval, ugenval, rw_wc, flags, &retval);
 

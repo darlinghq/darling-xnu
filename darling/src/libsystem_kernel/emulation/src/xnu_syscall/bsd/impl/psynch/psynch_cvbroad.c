@@ -4,11 +4,16 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/common/simple.h>
 
+#include <darling/emulation/xnu_syscall/bsd/impl/psynch/psynch_inproc.h>
+
 #include <darlingserver/rpc.h>
 
 long sys_psynch_cvbroad(void* cv, uint64_t cvlsgen, uint64_t cvudgen, uint32_t flags, void* mutex, uint64_t mugen,
 		uint64_t tid)
 {
+	if (psynch_inproc_handles(flags))
+		return psynch_inproc_cvbroad(cv, cvlsgen, cvudgen, flags, mutex, mugen, tid);
+
 	uint32_t retval;
 	int ret = dserver_rpc_psynch_cvbroad(cv, cvlsgen, cvudgen, flags, mutex, mugen, tid, &retval);
 

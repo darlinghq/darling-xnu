@@ -24,7 +24,7 @@ extern int strcmp(const char *s1, const char *s2);
 long sys_open(const char* filename, int flags, unsigned int mode)
 {
 	CANCELATION_POINT();
-	return sys_openat_nocancel(get_perthread_wd(), filename, flags, mode);
+	return sys_openat_common(get_perthread_wd(), filename, flags, mode, true);
 }
 
 long sys_open_nocancel(const char* filename, int flags, unsigned int mode)

@@ -1,5 +1,6 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/select/select.h>
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #include <darling/emulation/common/base.h>
@@ -8,13 +9,20 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/select/pselect.h>
 
+static long sys_select_common(int nfds, void* rfds, void* wfds, void* efds, struct bsd_timeval* timeout, bool cancelable);
+
 long sys_select(int nfds, void* rfds, void* wfds, void* efds, struct bsd_timeval* timeout)
 {
 	CANCELATION_POINT();
-	return sys_select_nocancel(nfds, rfds, wfds, efds, timeout);
+	return sys_select_common(nfds, rfds, wfds, efds, timeout, true);
 }
 
 long sys_select_nocancel(int nfds, void* rfds, void* wfds, void* efds, struct bsd_timeval* timeout)
+{
+	return sys_select_common(nfds, rfds, wfds, efds, timeout, false);
+}
+
+static long sys_select_common(int nfds, void* rfds, void* wfds, void* efds, struct bsd_timeval* timeout, bool cancelable)
 {
 	// Go through pselect, which reports the exceptional conditions of
 	// pseudo-terminal masters the way macOS does; pselect() takes a
@@ -27,6 +35,6 @@ long sys_select_nocancel(int nfds, void* rfds, void* wfds, void* efds, struct bs
 		ts.tv_nsec = (long)timeout->tv_usec * 1000L;
 	}
 
-	return sys_pselect_nocancel(nfds, rfds, wfds, efds,
-			(timeout != NULL) ? &ts : NULL, NULL);
+	return sys_pselect_common(nfds, rfds, wfds, efds,
+			(timeout != NULL) ? &ts : NULL, NULL, cancelable);
 }

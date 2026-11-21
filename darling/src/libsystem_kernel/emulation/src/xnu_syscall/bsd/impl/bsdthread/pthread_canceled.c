@@ -10,14 +10,14 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/bsdthread_register.h>
 
+#include <darling/emulation/linux_premigration/signal/sigexc.h>
+
 #include <darlingserver/rpc.h>
 
-// The TSD slot __PTK_DARLING_CANCEL_MARKED is shared with darlingserver (see set_thread_handles()).
-// darlingserver sets its first byte when it marks the thread for cancellation.
-// The thread sets its second byte while it blocks in a cancelable syscall, which tells darlingserver
-// to interrupt the syscall (with SIGNAL_SIGEXC_SUSPEND) when it marks the thread.
-#define CANCEL_MARKED_BYTE  0
-#define CANCEL_WAITING_BYTE 1
+// (the layout of the __PTK_DARLING_CANCEL_MARKED slot is described in pthread_canceled.h)
+#define CANCEL_MARKED_BYTE   PTHREAD_CANCEL_MARKED_BYTE
+#define CANCEL_WAITING_BYTE  PTHREAD_CANCEL_WAITING_BYTE
+#define CANCEL_DISABLED_BYTE PTHREAD_CANCEL_DISABLED_BYTE
 
 static volatile uint8_t* cancel_slot(void)
 {
@@ -41,6 +41,11 @@ long sys_pthread_canceled(int action)
 	int ret = dserver_rpc_pthread_canceled(action);
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
+	else if ((action == 1 || action == 2) && cancel_slot() != NULL)
+	{
+		// enable (1) or disable (2) cancellation
+		__atomic_store_n(&cancel_slot()[CANCEL_DISABLED_BYTE], action == 2, __ATOMIC_RELEASE);
+	}
 	else if (action == 0)
 	{
 		// the mark has been acted on and darlingserver won't mark this thread again,
@@ -61,8 +66,10 @@ bool pthread_testcancel_presyscall(void)
 // linux_syscall_cancelable() is linux_syscall() with an extra argument, the address of the marked byte.
 // It checks the byte, then makes the syscall. The signal handler moves a thread that it interrupts
 // between the check and the syscall instruction to an exit that returns -LINUX_EINTR, if the thread
-// has been marked. That includes a thread blocked in the syscall: our handlers use SA_RESTART, so for
-// a syscall that the kernel restarts (e.g. a futex wait without a timeout), it points the thread back
+// has been marked. That includes a thread blocked in the syscall: darlingserver interrupts it with a
+// real-time signal, and the handlers of those signals use SA_RESTART (unlike the handlers of the
+// application's signals, which follow the application's SA_RESTART). So for a syscall that the kernel
+// restarts (e.g. a futex wait without a timeout), the handler points the thread back
 // at the syscall instruction before the handler runs. A signal that arrives before the check leaves
 // it to the check to see the mark.
 
@@ -217,6 +224,25 @@ long pthread_cancelable_syscall(long a1, long a2, long a3, long a4, long a5, lon
 	__atomic_store_n(&slot[CANCEL_WAITING_BYTE], was_waiting, __ATOMIC_RELAXED);
 
 	return ret;
+}
+
+long pthread_cancelable_syscall_restart(long a1, long a2, long a3, long a4, long a5, long a6, int nr)
+{
+	// without libpthread's TSD there is no way to tell what interrupted the syscall
+	bool track_handlers = bsdthread_registered();
+
+	for (;;)
+	{
+		unsigned long handlers = track_handlers ? sigexc_handlers_run() : 0;
+		long ret = pthread_cancelable_syscall(a1, a2, a3, a4, a5, a6, nr);
+
+		if (ret != -LINUX_EINTR || !track_handlers)
+			return ret;
+
+		// a handler of the guest ran, or the thread is to act on its cancellation: EINTR it is
+		if (sigexc_handlers_run() != handlers || pthread_testcancel_presyscall())
+			return ret;
+	}
 }
 
 uintptr_t pthread_cancelable_syscall_interrupted(uintptr_t ip)

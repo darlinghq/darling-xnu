@@ -19,6 +19,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/kill.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/pthread_canceled.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/psynch/psynch_inproc.h>
 #include <darling/emulation/common/tsd.h>
 #include <darling/emulation/xnu_syscall/machdep/impl/tls.h>
 #include <darling/emulation/linux_premigration/signal/tsd_trap.h>
@@ -105,6 +106,32 @@ void sigexc_setup2(void)
 		&set, NULL, sizeof(linux_sigset_t));
 }
 
+int sigexc_interrupt_enter(void)
+{
+	// a handler that ran while we wait for this reply would call interrupt_enter as well and take our reply for
+	// its own (they're indistinguishable); from then on, every call of both handlers would receive the reply meant
+	// for the call before it. so block the signals that run such handlers (all but the ones the kernel raises for
+	// a fault, which are synchronous and can't be held back) until the server has answered.
+	linux_sigset_t block = ~0ull;
+	block &= ~(1ull << (LINUX_SIGSEGV - 1));
+	block &= ~(1ull << (LINUX_SIGBUS - 1));
+	block &= ~(1ull << (LINUX_SIGILL - 1));
+	block &= ~(1ull << (LINUX_SIGFPE - 1));
+	block &= ~(1ull << (LINUX_SIGTRAP - 1));
+	block &= ~(1ull << (LINUX_SIGSYS - 1));
+	linux_sigset_t previous;
+
+	LINUX_SYSCALL(__NR_rt_sigprocmask, 0 /* LINUX_SIG_BLOCK */,
+		&block, &previous, sizeof(linux_sigset_t));
+
+	int status = dserver_rpc_interrupt_enter();
+
+	LINUX_SYSCALL(__NR_rt_sigprocmask, 2 /* LINUX_SIG_SETMASK */,
+		&previous, NULL, sizeof(linux_sigset_t));
+
+	return status;
+}
+
 static void dump_gregs(const struct linux_gregset* regs)
 {
 	unsigned long long* p = (unsigned long long*) regs;
@@ -181,7 +208,7 @@ static void cancel_interrupted_syscall(struct linux_ucontext* ctxt)
 void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
 
-	int status = dserver_rpc_interrupt_enter();
+	int status = sigexc_interrupt_enter();
 
 	if (status != 0) {
 		__simple_printf("*** dserver_rpc_interrupt_enter failed with code %d ***\n", status);
@@ -237,6 +264,40 @@ void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext
 }
 
 
+// Makes sigexc_handler the Linux handler of a signal. Whether the kernel restarts a
+// blocking syscall that this handler interrupted is what the application asked for with
+// SA_RESTART (see sigexc_set_restart()); the handler is installed with restarting
+// until the application says otherwise.
+static void install_sigexc_handler(int linux_signum, bool restart)
+{
+	struct linux_sigaction sa;
+	sa.sa_sigaction = (linux_sig_handler*) sigexc_handler;
+	sa.sa_mask = 0x7fffffff; // all other standard Unix signals should be blocked while the handler is run
+	sa.sa_mask |= (1ull << (SIGNAL_SIGEXC_SUSPEND-1));
+	sa.sa_flags = LINUX_SA_RESTORER | LINUX_SA_SIGINFO | LINUX_SA_ONSTACK;
+	if (restart)
+		sa.sa_flags |= LINUX_SA_RESTART;
+	sa.sa_restorer = sig_restorer;
+
+	LINUX_SYSCALL(__NR_rt_sigaction, linux_signum,
+			&sa, NULL,
+			sizeof(sa.sa_mask));
+}
+
+bool sigexc_handles_signal(int linux_signum)
+{
+	return linux_signum >= 1 && linux_signum <= 31
+		&& linux_signum != LINUX_SIGSTOP && linux_signum != LINUX_SIGKILL
+		&& linux_signum != LINUX_SIGCHLD && linux_signum != LINUX_SIGTTOU
+		&& linux_signum != LINUX_SIGTTIN;
+}
+
+void sigexc_set_restart(int linux_signum, bool restart)
+{
+	if (sigexc_handles_signal(linux_signum))
+		install_sigexc_handler(linux_signum, restart);
+}
+
 void darling_sigexc_self(void)
 {
 	am_i_ptraced = true;
@@ -248,16 +309,7 @@ void darling_sigexc_self(void)
 		if (i == LINUX_SIGSTOP || i == LINUX_SIGKILL || i == LINUX_SIGCHLD)
 			continue;
 
-		struct linux_sigaction sa;
-		sa.sa_sigaction = (linux_sig_handler*) sigexc_handler;
-		sa.sa_mask = 0x7fffffff; // all other standard Unix signals should be blocked while the handler is run
-		sa.sa_mask |= (1ull << (SIGNAL_SIGEXC_SUSPEND-1));
-		sa.sa_flags = LINUX_SA_RESTORER | LINUX_SA_SIGINFO | LINUX_SA_RESTART | LINUX_SA_ONSTACK;
-		sa.sa_restorer = sig_restorer;
-
-		LINUX_SYSCALL(__NR_rt_sigaction, i,
-				&sa, NULL,
-				sizeof(sa.sa_mask));
+		install_sigexc_handler(i, true);
 	}
 
 #if SIGALTSTACK_GUARD
@@ -562,7 +614,7 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 				(void*)(uintptr_t)linux_signum);
 	}
 
-	int status = dserver_rpc_interrupt_enter();
+	int status = sigexc_interrupt_enter();
 
 	if (status != 0) {
 		handle_signal_without_server(linux_signum, info, ctxt);
@@ -643,6 +695,9 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 		if (sig_handlers[linux_signum])
 		{
 			kern_printf("sigexc: will forward signal to app handler (%p)\n", sig_handlers[linux_signum]);
+
+			// a psynch wait this signal interrupts ends before the handler runs, as in XNU
+			psynch_inproc_signal_arrived();
 
 			// Update the signal mask to what the application actually wanted
 			// sig_masks holds the Darwin-numbered mask given to sigaction()
@@ -870,22 +925,61 @@ void mcontext_to_thread_state(const struct linux_gregset* regs, x86_thread_state
 	s->__gs = regs->gs;
 }
 
+// Linux gives an i386 signal handler the x87 state in the legacy FSAVE layout
+// (full tag word, packed 10-byte registers, opcode in the top of the CS
+// selector word), followed by an FXSAVE image unless `magic` says it's
+// missing. On sigreturn the kernel takes the x87 state from the legacy part
+// and MXCSR and the XMM registers from the FXSAVE image. Darwin's float state
+// is in the FXSAVE layout (abridged tag word, 16-byte register slots).
+#define LINUX_FPSTATE_MAGIC_NO_FXSR 0xffff
+
+static uint8_t x87_tag_to_abridged(unsigned long tag)
+{
+	uint8_t abridged = 0;
+	for (int i = 0; i < 8; i++) {
+		// 11 marks an empty register
+		if (((tag >> (2 * i)) & 3) != 3)
+			abridged |= 1 << i;
+	}
+	return abridged;
+}
+
+static unsigned long x87_tag_from_abridged(uint8_t abridged)
+{
+	// the kernel only distinguishes empty registers from the others
+	unsigned long tag = 0;
+	for (int i = 0; i < 8; i++) {
+		if (!(abridged & (1 << i)))
+			tag |= 3UL << (2 * i);
+	}
+	return tag;
+}
+
 void mcontext_to_float_state(const linux_fpregset_t fx, x86_float_state32_t* s)
 {
+	memset(s, 0, sizeof(*s));
+	if (fx == NULL)
+		return;
+
 	*((uint16_t*)&s->__fpu_fcw) = fx->cw;
 	*((uint16_t*)&s->__fpu_fsw) = fx->sw;
-	s->__fpu_ftw = fx->tag;
-	s->__fpu_fop = 0;
+	s->__fpu_ftw = x87_tag_to_abridged(fx->tag);
+	s->__fpu_fop = (fx->cssel >> 16) & 0x7ff;
 	s->__fpu_ip = fx->ipoff;
-	s->__fpu_cs = fx->cssel;
+	s->__fpu_cs = fx->cssel & 0xffff;
 	s->__fpu_dp = fx->dataoff;
-	s->__fpu_ds = fx->datasel;
-	s->__fpu_mxcsr = fx->mxcsr;
-	s->__fpu_mxcsrmask = 0;
+	s->__fpu_ds = fx->datasel & 0xffff;
 
-	memcpy(&s->__fpu_stmm0, fx->_st, 128);
-	memcpy(&s->__fpu_xmm0, fx->_xmm, 128);
-	memset(((char*) &s->__fpu_xmm0) + 128, 0, 128);
+	struct __darwin_mmst_reg* st = &s->__fpu_stmm0;
+	for (int i = 0; i < 8; i++)
+		memcpy(st[i].__mmst_reg, &fx->_st[i], sizeof(fx->_st[i]));
+
+	if (fx->magic != LINUX_FPSTATE_MAGIC_NO_FXSR) {
+		s->__fpu_mxcsr = fx->mxcsr;
+		memcpy(&s->__fpu_xmm0, fx->_xmm, sizeof(fx->_xmm));
+	} else {
+		s->__fpu_mxcsr = 0x1f80;
+	}
 }
 
 void thread_state_to_mcontext(const x86_thread_state32_t* s, struct linux_gregset* regs)
@@ -910,17 +1004,38 @@ void thread_state_to_mcontext(const x86_thread_state32_t* s, struct linux_gregse
 
 void float_state_to_mcontext(const x86_float_state32_t* s, linux_fpregset_t fx)
 {
-	fx->cw = *((uint16_t*)&s->__fpu_fcw);
-	fx->sw = *((uint16_t*)&s->__fpu_fsw);
-	fx->tag = s->__fpu_ftw;
+	if (fx == NULL)
+		return;
+
+	const uint16_t fcw = *((const uint16_t*)&s->__fpu_fcw);
+	const uint16_t fsw = *((const uint16_t*)&s->__fpu_fsw);
+	const struct __darwin_mmst_reg* st = &s->__fpu_stmm0;
+
+	fx->cw = fcw;
+	fx->sw = fsw;
+	fx->tag = x87_tag_from_abridged(s->__fpu_ftw);
 	fx->ipoff = s->__fpu_ip;
-	fx->cssel = s->__fpu_cs;
+	fx->cssel = s->__fpu_cs | ((unsigned long)(s->__fpu_fop & 0x7ff) << 16);
 	fx->dataoff = s->__fpu_dp;
 	fx->datasel = s->__fpu_ds;
-	fx->mxcsr = s->__fpu_mxcsr;
+	for (int i = 0; i < 8; i++)
+		memcpy(&fx->_st[i], st[i].__mmst_reg, sizeof(fx->_st[i]));
 
-	memcpy(fx->_st, &s->__fpu_stmm0, 128);
-	memcpy(fx->_xmm, &s->__fpu_xmm0, 128);
+	if (fx->magic != LINUX_FPSTATE_MAGIC_NO_FXSR) {
+		// keep the FXSAVE image consistent with the legacy part
+		fx->_fxsr_env[0] = fcw | ((uint32_t)fsw << 16);
+		fx->_fxsr_env[1] = s->__fpu_ftw | ((uint32_t)s->__fpu_fop << 16);
+		fx->_fxsr_env[2] = s->__fpu_ip;
+		fx->_fxsr_env[3] = s->__fpu_cs;
+		fx->_fxsr_env[4] = s->__fpu_dp;
+		fx->_fxsr_env[5] = s->__fpu_ds;
+		fx->mxcsr = s->__fpu_mxcsr;
+		for (int i = 0; i < 8; i++) {
+			memset(&fx->_fxsr_st[i], 0, sizeof(fx->_fxsr_st[i]));
+			memcpy(&fx->_fxsr_st[i], st[i].__mmst_reg, 10);
+		}
+		memcpy(fx->_xmm, &s->__fpu_xmm0, sizeof(fx->_xmm));
+	}
 }
 #endif
 

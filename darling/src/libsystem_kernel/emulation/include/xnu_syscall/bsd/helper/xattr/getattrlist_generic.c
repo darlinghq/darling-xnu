@@ -27,7 +27,7 @@
 #define ATTR_VOL_UUID 0x00040000
 #define ATTR_VOL_ATTRIBUTES 0x40000000
 #define ATTR_VOL_INFO 0x80000000
-#define VOLUME_SUPPORTED (ATTR_VOL_CAPABILITIES | ATTR_VOL_ATTRIBUTES | ATTR_VOL_INFO)
+#define VOLUME_SUPPORTED (ATTR_VOL_CAPABILITIES | ATTR_VOL_UUID | ATTR_VOL_ATTRIBUTES | ATTR_VOL_INFO)
 #define DIR_SUPPORTED (ATTR_DIR_ENTRYCOUNT)
 #define DIR_SUPPORTED_ALL (DIR_SUPPORTED | 0x00000001 | 0x00000004)
 #define FILE_SUPPORTED (ATTR_FILE_RSRCLENGTH)
@@ -156,6 +156,21 @@ extern __SIZE_TYPE__ strlen(const char *str);
 static void pack_uint64(char* destination, uint64_t value)
 {
 	memcpy(destination, &value, sizeof(value));
+}
+
+// ATTR_VOL_UUID. Linux gives no persistent volume identity here, so build a
+// version 8 (custom) UUID from the device number of the volume root (the caller
+// resolves the root, so a path inside the volume gives the same value): distinct
+// mounts get distinct values and a mount keeps its value while it is mounted.
+static void attribute_volume_uuid(uint64_t device, unsigned char* uuid)
+{
+	memset(uuid, 0, 16);
+	for (int i = 0; i < 6; ++i)
+		uuid[i] = (unsigned char)(device >> (8 * i));
+	uuid[6] = 0x80 | (unsigned char)((device >> 48) & 0x0f);
+	uuid[7] = (unsigned char)(device >> 52);
+	uuid[8] = 0x80; // RFC 9562 variant
+	memcpy(uuid + 9, "darling", 7);
 }
 
 #if !HAS_PATH
@@ -653,7 +668,9 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 				continue;
 			// The buffer is zeroed: unknown capability bits and unsupported
 			// PACK_INVAL slots (including references) stay zero.
-			if (width->bit == ATTR_VOL_ATTRIBUTES) {
+			if (width->bit == ATTR_VOL_UUID) {
+				attribute_volume_uuid(fileStat.st_dev, (unsigned char*)next);
+			} else if (width->bit == ATTR_VOL_ATTRIBUTES) {
 				attribute_pack_support((uint32_t*)next);
 			}
 			next += width->width;
@@ -747,6 +764,10 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 		capabilities[4] = capabilities[5] = capabilities[6] = capabilities[7] = 0;
 		next += sizeof(uint32_t) * 8;
 	}
+	if (alist->volattr & ATTR_VOL_UUID) {
+		attribute_volume_uuid(fileStat.st_dev, (unsigned char*)next);
+		next += 16;
+	}
 	if (alist->volattr & ATTR_VOL_ATTRIBUTES) {
 		attribute_pack_support((uint32_t*)next);
 		next += sizeof(uint32_t) * ATTR_BIT_MAP_COUNT * 2;
@@ -829,7 +850,8 @@ long FUNC_NAME(int fd,
 	int validation = attribute_validate_request(alist, options);
 	if (validation < 0)
 		return validation;
-	if (!alist->volattr || !(alist->commonattr & COMMON_SUPPORTED & 0x0027fff7U))
+	// ATTR_VOL_UUID comes from the volume root's device, whichever object was asked about.
+	if (!alist->volattr || !((alist->commonattr & COMMON_SUPPORTED & 0x0027fff7U) || (alist->volattr & ATTR_VOL_UUID)))
 		return attribute_get_object(fd,
 #if HAS_PATH
 			path,

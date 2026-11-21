@@ -55,11 +55,11 @@ __darling_bsd_syscall_exit:
 
 // Darwin's i386 syscall entries preserve every register except %eax and %edx
 // (the result) - libplatform's setjmp relies on %ecx surviving ___sigaltstack -
-// so the table lookup and the argument copy use %edx as scratch, and %ecx is
-// saved across the call to the handler.
+// so the table lookup uses %edx as scratch, %edx then holds the caller's stack
+// pointer, and %ecx is saved in the frame before the argument copy uses it.
 #define copy_arg(off) \
-	movl	8+off(%esp), %edx ;\
-	movl	%edx, -72+off(%esp)
+	movl	8+off(%edx), %ecx ;\
+	movl	%ecx, off(%esp)
 
 __darling_bsd_syscall:
 Lentry_hook:
@@ -78,6 +78,16 @@ Lentry_hook:
 	test	%edx, %edx
 	jz		.no_sys
 	movl	%edx, %eax
+	// The handlers are compiled C and expect the i386 ABI's 16-byte stack
+	// alignment at the call (SSE moves to stack objects fault otherwise).
+	// The alignment at our entry depends on the caller: syscall() enters
+	// with a different parity than the fixed-argument stubs. So align
+	// explicitly: %edx is the original stack pointer, kept in the frame.
+	movl	%esp, %edx
+	subl	$72, %esp
+	andl	$-16, %esp
+	movl	%ecx, 56(%esp)
+	movl	%edx, 60(%esp)
 	// Copy arguments
 	copy_arg(0)
 	copy_arg(4)
@@ -93,11 +103,9 @@ Lentry_hook:
 	copy_arg(44)
 	copy_arg(48)
 	copy_arg(52)
-	subl	$72, %esp
-	movl	%ecx, 56(%esp)
 	call	*%eax
 	movl	56(%esp), %ecx
-	addl	$72, %esp
+	movl	60(%esp), %esp
 .std_ret:
 Lexit_hook:
 	.space 7, 0x90
