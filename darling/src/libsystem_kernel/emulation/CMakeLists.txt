@@ -382,6 +382,8 @@ set(xnu_syscall_mach_sources
 
 	src/xnu_syscall/mach/impl/mach_time.c
 	src/xnu_syscall/mach/impl/mach_traps.c
+	src/xnu_syscall/mach/impl/mach_sq.c
+	${CMAKE_SOURCE_DIR}/src/external/darlingserver/sq/mach-sq.c
 )
 
 set(xnu_syscall_machdep_sources

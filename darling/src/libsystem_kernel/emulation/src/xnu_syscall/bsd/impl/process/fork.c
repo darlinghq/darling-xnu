@@ -20,6 +20,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/bsdthread_register.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/workq_kernreturn.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/psynch/psynch_inproc.h>
+#include <darling/emulation/xnu_syscall/mach/impl/mach_sq.h>
 
 #include <darlingserver/rpc.h>
 
@@ -55,6 +56,7 @@ long sys_fork(void)
 	{
 		// in the child
 		psynch_inproc_postfork_child(&psynch_sigmask);
+		mach_sq_postfork_child();
 
 		// the old RPC FD will be closed in `guard_table_postfork_child`;
 		// we don't need to close it ourselves.
