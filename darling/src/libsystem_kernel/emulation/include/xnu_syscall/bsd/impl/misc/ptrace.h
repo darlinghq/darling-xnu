@@ -17,10 +17,10 @@ long sys_ptrace(int request, int pid, void* addr, int data);
 // Like the effective parent XNU makes of a tracer, they can be waited for with wait4()
 // even though they are not children in the Linux sense.
 //
-// Waits for the exit of a traced process matching `pid` (a process ID, or -1 for any).
-// Returns the process ID and sets *linux_status (Linux wait status format) once it has exited,
-// 0 if `nohang` and none has exited yet, or a negative Linux errno (-ECHILD if no traced
+// Waits for the exit or stop of a traced process matching `pid` (a process ID, or -1 for any).
+// Returns the process ID and sets *linux_status (Linux wait status format) once it has exited or stopped,
+// 0 if `options & BSD_WNOHANG` and none has changed state yet, or a negative Linux errno (-ECHILD if no traced
 // process matches).
-long ptrace_wait_tracee(int pid, int* linux_status, int nohang);
+long ptrace_wait_tracee(int pid, int* linux_status, int options);
 
 #endif // LINUX_PTRACE_H

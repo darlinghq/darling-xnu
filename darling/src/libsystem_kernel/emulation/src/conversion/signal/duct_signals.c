@@ -106,9 +106,7 @@ int signum_bsd_to_linux(int signum)
 		case SIGURG:
 			return LINUX_SIGURG;
 		case SIGSTOP:
-			// Hack! See above.
-			//return LINUX_SIGSTOP;
-			return LINUX_SIGSTKFLT;
+			return LINUX_SIGSTOP;
 		case SIGTSTP:
 			return LINUX_SIGTSTP;
 		case SIGCONT:
