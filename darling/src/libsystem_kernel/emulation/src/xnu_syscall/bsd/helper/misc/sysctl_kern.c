@@ -23,6 +23,7 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
 #include <darling/emulation/common/string.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/host_platform.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/platform_identity.h>
 #include "proc_boottime.h"
 
 #include <darling-config.h>
@@ -258,20 +259,33 @@ sysctl_handler(handle_ostype)
 sysctl_handler(handle_osrelease)
 {
 	const char* s = EMULATED_RELEASE;
+	const dserver_platform_identity_t* identity = platform_identity();
+	if (identity != NULL && identity->os_release[0] != '\0')
+		s = identity->os_release;
 
 	return copyout_string(s, (char*) old, oldlen);
 }
 
 sysctl_handler(handle_version)
 {
-	const char* s = EMULATED_VERSION;
+	const char* rel = EMULATED_RELEASE;
+	const dserver_platform_identity_t* identity = platform_identity();
+	if (identity != NULL && identity->os_release[0] != '\0')
+		rel = identity->os_release;
 
-	return copyout_string(s, (char*) old, oldlen);
+	// A 128-byte buffer is plenty for "Darwin Kernel Version " (22 bytes) plus
+	// the release string, which is capped at DSERVER_PLATFORM_IDENTITY_STRING_MAX (64 bytes).
+	char buf[128];
+	__simple_sprintf(buf, "Darwin Kernel Version %s", rel);
+	return copyout_string(buf, (char*) old, oldlen);
 }
 
 sysctl_handler(handle_osversion)
 {
 	const char* s = EMULATED_OSVERSION;
+	const dserver_platform_identity_t* identity = platform_identity();
+	if (identity != NULL && identity->os_version[0] != '\0')
+		s = identity->os_version;
 
 	return copyout_string(s, (char*) old, oldlen);
 }
@@ -434,8 +448,13 @@ sysctl_handler(handle_usrstack64)
 }
 
 static sysctl_handler(handle_osproductversion) {
-	return copyout_string(EMULATED_OSPRODUCTVERSION, (char*)old, oldlen);
-};
+	const char* s = EMULATED_OSPRODUCTVERSION;
+	const dserver_platform_identity_t* identity = platform_identity();
+	if (identity != NULL && identity->os_product_version[0] != '\0')
+		s = identity->os_product_version;
+
+	return copyout_string(s, (char*)old, oldlen);
+}
 
 // Apple no longer changes this value
 // https://lists.apple.com/archives/darwin-dev/2005/Jul/msg00029.html
