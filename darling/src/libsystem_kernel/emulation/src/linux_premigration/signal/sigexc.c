@@ -175,7 +175,7 @@ void sigexc_setup(void)
 	}
 	if (started_suspended) {
 		kern_printf("sigexc: start_suspended -> suspending (ret to %p)\n", __builtin_return_address(0));
-		task_suspend(mach_task_self());
+		sys_kill(getpid(), SIGSTOP, 0);
 		kern_printf("sigexc: start_suspended -> wokenup (ret to %p)\n", __builtin_return_address(0));
 	} else {
 		int32_t tracer;
