@@ -20,7 +20,7 @@
 // The task's side of shared message queues (darlingserver/mach-sq.h, darlingserver's duct-tape/src/mach_sq.c).
 //
 // A send is done here when it is a simple message (no descriptors, no reply port, no voucher) of at most
-// DSQ_MSG_MAX bytes with a COPY_SEND or MAKE_SEND destination right to a port of this task that the server
+// DSQ_MSG_MAX bytes with a COPY_SEND or MAKE_SEND destination right (on every architecture) to a port of this task that the server
 // put in shared-queue mode. The message goes into a node of the port's queue; the receiver gets it from
 // there. A receive is done here when the port is in the mode and its next message is such a node. Whatever
 // else the queue holds (messages the server delivered) is received through the server, in queue order.
@@ -460,7 +460,7 @@ static int sq_send(const mach_msg_header_t* msg, mach_msg_option_t option, mach_
 		uint32_t qlimit = __atomic_load_n(&sslot->qlimit, __ATOMIC_ACQUIRE);
 
 		sq_defer_begin(&defer);
-		result = dsq_publish(&sq_view, entry.slot, index, entry.epoch, qlimit, make_send, SQ_ATTEMPTS, NULL);
+		result = dsq_publish(&sq_view, entry.slot, index, entry.epoch, qlimit, SQ_ATTEMPTS, NULL);
 		if (result == DSQ_OK)
 		{
 			if (__atomic_load_n(&qslot->rcv_waiters, __ATOMIC_ACQUIRE) != 0)
@@ -487,8 +487,7 @@ static int sq_send(const mach_msg_header_t* msg, mach_msg_option_t option, mach_
 		uint64_t d = dsq_load(&qslot->deq);
 		uint64_t h = dsq_load(&qslot->head);
 		long ret = 0;
-		if (!DSQ_IS_CLOSED(h) && !DSQ_IS_CLOSED(d) &&
-				DSQ_LEN(h, d) >= __atomic_load_n(&sslot->qlimit, __ATOMIC_ACQUIRE))
+		if (!DSQ_IS_CLOSED(h) && DSQ_LEN(h, d) >= __atomic_load_n(&sslot->qlimit, __ATOMIC_ACQUIRE))
 			ret = sq_futex_wait(&qslot->deq, (uint32_t) d, &deadline);
 		__atomic_sub_fetch(&qslot->snd_waiters, 1, __ATOMIC_ACQ_REL);
 
@@ -560,8 +559,9 @@ static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t
 			}
 
 			__atomic_add_fetch(&qslot->rcv_waiters, 1, __ATOMIC_ACQ_REL);
-			h = dsq_load(&qslot->head);
+			// deq before head, as everywhere: an open head means `d` is the queue's
 			d = dsq_load(&qslot->deq);
+			h = dsq_load(&qslot->head);
 			if (!DSQ_IS_CLOSED(h) && DSQ_LEN(h, d) == 0)
 				ret = sq_futex_wait(&qslot->head, (uint32_t) h, &deadline);
 			__atomic_sub_fetch(&qslot->rcv_waiters, 1, __ATOMIC_ACQ_REL);
@@ -637,8 +637,10 @@ static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t
 		}
 
 		struct sq_defer defer;
+		uint32_t seqno;
 		sq_defer_begin(&defer);
-		if (!dsq_take(&sq_view, entry.slot, d))
+		// a MAKE_SEND message is counted in the same CAS that takes it (the port's make-send count)
+		if (!dsq_take(&sq_view, entry.slot, d, (flags & DSQ_NODE_MADE_SEND) != 0, &seqno))
 		{
 			sq_defer_end(&defer);
 			continue;
@@ -655,7 +657,7 @@ static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t
 
 		dsq_tokens_lookup(&sq_view, node->aux, sec_token, audit_token);
 		node->size = (uint16_t) size;
-		length = dsq_build_received(node, rcv_name, option, DSQ_D_SEQNO(d), context, sec_token, audit_token, out);
+		length = dsq_build_received(node, rcv_name, option, seqno, context, sec_token, audit_token, out);
 		dsq_task_node_free(&sq_view, index);
 
 		// a bad buffer loses the message, as in XNU
