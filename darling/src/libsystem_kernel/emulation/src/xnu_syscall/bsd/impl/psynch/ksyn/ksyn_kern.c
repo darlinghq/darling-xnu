@@ -571,7 +571,7 @@ void thread_block_parameter(thread_continue_t continuation, void* parameter)
 
 	// (no handler can run from here on)
 	if (__atomic_load_n(&frame->wait_state, __ATOMIC_ACQUIRE) == KSYN_WAIT_DONE)
-		__builtin_longjmp(frame->return_jmp, 1);
+		KSYN_LONGJMP(frame->return_jmp);
 	__atomic_store_n(&frame->sleeping, 0, __ATOMIC_RELAXED);
 
 	state = __atomic_load_n(&frame->wait_state, __ATOMIC_ACQUIRE);
@@ -603,7 +603,7 @@ void ksyn_signal_arrived(struct ksyn_thread* th)
 	ksyn_sigset_t sigmask;
 	wait_result_t result;
 	uint32_t state;
-	void* finish_jmp[5];
+	ksyn_jmp_buf finish_jmp;
 
 	// signals that run guest handlers are blocked in psynch calls except while
 	// they sleep, so only a sleeping frame can be the innermost one here
@@ -629,7 +629,7 @@ void ksyn_signal_arrived(struct ksyn_thread* th)
 
 	// the continuation ends in unix_syscall_return(), which comes back here
 	frame->finish_jmp = finish_jmp;
-	if (__builtin_setjmp(finish_jmp) == 0)
+	if (KSYN_SETJMP(finish_jmp) == 0)
 	{
 		frame->continuation(frame->parameter, result);
 		__builtin_unreachable();
@@ -755,8 +755,8 @@ static void __dead2 shim_unix_syscall_return(int error)
 
 	frame->error = error;
 	if (frame->finish_jmp != NULL)
-		__builtin_longjmp(frame->finish_jmp, 1);
-	__builtin_longjmp(frame->return_jmp, 1);
+		KSYN_LONGJMP(frame->finish_jmp);
+	KSYN_LONGJMP(frame->return_jmp);
 }
 
 static void* shim_uthread_get_uukwe(struct uthread* uth)

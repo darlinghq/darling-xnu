@@ -42,6 +42,21 @@ typedef unsigned long long ksyn_sigset_t;
 // thread has a chain of frames, one per nesting level. Frames go back to their
 // zone, which is never unmapped: other threads may still read a kwe they found
 // in a queue.
+// The non-local return of a psynch call to its entry: KSYN_SETJMP(buf) gives 0, and 1 again when
+// KSYN_LONGJMP(buf) comes back to it. Clang has __builtin_setjmp for the Intel slices but not for
+// arm64, which uses ksyn_jmp.S.
+#if defined(__arm64__) || defined(__aarch64__)
+typedef void* ksyn_jmp_buf[21];
+int ksyn_setjmp(ksyn_jmp_buf buf) __attribute__((returns_twice));
+void ksyn_longjmp(ksyn_jmp_buf buf) __attribute__((noreturn));
+#define KSYN_SETJMP(buf) ksyn_setjmp(buf)
+#define KSYN_LONGJMP(buf) ksyn_longjmp(buf)
+#else
+typedef void* ksyn_jmp_buf[5];
+#define KSYN_SETJMP(buf) __builtin_setjmp(buf)
+#define KSYN_LONGJMP(buf) __builtin_longjmp(buf, 1)
+#endif
+
 struct ksyn_frame {
 	struct ksyn_waitq_element kwe;
 	uint32_t wait_state;
@@ -54,8 +69,8 @@ struct ksyn_frame {
 	int error;                  // the syscall's error (unix_syscall_return)
 	thread_continue_t continuation; // of the wait in progress
 	void* parameter;
-	void* return_jmp[5];        // __builtin_setjmp buffer of the call's entry
-	void** finish_jmp;          // set while ksyn_signal_arrived() runs the continuation
+	ksyn_jmp_buf return_jmp;    // KSYN_SETJMP buffer of the call's entry
+	void** finish_jmp;          // a ksyn_jmp_buf, set while ksyn_signal_arrived() runs the continuation
 	struct ksyn_frame* prev;
 	struct ksyn_frame* next;
 };
