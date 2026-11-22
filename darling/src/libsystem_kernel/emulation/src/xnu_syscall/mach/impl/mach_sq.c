@@ -511,6 +511,21 @@ static int sq_send(const mach_msg_header_t* msg, mach_msg_option_t option, mach_
 
 // ---- receive --------------------------------------------------------------------------
 
+// The slot a receive uses is not the one its name table entry described any more: a right of the name
+// changed (the receive goes on with the entry as it is now), or the slot was closed and given to another
+// port (the receive is for the port that was). Only the first is for the receive to continue.
+static bool sq_receive_refresh(mach_port_name_t rcv_name, dsq_name_entry_t* entry, uint32_t gen)
+{
+	dsq_name_entry_t now;
+
+	if (!dsq_name_lookup(&sq_view, rcv_name, &now) || (now.rights & DSQ_RIGHT_RECEIVE) == 0 || now.slot != entry->slot)
+		return false;
+	if (__atomic_load_n(&sq_view.s->slots[now.slot].gen, __ATOMIC_ACQUIRE) != gen)
+		return false;
+	*entry = now;
+	return true;
+}
+
 static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t rcv_size,
 		mach_port_name_t rcv_name, mach_msg_timeout_t timeout, mach_msg_return_t* result)
 {
@@ -526,6 +541,9 @@ static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t
 
 	dsq_q_slot_t* qslot = &sq_view.q->slots[entry.slot];
 	const dsq_s_slot_t* sslot = &sq_view.s->slots[entry.slot];
+	// the port this call is for; the slot's number goes to another port whenever this one leaves the mode
+	const uint32_t gen = __atomic_load_n(&sslot->gen, __ATOMIC_ACQUIRE);
+	unsigned int stale = 0;
 
 	for (unsigned int round = 0;; round++)
 	{
@@ -536,9 +554,19 @@ static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t
 		if (round > 1000000)
 			return false;
 
-		r = dsq_head(&sq_view, entry.slot, &d, &index);
+		r = dsq_head(&sq_view, entry.slot, entry.epoch, &d, &index);
 		if (r == DSQ_RETRY)
 			continue;
+		if (r == DSQ_STALE)
+		{
+			if (sq_receive_refresh(rcv_name, &entry, gen) && ++stale < 100000)
+				continue;
+			// the port is gone from the slot (or the epoch change is not finished): what the server says
+			// about the name now is the answer
+			*result = sq_server_receive(rcv_addr, option, rcv_size, rcv_name,
+				(option & MACH_RCV_TIMEOUT) && have_deadline ? sq_remaining(&deadline) : timeout, false);
+			return true;
+		}
 		if (r == DSQ_CLOSED_Q || r == DSQ_CORRUPT || !sq_ready())
 			return false;
 
@@ -562,7 +590,9 @@ static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t
 			// deq before head, as everywhere: an open head means `d` is the queue's
 			d = dsq_load(&qslot->deq);
 			h = dsq_load(&qslot->head);
-			if (!DSQ_IS_CLOSED(h) && DSQ_LEN(h, d) == 0)
+			// the wait is only for the queue of this call's port: a head with another epoch is looked at
+			// from the top
+			if (!DSQ_IS_CLOSED(h) && DSQ_H_EPOCH(h) == entry.epoch && DSQ_LEN(h, d) == 0)
 				ret = sq_futex_wait(&qslot->head, (uint32_t) h, &deadline);
 			__atomic_sub_fetch(&qslot->rcv_waiters, 1, __ATOMIC_ACQ_REL);
 
