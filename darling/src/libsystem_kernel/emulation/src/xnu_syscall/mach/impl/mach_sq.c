@@ -433,6 +433,9 @@ static int sq_send(const mach_msg_header_t* msg, mach_msg_option_t option, mach_
 		return SQ_SEND_SERVER;
 	if ((entry.rights & (make_send ? DSQ_RIGHT_RECEIVE : DSQ_RIGHT_SEND)) == 0)
 		return SQ_SEND_SERVER;
+	// a port set has no queue, and a mk_timer port is not a destination for the task's messages
+	if ((entry.rights & (DSQ_RIGHT_SET | DSQ_RIGHT_NOSEND)) != 0)
+		return SQ_SEND_SERVER;
 
 	index = dsq_task_node_alloc(&sq_view);
 	if (index == DSQ_NONE)
@@ -460,11 +463,15 @@ static int sq_send(const mach_msg_header_t* msg, mach_msg_option_t option, mach_
 		uint32_t qlimit = __atomic_load_n(&sslot->qlimit, __ATOMIC_ACQUIRE);
 
 		sq_defer_begin(&defer);
-		result = dsq_publish(&sq_view, entry.slot, index, entry.epoch, qlimit, SQ_ATTEMPTS, NULL);
+		uint32_t set;
+		result = dsq_publish(&sq_view, entry.slot, index, entry.epoch, qlimit, SQ_ATTEMPTS, NULL, &set);
 		if (result == DSQ_OK)
 		{
 			if (__atomic_load_n(&qslot->rcv_waiters, __ATOMIC_ACQUIRE) != 0)
 				sq_futex_wake(&qslot->head, 1);
+			// a port in a set: the set's receivers wait on the set's word
+			if (set != DSQ_NONE && __atomic_load_n(&sq_view.q->slots[set].rcv_waiters, __ATOMIC_ACQUIRE) != 0)
+				sq_futex_wake((uint64_t*) &sq_view.q->slots[set].setword, 1);
 			sq_defer_end(&defer);
 			return SQ_SEND_DONE;
 		}
@@ -526,6 +533,9 @@ static bool sq_receive_refresh(mach_port_name_t rcv_name, dsq_name_entry_t* entr
 	return true;
 }
 
+static bool sq_set_receive(dsq_name_entry_t entry, void* rcv_addr, mach_msg_option_t option, mach_msg_size_t rcv_size,
+		mach_port_name_t rcv_name, mach_msg_timeout_t timeout, mach_msg_return_t* result);
+
 static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t rcv_size,
 		mach_port_name_t rcv_name, mach_msg_timeout_t timeout, mach_msg_return_t* result)
 {
@@ -538,6 +548,8 @@ static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t
 		return false;
 	if (!dsq_name_lookup(&sq_view, rcv_name, &entry) || (entry.rights & DSQ_RIGHT_RECEIVE) == 0)
 		return false;
+	if (entry.rights & DSQ_RIGHT_SET)
+		return sq_set_receive(entry, rcv_addr, option, rcv_size, rcv_name, timeout, result);
 
 	dsq_q_slot_t* qslot = &sq_view.q->slots[entry.slot];
 	const dsq_s_slot_t* sslot = &sq_view.s->slots[entry.slot];
@@ -553,7 +565,6 @@ static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t
 
 		if (round > 1000000)
 			return false;
-
 		r = dsq_head(&sq_view, entry.slot, entry.epoch, &d, &index);
 		if (r == DSQ_RETRY)
 			continue;
@@ -689,6 +700,180 @@ static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t
 		node->size = (uint16_t) size;
 		length = dsq_build_received(node, rcv_name, option, seqno, context, sec_token, audit_token, out);
 		dsq_task_node_free(&sq_view, index);
+
+		// a bad buffer loses the message, as in XNU
+		*result = sq_copyout(rcv_addr, out, length) ? MACH_MSG_SUCCESS : MACH_RCV_INVALID_DATA;
+		return true;
+	}
+}
+
+
+// A receive on a port set whose members all keep their queues in the region: the head of the member that has been
+// ready longest (dsq_set_select()). The message is the member's, with the member's name, seqno and context.
+static bool sq_set_receive(dsq_name_entry_t entry, void* rcv_addr, mach_msg_option_t option, mach_msg_size_t rcv_size,
+		mach_port_name_t rcv_name, mach_msg_timeout_t timeout, mach_msg_return_t* result)
+{
+	struct sq_timespec deadline;
+	bool have_deadline = false;
+	bool expired = false;
+	uint32_t trailer_size = dsq_trailer_size(option);
+
+	dsq_q_slot_t* qslot = &sq_view.q->slots[entry.slot];
+	const dsq_s_slot_t* sslot = &sq_view.s->slots[entry.slot];
+	const uint32_t gen = __atomic_load_n(&sslot->gen, __ATOMIC_ACQUIRE);
+	unsigned int stale = 0;
+
+	for (unsigned int round = 0;; round++)
+	{
+		dsq_set_pick_t pick;
+		int r;
+		// before looking: a publish after this changes what the wait below compares with
+		uint32_t word = __atomic_load_n(&qslot->setword, __ATOMIC_SEQ_CST);
+
+		if (round > 1000000)
+			return false;
+
+		// from here to the take, the server's removal of a member sees this receive (dsq_set_member_remove())
+		dsq_set_enter(&sq_view, entry.slot);
+		r = dsq_set_select(&sq_view, entry.slot, entry.epoch, &pick);
+
+		if (r == DSQ_RETRY)
+		{
+			dsq_set_exit(&sq_view, entry.slot);
+			continue;
+		}
+		if (r == DSQ_STALE)
+		{
+			dsq_set_exit(&sq_view, entry.slot);
+			if (sq_receive_refresh(rcv_name, &entry, gen) && ++stale < 100000)
+				continue;
+			*result = sq_server_receive(rcv_addr, option, rcv_size, rcv_name,
+				(option & MACH_RCV_TIMEOUT) && have_deadline ? sq_remaining(&deadline) : timeout, false);
+			return true;
+		}
+		if (r == DSQ_CLOSED_Q)
+		{
+			dsq_set_exit(&sq_view, entry.slot);
+			uint32_t reason = __atomic_load_n(&sslot->close_reason, __ATOMIC_ACQUIRE);
+			// what XNU's blocked receivers get when the set is destroyed
+			if (reason == DSQ_CLOSE_MOVED || reason == DSQ_CLOSE_DESTROYED)
+			{
+				*result = MACH_RCV_PORT_CHANGED;
+				return true;
+			}
+			*result = sq_server_receive(rcv_addr, option, rcv_size, rcv_name,
+				(option & MACH_RCV_TIMEOUT) && have_deadline ? sq_remaining(&deadline) : timeout, false);
+			return true;
+		}
+		if (r == DSQ_CORRUPT || !sq_ready())
+		{
+			dsq_set_exit(&sq_view, entry.slot);
+			return false;
+		}
+
+		if (r == DSQ_EMPTY)
+		{
+			long ret = 0;
+			uint64_t h;
+
+			dsq_set_exit(&sq_view, entry.slot);
+			if (((option & MACH_RCV_TIMEOUT) && timeout == 0) || expired)
+			{
+				*result = MACH_RCV_TIMED_OUT;
+				return true;
+			}
+			if (!have_deadline)
+			{
+				sq_deadline((option & MACH_RCV_TIMEOUT) != 0, timeout, &deadline);
+				have_deadline = true;
+			}
+
+			__atomic_add_fetch(&qslot->rcv_waiters, 1, __ATOMIC_SEQ_CST);
+			h = dsq_load(&qslot->head);
+			// the wait is only for this call's set: a head that is closed or has another epoch is looked at from the top
+			if (!DSQ_IS_CLOSED(h) && DSQ_H_EPOCH(h) == entry.epoch)
+				ret = sq_futex_wait((uint64_t*) &qslot->setword, word, &deadline);
+			__atomic_sub_fetch(&qslot->rcv_waiters, 1, __ATOMIC_SEQ_CST);
+
+			if (ret == -LINUX_ETIMEDOUT)
+				expired = true; // one more look before giving up
+			else if (ret == -LINUX_EINTR && (option & MACH_RCV_INTERRUPT))
+			{
+				*result = MACH_RCV_INTERRUPTED;
+				return true;
+			}
+			continue;
+		}
+
+		// the head of the member that was picked
+		const dsq_node_t* node = dsq_node(&sq_view, pick.index);
+		const uint32_t flags = pick.flags;
+		const uint32_t size = pick.size;
+		bool inline_node = pick.index < DSQ_TNODES && (flags & DSQ_NODE_INLINE) != 0 &&
+			size >= DSQ_MSG_MIN && size <= DSQ_MSG_MAX;
+		const dsq_s_slot_t* msslot = &sq_view.s->slots[pick.member];
+		uint32_t member_name = __atomic_load_n(&msslot->name, __ATOMIC_ACQUIRE);
+		uint64_t context = __atomic_load_n(&msslot->context, __ATOMIC_ACQUIRE);
+
+		if (inline_node && size + trailer_size > rcv_size)
+		{
+			if ((option & MACH_RCV_LARGE) == 0)
+				inline_node = false; // the server destroys it, as XNU does
+			else
+			{
+				// left queued; the caller learns the size it needs, and with LARGE_IDENTITY the member's name
+				mach_msg_return_t mr = MACH_RCV_TOO_LARGE;
+				dsq_set_exit(&sq_view, entry.slot);
+				if (rcv_size >= 16)
+				{
+					if ((option & MACH_RCV_LARGE_IDENTITY) &&
+							!sq_copyout((char*) rcv_addr + 12, &member_name, sizeof(member_name)))
+						mr = MACH_RCV_INVALID_DATA;
+					if (!sq_copyout((char*) rcv_addr + 4, &size, sizeof(size)))
+						mr = MACH_RCV_INVALID_DATA;
+				}
+				*result = mr;
+				return true;
+			}
+		}
+
+		if (!inline_node)
+		{
+			// a message the server delivered, or one only the server handles: received through it, in order.
+			// it answers DSQ_RCV_WAIT_LOCALLY if there is nothing left by then
+			dsq_set_exit(&sq_view, entry.slot);
+			mach_msg_return_t mr = sq_server_receive(rcv_addr, option, rcv_size, rcv_name,
+				(option & MACH_RCV_TIMEOUT) && have_deadline ? sq_remaining(&deadline) : timeout, true);
+			if (mr == DSQ_RCV_WAIT_LOCALLY)
+				continue;
+			*result = mr;
+			return true;
+		}
+
+		struct sq_defer defer;
+		uint32_t seqno;
+		bool taken;
+		sq_defer_begin(&defer);
+		taken = dsq_set_take(&sq_view, entry.slot, &pick, (flags & DSQ_NODE_MADE_SEND) != 0, &seqno);
+		dsq_set_exit(&sq_view, entry.slot);
+		if (!taken)
+		{
+			sq_defer_end(&defer);
+			continue;
+		}
+		if (__atomic_load_n(&sq_view.q->slots[pick.member].snd_waiters, __ATOMIC_ACQUIRE) != 0)
+			sq_futex_wake(&sq_view.q->slots[pick.member].deq, 1);
+		sq_defer_end(&defer);
+
+		// the node is ours now
+		uint8_t out[DSQ_MSG_MAX + DSQ_TRAILER_MAX];
+		uint32_t sec_token[2], audit_token[8];
+		uint32_t length;
+
+		dsq_tokens_lookup(&sq_view, pick.aux, sec_token, audit_token);
+		((dsq_node_t*) node)->size = (uint16_t) size;
+		length = dsq_build_received(node, member_name, option, seqno, context, sec_token, audit_token, out);
+		dsq_task_node_free(&sq_view, pick.index);
 
 		// a bad buffer loses the message, as in XNU
 		*result = sq_copyout(rcv_addr, out, length) ? MACH_MSG_SUCCESS : MACH_RCV_INVALID_DATA;
