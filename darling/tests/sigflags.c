@@ -156,6 +156,8 @@ static uintptr_t context_sp(void* uc)
 	mcontext_t mc = ((ucontext_t*) uc)->uc_mcontext;
 #if defined(__x86_64__)
 	return mc->__ss.__rsp;
+#elif defined(__i386__)
+	return mc->__ss.__esp;
 #elif defined(__arm64__)
 	return mc->__ss.__sp;
 #else
@@ -473,10 +475,13 @@ static void* altstack_after_longjmp(void* arg)
 	(void) arg;
 	// a thread without an alternate stack whose SA_ONSTACK handler leaves by longjmp(), then installs one
 	fault_page = mmap(NULL, (size_t) getpagesize(), PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0);
+	// macOS reports an access to a PROT_NONE page as SIGBUS, Linux as SIGSEGV
 	install(SIGSEGV, escaping_handler, SA_ONSTACK);
+	install(SIGBUS, escaping_handler, SA_ONSTACK);
 	if (!sigsetjmp(escape, 1))
 		deep_fault();
 	reset_default(SIGSEGV);
+	reset_default(SIGBUS);
 	munmap(fault_page, (size_t) getpagesize());
 	fault_page = NULL;
 	stack_t ss = { .ss_sp = other_altstack, .ss_size = sizeof(other_altstack), .ss_flags = 0 };
