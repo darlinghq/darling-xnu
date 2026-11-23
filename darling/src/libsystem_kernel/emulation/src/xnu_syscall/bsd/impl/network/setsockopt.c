@@ -10,14 +10,36 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/gettimeofday.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/duct.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/network/nosigpipe.h>
 
 #define LINGER_TICKS_PER_SEC	100 // Is this the right number of ticks per sec?
+
+// Fails like any option on a descriptor that is not a socket.
+static long check_socket(int fd)
+{
+	int type;
+	int len = sizeof(type);
+
+	return sys_getsockopt(fd, BSD_SOL_SOCKET, BSD_SO_TYPE, &type, &len);
+}
 
 long sys_setsockopt(int fd, int level, int optname, const void* optval, int optlen)
 {
 	int ret, linux_level, linux_optname;
 	char buf[100];
-	
+
+	if (level == BSD_SOL_SOCKET && optname == BSD_SO_NOSIGPIPE)
+	{
+		ret = check_socket(fd);
+		if (ret < 0)
+			return ret;
+		if (optlen < (int)sizeof(int))
+			return -EINVAL;
+		if (!optval)
+			return -EFAULT;
+		return nosigpipe_set(fd, *(const int*) optval != 0);
+	}
+
 	linux_level = level;
 	linux_optname = optname;
 	

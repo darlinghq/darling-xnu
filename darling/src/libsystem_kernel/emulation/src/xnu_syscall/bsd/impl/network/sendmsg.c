@@ -10,6 +10,7 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/duct.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/network/nosigpipe.h>
 
 extern void *malloc(__SIZE_TYPE__ size);
 extern void free(void* ptr);
@@ -92,6 +93,8 @@ static long sys_sendmsg_common(int socket, const struct bsd_msghdr* msg, int fla
 	lmsg.msg_flags = 0; // ignored
 
 	linux_flags = msgflags_bsd_to_linux(flags);
+	if (nosigpipe_get(socket))
+		linux_flags |= LINUX_MSG_NOSIGNAL;
 
 #ifdef __NR_socketcall
 	ret = LINUX_SYSCALL_C(cancelable, __NR_socketcall, LINUX_SYS_SENDMSG,
