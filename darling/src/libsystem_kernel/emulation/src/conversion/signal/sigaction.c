@@ -16,12 +16,20 @@ static void ucontext_linux_to_bsd(const struct linux_ucontext *lc, struct bsd_uc
 // The si_code a Darwin handler sees for a signal that arrived with si_code
 // `code` from the Linux kernel.
 //
-// Codes that say who sent the signal (zero or negative on Linux, SI_KERNEL)
-// become 0: the Darwin kernel leaves si_code 0 for every signal that is not a
-// fault or a child state change, kill() included (SI_USER, SI_QUEUE and the
-// other SI_* values of <sys/signal.h> are never produced). Fault and
-// SIGCHLD/SIGIO codes keep their meaning but not always their number; those a
-// Darwin program cannot tell apart become the "no information" code 0.
+// QUIRK: a signal sent by kill(), raise(), pthread_kill() or a timer reaches
+// the handler with si_code 0, not SI_USER (0x10001) as <sys/signal.h> and
+// POSIX describe. The same holds for SI_QUEUE, SI_TIMER and the other SI_*
+// values, which the Darwin kernel never produces.
+// Evidence (tier: open source of the original): bsd/kern/kern_sig.c, in
+// psignal_internal(), sets si_code = 0 for every signal but SIGCHLD, and
+// bsd/dev/arm/unix_signal.c, in sendsig(), passes it to the handler as is.
+// Affected OS versions: unknown, the source in this repository only.
+// Test: siginfo-code.c, test_kill() (it also accepts SI_USER).
+//
+// So codes that say who sent the signal (zero or negative on Linux,
+// SI_KERNEL) become 0. Fault and SIGCHLD/SIGIO codes keep their meaning but
+// not always their number; those a Darwin program cannot tell apart become the
+// "no information" code 0.
 static int sicode_linux_to_bsd(int linux_signum, int code)
 {
 	if (code <= 0 || code == LINUX_SI_KERNEL)
