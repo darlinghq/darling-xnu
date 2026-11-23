@@ -3,10 +3,15 @@
 //   signal arrives during it; without the flag the second delivery waits until the handler returns.
 // - SA_RESETHAND: the disposition goes back to SIG_DFL when the handler is entered (except for SIGILL and
 //   SIGTRAP), so the next delivery takes the default action.
+// - SA_ONSTACK: the handler runs on the alternate stack the thread installed with sigaltstack(), if it is
+//   not on it already. Without the flag, or without an alternate stack, the handler runs on the
+//   interrupted stack, below the interrupted stack pointer and its 128-byte red zone.
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -131,9 +136,146 @@ static void test_resethand_default_action(void)
 	reset_default(SIGWINCH);
 }
 
+// --- the stack a handler runs on
+
+#define MAX_DEPTH 2
+// how far below the interrupted stack pointer a handler's frame may be (the kernel's frame comes first)
+#define FRAME_ALLOWANCE (64 * 1024)
+#define RED_ZONE 128
+
+static char altstack[64 * 1024] __attribute__((aligned(16)));
+static volatile uintptr_t handler_sp[MAX_DEPTH], interrupted_sp[MAX_DEPTH];
+
+static uintptr_t context_sp(void* uc)
+{
+	mcontext_t mc = ((ucontext_t*) uc)->uc_mcontext;
+#if defined(__x86_64__)
+	return mc->__ss.__rsp;
+#elif defined(__arm64__)
+	return mc->__ss.__sp;
+#else
+#error unsupported architecture
+#endif
+}
+
+static void recording_handler(int sig, siginfo_t* info, void* uc)
+{
+	(void) info;
+	volatile char local;
+	int level = depth++;
+	if (level < MAX_DEPTH) {
+		handler_sp[level] = (uintptr_t) &local;
+		interrupted_sp[level] = context_sp(uc);
+	}
+	runs++;
+	if (depth > max_depth)
+		max_depth = depth;
+	// with SA_NODEFER, a second level
+	if (runs == 1 && sig == SIGUSR2)
+		raise(sig);
+	depth--;
+}
+
+static int on_altstack(uintptr_t sp)
+{
+	return sp >= (uintptr_t) altstack && sp < (uintptr_t) altstack + sizeof(altstack);
+}
+
+static int on_interrupted_stack(int level)
+{
+	uintptr_t top = interrupted_sp[level] - RED_ZONE;
+	return handler_sp[level] < top && handler_sp[level] >= top - FRAME_ALLOWANCE && !on_altstack(handler_sp[level]);
+}
+
+enum where { INTERRUPTED, ALTSTACK };
+
+// Raises SIGUSR1 (one level) or, with SA_NODEFER, SIGUSR2 (whose handler raises it again: two levels).
+static void test_stack(const char* what, int flags, enum where expected)
+{
+	char detail[256];
+	int sig = (flags & SA_NODEFER) ? SIGUSR2 : SIGUSR1;
+	int levels = (flags & SA_NODEFER) ? 2 : 1;
+	runs = depth = max_depth = 0;
+	memset((void*) handler_sp, 0, sizeof(handler_sp));
+	memset((void*) interrupted_sp, 0, sizeof(interrupted_sp));
+	install(sig, recording_handler, flags);
+	raise(sig);
+	reset_default(sig);
+
+	int ok = runs == levels && max_depth == levels;
+	for (int i = 0; i < levels; i++)
+		ok = ok && (expected == ALTSTACK ? on_altstack(handler_sp[i]) : on_interrupted_stack(i));
+	if (levels == 2)
+		ok = ok && handler_sp[1] < handler_sp[0];
+	snprintf(detail, sizeof(detail), "%d runs, depth %d; handler at %#lx, %#lx; interrupted at %#lx, %#lx; "
+		"alternate stack %p-%p", (int) runs, (int) max_depth, (unsigned long) handler_sp[0],
+		(unsigned long) handler_sp[1], (unsigned long) interrupted_sp[0], (unsigned long) interrupted_sp[1],
+		(void*) altstack, (void*) (altstack + sizeof(altstack)));
+	check(ok, what, detail);
+}
+
+static void overflow_handler(int sig, siginfo_t* info, void* uc)
+{
+	(void) sig;
+	(void) info;
+	(void) uc;
+	volatile char local;
+	_exit(on_altstack((uintptr_t) &local) ? 42 : 43);
+}
+
+static int recurse(int n)
+{
+	volatile char frame[4096];
+	frame[0] = (char) n;
+	if (n == INT32_MAX) // never: the stack runs out first
+		return 0;
+	return recurse(n + 1) + frame[0];
+}
+
+// A stack overflow is caught by a SIGSEGV handler on the alternate stack.
+static void test_stack_overflow(void)
+{
+	pid_t child = fork();
+	if (child < 0) {
+		perror("fork");
+		exit(2);
+	}
+	if (child == 0) {
+		stack_t ss = { .ss_sp = altstack, .ss_size = sizeof(altstack), .ss_flags = 0 };
+		sigaltstack(&ss, NULL);
+		install(SIGSEGV, overflow_handler, SA_ONSTACK);
+		install(SIGBUS, overflow_handler, SA_ONSTACK);
+		_exit(recurse(0) == 0 ? 3 : 4);
+	}
+	int status;
+	waitpid(child, &status, 0);
+	char detail[96];
+	snprintf(detail, sizeof(detail), "child status 0x%x; expected exit 42", status);
+	check(WIFEXITED(status) && WEXITSTATUS(status) == 42,
+		"stack overflow: the SA_ONSTACK SIGSEGV handler runs on the alternate stack", detail);
+}
+
+static void test_stacks(void)
+{
+	stack_t ss = { .ss_sp = altstack, .ss_size = sizeof(altstack), .ss_flags = 0 };
+	if (sigaltstack(&ss, NULL) != 0) {
+		perror("sigaltstack");
+		exit(2);
+	}
+	test_stack("an SA_ONSTACK handler runs on the alternate stack", SA_ONSTACK, ALTSTACK);
+	test_stack("a handler without SA_ONSTACK runs on the interrupted stack", 0, INTERRUPTED);
+	test_stack("nested SA_ONSTACK|SA_NODEFER handlers run on the alternate stack", SA_ONSTACK | SA_NODEFER, ALTSTACK);
+	test_stack("nested SA_NODEFER handlers without SA_ONSTACK run on the interrupted stack", SA_NODEFER,
+		INTERRUPTED);
+
+	test_stack_overflow();
+}
+
 int main(void)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
+
+	test_stacks();
 
 	test_nesting(1);
 	test_nesting(0);

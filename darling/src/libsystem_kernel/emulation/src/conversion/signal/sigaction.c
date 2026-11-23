@@ -68,8 +68,7 @@ void handler_linux_to_bsd(int linux_signum, struct linux_siginfo* info, void* ct
 			&& linux_signum != LINUX_SIGILL && linux_signum != LINUX_SIGTRAP)
 	{
 		sig_flags[linux_signum] &= ~(BSD_SA_SIGINFO | BSD_SA_NODEFER);
-		// the default disposition never interrupts a blocking call
-		sigexc_set_restart(linux_signum, true);
+		sigexc_set_disposition(linux_signum, false, 0);
 
 		switch (linux_signum)
 		{
@@ -101,7 +100,8 @@ static void ucontext_linux_to_bsd(const struct linux_ucontext* lc, struct bsd_uc
 	
 	sigset_linux_to_bsd(&lc->uc_sigmask, &bc->uc_sigmask);
 	
-	bc->uc_stack.ss_flags = lc->uc_stack.ss_flags;
+	bc->uc_stack.ss_flags = ((lc->uc_stack.ss_flags & LINUX_SS_ONSTACK) ? BSD_SS_ONSTACK : 0)
+		| ((lc->uc_stack.ss_flags & LINUX_SS_DISABLE) ? BSD_SS_DISABLE : 0);
 	bc->uc_stack.ss_size = lc->uc_stack.ss_size;
 	bc->uc_stack.ss_sp = lc->uc_stack.ss_sp;
 	

@@ -7,11 +7,6 @@
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
-#define BSD_SS_ONSTACK 1
-#define BSD_SS_DISABLE 4
-#define LINUX_SS_ONSTACK 1
-#define LINUX_SS_DISABLE 2
-
 static void stack_linux_to_bsd(const struct linux_stack* loss, struct bsd_stack* oss)
 {
 	oss->ss_sp = loss->ss_sp;

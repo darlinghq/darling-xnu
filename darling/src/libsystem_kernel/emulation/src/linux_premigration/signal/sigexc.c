@@ -265,18 +265,20 @@ void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext
 
 
 // Makes sigexc_handler the Linux handler of a signal. Whether the kernel restarts a
-// blocking syscall that this handler interrupted is what the application asked for with
-// SA_RESTART (see sigexc_set_restart()); the handler is installed with restarting
-// until the application says otherwise.
-static void install_sigexc_handler(int linux_signum, bool restart)
+// blocking syscall that this handler interrupted, and whether it runs the handler on the
+// alternate stack, is what the application asked for with SA_RESTART and SA_ONSTACK (see
+// sigexc_set_disposition()), because the application's handler runs within this one.
+static void install_sigexc_handler(int linux_signum, bool restart, bool onstack)
 {
 	struct linux_sigaction sa;
 	sa.sa_sigaction = (linux_sig_handler*) sigexc_handler;
 	sa.sa_mask = 0x7fffffff; // all other standard Unix signals should be blocked while the handler is run
 	sa.sa_mask |= (1ull << (SIGNAL_SIGEXC_SUSPEND-1));
-	sa.sa_flags = LINUX_SA_RESTORER | LINUX_SA_SIGINFO | LINUX_SA_ONSTACK;
+	sa.sa_flags = LINUX_SA_RESTORER | LINUX_SA_SIGINFO;
 	if (restart)
 		sa.sa_flags |= LINUX_SA_RESTART;
+	if (onstack)
+		sa.sa_flags |= LINUX_SA_ONSTACK;
 	sa.sa_restorer = sig_restorer;
 
 	LINUX_SYSCALL(__NR_rt_sigaction, linux_signum,
@@ -292,10 +294,18 @@ bool sigexc_handles_signal(int linux_signum)
 		&& linux_signum != LINUX_SIGTTIN;
 }
 
-void sigexc_set_restart(int linux_signum, bool restart)
+void sigexc_set_disposition(int linux_signum, bool has_handler, int bsd_flags)
 {
-	if (sigexc_handles_signal(linux_signum))
-		install_sigexc_handler(linux_signum, restart);
+	if (!sigexc_handles_signal(linux_signum))
+		return;
+	// Without an application handler, nothing but Darling's own code runs. SIGSEGV and SIGBUS may
+	// come from an overflowed stack, which has no room for sigexc_handler: it runs on the alternate
+	// stack to report them as a Mach exception, as XNU does before any handler runs.
+	bool fault = linux_signum == LINUX_SIGSEGV || linux_signum == LINUX_SIGBUS;
+	if (!has_handler)
+		install_sigexc_handler(linux_signum, true, true);
+	else
+		install_sigexc_handler(linux_signum, bsd_flags & BSD_SA_RESTART, fault || (bsd_flags & BSD_SA_ONSTACK));
 }
 
 void darling_sigexc_self(void)
@@ -309,7 +319,7 @@ void darling_sigexc_self(void)
 		if (i == LINUX_SIGSTOP || i == LINUX_SIGKILL || i == LINUX_SIGCHLD)
 			continue;
 
-		install_sigexc_handler(i, true);
+		install_sigexc_handler(i, true, true);
 	}
 
 #if SIGALTSTACK_GUARD
