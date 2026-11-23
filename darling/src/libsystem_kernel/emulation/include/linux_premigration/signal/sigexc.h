@@ -49,6 +49,13 @@ int sigexc_interrupt_enter(void);
 // own stays known (see sigexc_thread_state).
 void sigexc_altstack_will_change(void);
 
+// Turns the calling thread's alternate stack, as Linux reports it, into the one the application installed:
+// Darling's own is reported as none (SS_DISABLE, no address or size, as for a thread that never installed
+// one), and the application's stack, while Darling has taken it away for a handler running on the
+// interrupted stack, as still installed.
+struct linux_stack;
+void sigexc_altstack_app_view(struct linux_stack* stack);
+
 void sigexc_thread_setup(void);
 void sigexc_thread_exit(void);
 

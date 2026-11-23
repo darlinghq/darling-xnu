@@ -142,6 +142,21 @@ void sigexc_altstack_will_change(void)
 		state->parked.ss_flags = LINUX_SS_DISABLE;
 }
 
+void sigexc_altstack_app_view(struct linux_stack* stack)
+{
+	struct sigexc_thread_state* state = thread_state();
+	if (state == NULL)
+		return;
+	if ((stack->ss_flags & LINUX_SS_DISABLE) && !(state->parked.ss_flags & LINUX_SS_DISABLE))
+		*stack = state->parked;
+	if (!(stack->ss_flags & LINUX_SS_DISABLE) && stack->ss_sp == state->darling.ss_sp)
+	{
+		stack->ss_sp = NULL;
+		stack->ss_flags = LINUX_SS_DISABLE;
+		stack->ss_size = 0;
+	}
+}
+
 // void sigexc_call_on_stack(uintptr_t sp, void (*fn)(void*), void* arg): calls fn(arg) with the stack
 // pointer set to sp (16-byte aligned) and returns on the caller's stack. The frame pointer links fn's
 // frames to the caller's, so backtraces go through.

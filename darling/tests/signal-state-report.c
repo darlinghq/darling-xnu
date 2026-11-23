@@ -7,11 +7,16 @@
 // - after SA_RESETHAND took effect, the action is SIG_DFL without SA_SIGINFO and SA_NODEFER, also for the
 //   signals whose default action is to ignore them (SIGCHLD, SIGURG, SIGWINCH), which are not SIG_IGN.
 //   Those, and SIGIO and SIGINFO, are ignored by default: raising them does not end the process.
+// - sigaltstack() reports the alternate stack the thread installed, SS_DISABLE with no address and size
+//   when it installed none, also inside a handler; and the installed one, also while a handler without
+//   SA_ONSTACK runs on the interrupted stack.
+#include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -160,6 +165,109 @@ static void test_ignored_by_default(void)
 		"SIGCHLD, SIGURG, SIGWINCH, SIGIO and SIGINFO with SIG_DFL do not end the process", detail);
 }
 
+// --- sigaltstack()
+
+static char altstack[64 * 1024] __attribute__((aligned(16)));
+static stack_t in_handler;
+
+static int is_none(const stack_t* ss)
+{
+	return ss->ss_flags == SS_DISABLE && ss->ss_sp == NULL && ss->ss_size == 0;
+}
+
+static int is_altstack(const stack_t* ss, int flags)
+{
+	return ss->ss_flags == flags && ss->ss_sp == altstack && ss->ss_size == sizeof(altstack);
+}
+
+static void describe(char* detail, size_t size, const stack_t* ss)
+{
+	snprintf(detail, size, "ss_sp %p, ss_size %#lx, ss_flags %#x (alternate stack %p, %#lx)", ss->ss_sp,
+		(unsigned long) ss->ss_size, ss->ss_flags, (void*) altstack, (unsigned long) sizeof(altstack));
+}
+
+static void querying_handler(int sig, siginfo_t* info, void* uc)
+{
+	(void) sig;
+	(void) info;
+	(void) uc;
+	sigaltstack(NULL, &in_handler);
+	runs++;
+}
+
+static char* fault_page;
+
+static void querying_fault_handler(int sig, siginfo_t* info, void* uc)
+{
+	querying_handler(sig, info, uc);
+	mprotect(fault_page, (size_t) getpagesize(), PROT_READ | PROT_WRITE);
+}
+
+static void install_querying(int sig, void (*handler)(int, siginfo_t*, void*), int flags)
+{
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_sigaction = handler;
+	sa.sa_flags = SA_SIGINFO | flags;
+	sigaction(sig, &sa, NULL);
+}
+
+static void* altstack_reports(void* arg)
+{
+	char detail[192];
+	stack_t ss;
+	const char* thread = arg;
+	char what[160];
+
+	memset(&ss, 0xa5, sizeof(ss));
+	sigaltstack(NULL, &ss);
+	describe(detail, sizeof(detail), &ss);
+	snprintf(what, sizeof(what), "%s without an alternate stack: SS_DISABLE, no address or size", thread);
+	check(is_none(&ss), what, detail);
+
+	memset(&in_handler, 0xa5, sizeof(in_handler));
+	install_querying(SIGUSR1, querying_handler, SA_ONSTACK);
+	raise(SIGUSR1);
+	describe(detail, sizeof(detail), &in_handler);
+	snprintf(what, sizeof(what), "%s without an alternate stack, in an SA_ONSTACK handler: SS_DISABLE", thread);
+	check(is_none(&in_handler), what, detail);
+
+	stack_t mine = { .ss_sp = altstack, .ss_size = sizeof(altstack), .ss_flags = 0 };
+	memset(&ss, 0xa5, sizeof(ss));
+	sigaltstack(&mine, &ss);
+	describe(detail, sizeof(detail), &ss);
+	snprintf(what, sizeof(what), "%s: the stack the first sigaltstack() replaces is reported as none", thread);
+	check(is_none(&ss), what, detail);
+
+	sigaltstack(NULL, &ss);
+	describe(detail, sizeof(detail), &ss);
+	snprintf(what, sizeof(what), "%s: the installed alternate stack is reported", thread);
+	check(is_altstack(&ss, 0), what, detail);
+
+	raise(SIGUSR1);
+	describe(detail, sizeof(detail), &in_handler);
+	snprintf(what, sizeof(what), "%s: in an SA_ONSTACK handler, the alternate stack with SS_ONSTACK", thread);
+	check(is_altstack(&in_handler, SS_ONSTACK), what, detail);
+
+	fault_page = mmap(NULL, (size_t) getpagesize(), PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0);
+	memset(&in_handler, 0xa5, sizeof(in_handler));
+	install_querying(SIGSEGV, querying_fault_handler, 0);
+	install_querying(SIGBUS, querying_fault_handler, 0);
+	*(volatile char*) fault_page = 1;
+	signal(SIGSEGV, SIG_DFL);
+	signal(SIGBUS, SIG_DFL);
+	munmap(fault_page, (size_t) getpagesize());
+	describe(detail, sizeof(detail), &in_handler);
+	snprintf(what, sizeof(what), "%s: in a SIGSEGV handler without SA_ONSTACK, the alternate stack stays installed",
+		thread);
+	check(is_altstack(&in_handler, 0), what, detail);
+
+	mine.ss_flags = SS_DISABLE;
+	sigaltstack(&mine, NULL);
+	signal(SIGUSR1, SIG_DFL);
+	return NULL;
+}
+
 int main(void)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
@@ -170,6 +278,11 @@ int main(void)
 	test_resethand(SIGWINCH);
 	test_resethand(SIGURG);
 	test_resethand(SIGCHLD);
+
+	pthread_t thread;
+	pthread_create(&thread, NULL, altstack_reports, "new thread");
+	pthread_join(thread, NULL);
+	altstack_reports("main thread");
 
 	if (failures) {
 		printf("%d failure(s)\n", failures);
