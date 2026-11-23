@@ -106,6 +106,7 @@ set(linux_premigration_sources
 	src/linux_premigration/signal/sigexc.c
 	src/linux_premigration/elfcalls_wrapper.c
 	src/linux_premigration/linux-syscall.S
+	src/linux_premigration/name_equivalence.c
 	src/linux_premigration/vchroot_userspace.c
 )
 
@@ -117,6 +118,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/helper/bpf/bpf_program.c
 
 	src/xnu_syscall/bsd/helper/stat/guest_mount.c
+	src/xnu_syscall/bsd/helper/stat/mount_options.c
 
 	src/xnu_syscall/bsd/helper/ioctl/termios.c
 	src/xnu_syscall/bsd/helper/ioctl/filio.c

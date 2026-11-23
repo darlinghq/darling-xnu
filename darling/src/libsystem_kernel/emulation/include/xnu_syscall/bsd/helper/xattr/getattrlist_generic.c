@@ -15,6 +15,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/stat/guest_mount.h>
 
 #define ATTR_BIT_MAP_COUNT 5
 
@@ -23,11 +24,12 @@
 	0x00008000 | 0x00010000 | 0x00020000 | 0x00040000 | \
 	0x00200000 | 0x02000000 | 0x08000000)
 #define COMMON_LEGACY_SUPPORTED (ATTR_CMN_FNDRINFO | ATTR_CMN_OBJTAG | ATTR_CMN_NAME | ATTR_CMN_OBJTYPE)
+#define ATTR_VOL_NAME 0x00002000
 #define ATTR_VOL_CAPABILITIES 0x00020000
 #define ATTR_VOL_UUID 0x00040000
 #define ATTR_VOL_ATTRIBUTES 0x40000000
 #define ATTR_VOL_INFO 0x80000000
-#define VOLUME_SUPPORTED (ATTR_VOL_CAPABILITIES | ATTR_VOL_UUID | ATTR_VOL_ATTRIBUTES | ATTR_VOL_INFO)
+#define VOLUME_SUPPORTED (ATTR_VOL_NAME | ATTR_VOL_CAPABILITIES | ATTR_VOL_UUID | ATTR_VOL_ATTRIBUTES | ATTR_VOL_INFO)
 #define DIR_SUPPORTED (ATTR_DIR_ENTRYCOUNT)
 #define DIR_SUPPORTED_ALL (DIR_SUPPORTED | 0x00000001 | 0x00000004)
 #define FILE_SUPPORTED (ATTR_FILE_RSRCLENGTH)
@@ -151,6 +153,8 @@ extern void *memset(void *s, int c, __SIZE_TYPE__ n);
 extern char *strcpy(char *dest, const char *src);
 extern char *strrchr(const char *str, int character);
 extern __SIZE_TYPE__ strlen(const char *str);
+
+static int attribute_host_fdpath(int fd, char* output, __SIZE_TYPE__ capacity);
 
 // Attribute fields are four-byte packed, including eight-byte quantities.
 static void pack_uint64(char* destination, uint64_t value)
@@ -339,6 +343,8 @@ int bulk)
 	uint32_t availableCommon = COMMON_SUPPORTED;
 	struct attribute_linux_statx birthStat = {0};
 	uint32_t userAccess = 0;
+	char volumeName[1024];
+	__SIZE_TYPE__ volumeNameLength = 0;
 
 	if (!alist)
 		return -EFAULT;
@@ -486,6 +492,27 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 			fullPathLength = strlen(fullPath) + 1;
 	}
 
+	// ATTR_VOL_NAME: the caller passes the volume root, but any object names its volume.
+	if (alist->volattr & ATTR_VOL_NAME) {
+		char hostPath[4096];
+#if HAS_PATH
+		int pathfd = LINUX_SYSCALL(__NR_openat, vc.dfd, vc.path,
+			010000000 | LINUX_O_CLOEXEC | ((options & FSOPT_NOFOLLOW) ? LINUX_O_NOFOLLOW : 0), 0);
+#else
+		int pathfd = fd; // Borrow the caller's descriptor; never close it.
+#endif
+		rv = pathfd < 0 ? errno_linux_to_bsd(pathfd) : attribute_host_fdpath(pathfd, hostPath, sizeof(hostPath));
+#if HAS_PATH
+		if (pathfd >= 0)
+			close_internal(pathfd);
+#endif
+		if (rv >= 0)
+			rv = guest_mount_volume_name(hostPath, volumeName, sizeof(volumeName));
+		if (rv < 0)
+			return rv;
+		volumeNameLength = strlen(volumeName) + 1;
+	}
+
 	packedCommon = packInvalidAttributes ? alist->commonattr :
 		(alist->commonattr & (availableCommon | ATTR_CMN_RETURNED_ATTRS));
 	packedDir = packInvalidAttributes ? alist->dirattr : (alist->dirattr & availableDir);
@@ -517,6 +544,8 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 		if (packedCommon & 0x08000000) {
 			variableSize += (fullPathLength + 3) & ~((__SIZE_TYPE__)3);
 		}
+		if (packedVolume & ATTR_VOL_NAME)
+			variableSize += (volumeNameLength + 3) & ~((__SIZE_TYPE__)3);
 		spaceNeeded += variableSize;
 	}
 	spaceNeeded += packed_width(packedVolume, volume_attr_widths);
@@ -536,6 +565,11 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 			spaceNeeded += sizeof(uint32_t);
 		if (packedFile & ATTR_FILE_RSRCLENGTH)
 			spaceNeeded += sizeof(int64_t);
+		if (packedVolume & ATTR_VOL_NAME) {
+			__SIZE_TYPE__ nameSize = (volumeNameLength + 3) & ~((__SIZE_TYPE__)3);
+			variableSize += nameSize;
+			spaceNeeded += nameSize;
+		}
 	}
 
 	// Only a buffer too small for the length field is an error. A larger
@@ -668,7 +702,13 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 				continue;
 			// The buffer is zeroed: unknown capability bits and unsupported
 			// PACK_INVAL slots (including references) stay zero.
-			if (width->bit == ATTR_VOL_UUID) {
+			if (width->bit == ATTR_VOL_NAME) {
+				int32_t* reference = (int32_t*)next;
+				reference[0] = variable - next;
+				((uint32_t*)next)[1] = volumeNameLength;
+				memcpy(variable, volumeName, volumeNameLength);
+				variable += (volumeNameLength + 3) & ~((__SIZE_TYPE__)3);
+			} else if (width->bit == ATTR_VOL_UUID) {
 				attribute_volume_uuid(fileStat.st_dev, (unsigned char*)next);
 			} else if (width->bit == ATTR_VOL_ATTRIBUTES) {
 				attribute_pack_support((uint32_t*)next);
@@ -757,6 +797,16 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 		if (rv < 0)
 			memset(next, 0, 32);
 		next += 32;
+	}
+	if (packedVolume & ATTR_VOL_NAME) {
+		// after the common name's data, if there is any
+		char* data = ourBuffer + fixedSize;
+		if (alist->commonattr & ATTR_CMN_NAME)
+			data += (itemNameLength + 3) & ~((__SIZE_TYPE__)3);
+		((int32_t*)next)[0] = data - next;
+		((uint32_t*)next)[1] = volumeNameLength;
+		memcpy(data, volumeName, volumeNameLength);
+		next += 8;
 	}
 	if (alist->volattr & ATTR_VOL_CAPABILITIES) {
 		uint32_t* capabilities = (uint32_t*)next;
@@ -850,8 +900,8 @@ long FUNC_NAME(int fd,
 	int validation = attribute_validate_request(alist, options);
 	if (validation < 0)
 		return validation;
-	// ATTR_VOL_UUID comes from the volume root's device, whichever object was asked about.
-	if (!alist->volattr || !((alist->commonattr & COMMON_SUPPORTED & 0x0027fff7U) || (alist->volattr & ATTR_VOL_UUID)))
+	// ATTR_VOL_UUID and ATTR_VOL_NAME come from the volume root, whichever object was asked about.
+	if (!alist->volattr || !((alist->commonattr & COMMON_SUPPORTED & 0x0027fff7U) || (alist->volattr & (ATTR_VOL_UUID | ATTR_VOL_NAME))))
 		return attribute_get_object(fd,
 #if HAS_PATH
 			path,
