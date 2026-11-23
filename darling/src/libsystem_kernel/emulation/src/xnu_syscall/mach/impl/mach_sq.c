@@ -851,6 +851,7 @@ static bool sq_set_receive(dsq_name_entry_t entry, void* rcv_addr, mach_msg_opti
 					if (!sq_copyout((char*) rcv_addr + 4, &size, sizeof(size)))
 						mr = MACH_RCV_INVALID_DATA;
 				}
+				sq_pass_wake(&qslot->rcv_waiters, (uint64_t*) &qslot->setword);
 				*result = mr;
 				return true;
 			}
@@ -865,6 +866,8 @@ static bool sq_set_receive(dsq_name_entry_t entry, void* rcv_addr, mach_msg_opti
 				(option & MACH_RCV_TIMEOUT) && have_deadline ? sq_remaining(&deadline) : timeout, true);
 			if (mr == DSQ_RCV_WAIT_LOCALLY)
 				continue;
+			if (mr == MACH_RCV_TOO_LARGE && (option & MACH_RCV_LARGE))
+				sq_pass_wake(&qslot->rcv_waiters, (uint64_t*) &qslot->setword);
 			*result = mr;
 			return true;
 		}
