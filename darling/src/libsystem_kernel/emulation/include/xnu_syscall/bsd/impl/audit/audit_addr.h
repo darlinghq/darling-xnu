@@ -12,6 +12,11 @@ long sys_setaudit_addr(struct auditinfo_addr* auditinfo_addr, int length);
 void audit_session_set_mask(au_mask_t mask);
 void audit_session_set_auid(au_id_t auid);
 void audit_session_set_condition(int condition);
+
+// Looks up an audit session by id for auditon(2)'s A_GETSINFO_ADDR. Only the
+// session this process belongs to is known; any other id fails with -EINVAL,
+// the error XNU gives for an id that names no session.
+long audit_session_lookup(au_asid_t asid, struct auditinfo_addr* out);
 int audit_session_get_condition(void);
 
 #endif // _DARLING_EMULATION_AUDIT_GETAUDIT_ADDR_H
