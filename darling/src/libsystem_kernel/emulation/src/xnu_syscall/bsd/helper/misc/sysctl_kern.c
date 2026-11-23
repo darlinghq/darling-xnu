@@ -36,6 +36,7 @@ enum {
 	_KERN_NUM_FILES,
 	_KERN_HV_VMM_PRESENT,
 	_KERN_OSVARIANT_STATUS,
+	_KERN_OSRELEASETYPE,
 
 	_KERN_SEMMNS = 1000,
 };
@@ -65,6 +66,7 @@ static sysctl_handler(handle_osproductversion);
 static sysctl_handler(handle_osrevision);
 static sysctl_handler(handle_hv_vmm_present);
 static sysctl_handler(handle_osvariant_status);
+static sysctl_handler(handle_osreleasetype);
 static sysctl_handler(handle_secure_kernel);
 
 extern int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* buflen);
@@ -102,6 +104,7 @@ const struct known_sysctl sysctls_kern[] = {
 	{ .oid = KERN_OSREV, .type = CTLTYPE_INT, .exttype = "I", .name = "osrevision", .handler = handle_osrevision },
 	{ .oid = _KERN_HV_VMM_PRESENT, .type = CTLTYPE_INT, .exttype = "I", .name = "hv_vmm_present", .handler = handle_hv_vmm_present },
 	{ .oid = _KERN_OSVARIANT_STATUS, .type = CTLTYPE_QUAD, .exttype = "Q", .name = "osvariant_status", .handler = handle_osvariant_status },
+	{ .oid = _KERN_OSRELEASETYPE, .type = CTLTYPE_STRING, .exttype = "S", .name = "osreleasetype", .handler = handle_osreleasetype },
 	{ .oid = _KERN_SECURE_KERNEL, .type = CTLTYPE_INT, .exttype = "I", .name = "secure_kernel", .handler = handle_secure_kernel },
 	{ .oid = KERN_SYSV, .type = CTLTYPE_NODE, .exttype = "", .name = "sysv", .subctls = sysctls_kern_sysv },
 	{ .oid = -1 }
@@ -564,5 +567,11 @@ static sysctl_handler(handle_osvariant_status)
 {
 	sysctl_handle_size(sizeof(unsigned long long));
 	*((unsigned long long*) old) = 0x70000000f288828aULL;
+	return 0;
+}
+
+static sysctl_handler(handle_osreleasetype)
+{
+	copyout_string("RELEASE", (char*) old, oldlen);
 	return 0;
 }
