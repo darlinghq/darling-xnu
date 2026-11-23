@@ -10,6 +10,8 @@
 // - sigaltstack() reports the alternate stack the thread installed, SS_DISABLE with no address and size
 //   when it installed none, also inside a handler; and the installed one, also while a handler without
 //   SA_ONSTACK runs on the interrupted stack.
+// - a SIGCHLD handler without SA_RESTART interrupts a blocking call, which fails with EINTR.
+#include <errno.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -268,6 +270,55 @@ static void* altstack_reports(void* arg)
 	return NULL;
 }
 
+// --- SIGCHLD, SIGTTOU and SIGTTIN handlers interrupt a blocking call without SA_RESTART
+
+static int unblock_fd;
+
+// ends a read() that the handler failed to interrupt, so that the check fails instead of hanging
+static void* write_late(void* arg)
+{
+	(void) arg;
+	sleep(3);
+	write(unblock_fd, "x", 1);
+	return NULL;
+}
+
+static void test_sigchld_interrupts(void)
+{
+	int fds[2];
+	sigset_t none;
+	sigemptyset(&none);
+	pipe(fds);
+	unblock_fd = fds[1];
+	// the writer starts with SIGCHLD blocked: the signal is for the reading thread, and taken by the
+	// writer it would cut its sleep short
+	sigset_t chld, previous;
+	sigemptyset(&chld);
+	sigaddset(&chld, SIGCHLD);
+	pthread_sigmask(SIG_BLOCK, &chld, &previous);
+	pthread_t writer;
+	pthread_create(&writer, NULL, write_late, NULL);
+	pthread_sigmask(SIG_SETMASK, &previous, NULL);
+	install(SIGCHLD, SA_SIGINFO, none);
+	runs = 0;
+	pid_t child = fork();
+	if (child == 0) {
+		usleep(200000);
+		_exit(0);
+	}
+	char c;
+	ssize_t n = read(fds[0], &c, 1);
+	int err = errno;
+	pthread_join(writer, NULL);
+	waitpid(child, NULL, 0);
+	signal(SIGCHLD, SIG_DFL);
+	close(fds[0]);
+	close(fds[1]);
+	char detail[96];
+	snprintf(detail, sizeof(detail), "read returned %zd, errno %d, handler ran %d times", n, err, (int) runs);
+	check(n == -1 && err == EINTR && runs == 1, "a SIGCHLD handler without SA_RESTART interrupts read()", detail);
+}
+
 int main(void)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
@@ -283,6 +334,8 @@ int main(void)
 	pthread_create(&thread, NULL, altstack_reports, "new thread");
 	pthread_join(thread, NULL);
 	altstack_reports("main thread");
+
+	test_sigchld_interrupts();
 
 	if (failures) {
 		printf("%d failure(s)\n", failures);

@@ -320,6 +320,9 @@ void sigexc_run_app_handler(int linux_signum, struct linux_siginfo* info, struct
 	// signal stays blocked, and so it stays after that handler (the rest of the caller,
 	// dserver_rpc_interrupt_exit() included, runs with it until sigreturn restores the interrupted
 	// mask; faults then cannot be caught there).
+	_pthread_setspecific_direct(__PTK_DARLING_SIGNAL_HANDLERS_RUN,
+			(void*)((uintptr_t)_pthread_getspecific_direct(__PTK_DARLING_SIGNAL_HANDLERS_RUN) + 1));
+
 	uintptr_t stack = ctxt ? app_handler_stack(linux_signum, ctxt) : 0;
 	const linux_sigset_t all = ~0ull;
 	LINUX_SYSCALL(__NR_rt_sigprocmask, 2 /* LINUX_SIG_SETMASK */,
@@ -1026,9 +1029,6 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 			// lift the guard while it runs and put it back afterwards.
 			int lifted_guard_signal = guard_signal();
 			set_guard_signal(0);
-
-			_pthread_setspecific_direct(__PTK_DARLING_SIGNAL_HANDLERS_RUN,
-					(void*)((uintptr_t)_pthread_getspecific_direct(__PTK_DARLING_SIGNAL_HANDLERS_RUN) + 1));
 
 			sigexc_run_app_handler(linux_signum, info, ctxt, &set);
 
