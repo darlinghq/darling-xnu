@@ -25,14 +25,31 @@
   } while (0)
 
 enum how { SEND, SENDTO, SENDMSG, WRITE, WRITEV, SEND_MSG_NOSIGNAL, HOWS };
-enum prep { NONE, SET, CLEARED, DUP, DUPFD, BEFORE_FORK, REUSED_NUMBER, PREPS };
+enum prep { NONE, SET, CLEARED, DUP, DUPFD, BEFORE_FORK, REUSED_NUMBER, DUP2_SET, DUP2_CLEAR,
+            ACCEPT_FLAGGED, ACCEPT_PLAIN, RAW_CLOSED, PREPS };
 static const char *const how_names[] = {"send",  "sendto", "sendmsg", "write",
                                         "writev", "send(MSG_NOSIGNAL)"};
 static const char *const prep_names[] = {
     "no option", "option set", "option cleared", "dup()",
-    "F_DUPFD",   "set before fork", "descriptor number reused after close"};
+    "F_DUPFD",   "set before fork", "descriptor number reused after close",
+    "dup2() of a socket with the option over one without", "dup2() of a socket without the option over one with",
+    "accepted from a listener with the option", "accepted from a listener without the option",
+    "descriptor number reused after a close behind libc's back"};
 
-static int make_pair(int tcp, int fds[2]) {
+// close(2) as the host kernel's system call, which the emulation does not see (arm64 only: other
+// slices do not reach the host kernel directly).
+#if defined(__aarch64__)
+static void raw_close(int fd) {
+  register long x0 __asm__("x0") = fd;
+  register long x8 __asm__("x8") = 57; // Linux __NR_close
+  __asm__ volatile("svc #0" : "+r"(x0) : "r"(x8) : "memory");
+}
+#define HAVE_RAW_CLOSE 1
+#endif
+
+// With a listener_option of 0 or 1 the listener gets that option before it accepts.
+static int set_option(int fd, int value);
+static int make_pair(int tcp, int fds[2], int listener_option) {
   if (!tcp)
     return socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
   struct sockaddr_in addr = {.sin_len = sizeof(addr), .sin_family = AF_INET};
@@ -42,6 +59,7 @@ static int make_pair(int tcp, int fds[2]) {
   fds[0] = socket(AF_INET, SOCK_STREAM, 0);
   if (l < 0 || fds[0] < 0 || bind(l, (struct sockaddr *)&addr, len) || listen(l, 1) ||
       getsockname(l, (struct sockaddr *)&addr, &len) ||
+      (listener_option >= 0 && set_option(l, listener_option)) ||
       connect(fds[0], (struct sockaddr *)&addr, len))
     return -1;
   fds[1] = accept(l, NULL, NULL);
@@ -87,10 +105,17 @@ static int write_until_failure(enum how how, int fd) {
 static int child_main(enum how how, int tcp, enum prep prep) {
   int fds[2], other[2], fd;
   signal(SIGPIPE, SIG_DFL);
-  if (make_pair(tcp, fds))
+  if (prep == ACCEPT_FLAGGED || prep == ACCEPT_PLAIN) {
+    if (make_pair(1, fds, prep == ACCEPT_FLAGGED))
+      return 10;
+    close(fds[0]);
+    return write_until_failure(how, fds[1]);
+  }
+  if (make_pair(tcp, fds, -1))
     return 10;
   fd = fds[0];
-  if (prep != NONE && prep != REUSED_NUMBER && set_option(fd, 1))
+  if (prep != NONE && prep != REUSED_NUMBER && prep != DUP2_SET && prep != DUP2_CLEAR &&
+      prep != RAW_CLOSED && set_option(fd, 1))
     return 11;
   if (prep == CLEARED && set_option(fd, 0))
     return 11;
@@ -103,13 +128,34 @@ static int child_main(enum how how, int tcp, enum prep prep) {
   }
   if (prep == REUSED_NUMBER) {
     // The option of a closed socket must not stay with its descriptor number.
-    if (set_option(fd, 1) || make_pair(tcp, other))
+    if (set_option(fd, 1) || make_pair(tcp, other, -1))
       return 11;
     close(fd), close(other[0]), close(other[1]), close(fds[1]);
-    if (make_pair(tcp, fds))
+    if (make_pair(tcp, fds, -1))
       return 10;
     fd = fds[0];
   }
+  if (prep == DUP2_SET || prep == DUP2_CLEAR) {
+    // The target's own option is replaced by the source's.
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, other) || set_option(prep == DUP2_SET ? fd : other[0], 1))
+      return 11;
+    if (dup2(fd, other[0]) < 0)
+      return 12;
+    close(fd), close(other[1]);
+    fd = other[0];
+  }
+#ifdef HAVE_RAW_CLOSE
+  if (prep == RAW_CLOSED) {
+    // Nothing told the emulation that the descriptor went away.
+    if (set_option(fd, 1))
+      return 11;
+    raw_close(fd);
+    close(fds[1]);
+    if (make_pair(tcp, fds, -1))
+      return 10;
+    fd = fds[0];
+  }
+#endif
   close(fds[1]);
 
   if (prep == BEFORE_FORK) { // the grandchild inherits the socket and its option
@@ -125,7 +171,8 @@ static int child_main(enum how how, int tcp, enum prep prep) {
 
 static int run_case(enum how how, int tcp, enum prep prep) {
   int status;
-  int killed = (prep == NONE || prep == CLEARED || prep == REUSED_NUMBER) &&
+  int killed = (prep == NONE || prep == CLEARED || prep == REUSED_NUMBER || prep == DUP2_CLEAR ||
+                prep == ACCEPT_PLAIN || prep == RAW_CLOSED) &&
                how != SEND_MSG_NOSIGNAL;
   fflush(NULL);
   pid_t child = fork();
@@ -134,9 +181,8 @@ static int run_case(enum how how, int tcp, enum prep prep) {
   if (child < 0 || waitpid(child, &status, 0) != child)
     return 1;
 
-  // Only the death is checked, not the signal number: a forked child that dies of its
-  // default SIGPIPE is reported as SIGILL when the x86_64 slice runs under FEX.
-  int ok = killed ? WIFSIGNALED(status) : WIFEXITED(status) && WEXITSTATUS(status) == 0;
+  int ok = killed ? WIFSIGNALED(status) && WTERMSIG(status) == SIGPIPE
+                  : WIFEXITED(status) && WEXITSTATUS(status) == 0;
   if (!ok)
     fprintf(stderr, "FAIL: %s on %s, %s: expected %s, got %s %d\n", how_names[how],
             tcp ? "tcp loopback" : "socketpair", prep_names[prep],
@@ -167,6 +213,23 @@ static int test_option_values(void) {
   return 0;
 }
 
+#ifdef HAVE_RAW_CLOSE
+// A descriptor number left flagged by a close behind the emulation's back can come back as
+// something that is no socket: the write must still work, as a plain write().
+static int test_stale_non_socket(void) {
+  int sv[2], p[2];
+
+  CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0 && set_option(sv[1], 1) == 0);
+  close(sv[0]);
+  raw_close(sv[1]);
+  CHECK(pipe(p) == 0 && p[1] == sv[1]);
+  CHECK(write(p[1], "x", 1) == 1);
+  CHECK(writev(p[1], &(struct iovec){"y", 1}, 1) == 1);
+  close(p[0]), close(p[1]);
+  return 0;
+}
+#endif
+
 int main(void) {
   int failures = 0;
 
@@ -174,11 +237,27 @@ int main(void) {
     fprintf(stderr, "FAIL: option values and errors\n");
     failures++;
   }
+#ifdef HAVE_RAW_CLOSE
+  if (test_stale_non_socket()) {
+    fprintf(stderr, "FAIL: stale option on a descriptor that is no socket\n");
+    failures++;
+  }
+#endif
   for (int tcp = 0; tcp <= 1; tcp++)
     for (int how = SEND; how < HOWS; how++)
-      for (int prep = NONE; prep < PREPS; prep++)
-        if (how != SEND_MSG_NOSIGNAL || prep == NONE)
-          failures += run_case(how, tcp, prep);
+      for (int prep = NONE; prep < PREPS; prep++) {
+        int accepted = prep == ACCEPT_FLAGGED || prep == ACCEPT_PLAIN;
+        if ((how == SEND_MSG_NOSIGNAL && prep != NONE) || (accepted && !tcp))
+          continue;
+#ifdef HAVE_RAW_CLOSE
+        if (prep == RAW_CLOSED && tcp) // the number to be reused is not predictable
+          continue;
+#else
+        if (prep == RAW_CLOSED)
+          continue;
+#endif
+        failures += run_case(how, tcp, prep);
+      }
 
   if (failures)
     fprintf(stderr, "FAILED: %d\n", failures);

@@ -34,7 +34,8 @@ long nosigpipe_set(int fd, int on)
 		return -EBADF;
 	if (fd >= NOSIGPIPE_MAX_FDS)
 	{
-		// Clearing an option that was never recorded is a no-op.
+		// Clearing an option that was never recorded is a no-op. EMFILE is
+		// not an error Darwin gives for setsockopt; it makes the failure loud.
 		return on ? -EMFILE : 0;
 	}
 
@@ -49,6 +50,11 @@ void nosigpipe_close(int fd)
 {
 	if (nosigpipe_get(fd))
 		nosigpipe_set(fd, 0);
+}
+
+void nosigpipe_created(int fd)
+{
+	nosigpipe_close(fd);
 }
 
 void nosigpipe_dup(int oldfd, int newfd)

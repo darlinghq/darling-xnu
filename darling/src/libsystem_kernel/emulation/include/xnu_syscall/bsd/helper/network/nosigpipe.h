@@ -15,8 +15,17 @@ long nosigpipe_set(int fd, int on);
 
 // Descriptor bookkeeping: close (called before the descriptor is closed) and
 // dup/dup2/F_DUPFD (called after newfd was created; newfd shares oldfd's
-// open file and so its option).
+// open file and so its option). Until the call returns, a thread that uses
+// newfd already sees the option as it was left by the previous owner of the
+// number.
 void nosigpipe_close(int fd);
 void nosigpipe_dup(int oldfd, int newfd);
+
+// A socket was just created at fd (socket, socketpair): forget whatever an
+// earlier owner of the number left behind. A descriptor can be closed behind
+// this module's back (by a forked child's guard table, or by the host under
+// FEX), so close() is not enough. accept() uses nosigpipe_dup() from the
+// listener instead, as the accepted socket inherits the option.
+void nosigpipe_created(int fd);
 
 #endif // DARLING_EMULATION_NOSIGPIPE_H

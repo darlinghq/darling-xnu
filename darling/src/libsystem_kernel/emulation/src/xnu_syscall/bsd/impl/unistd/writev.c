@@ -28,7 +28,8 @@ static long sys_writev_common(int fd, struct iovec* iovp, unsigned int len, bool
 
 	if (nosigpipe_get(fd))
 	{
-		// See sys_write_common().
+		// See sys_write_common(). sendmsg() limits the vector to IOV_MAX
+		// entries with EMSGSIZE where writev() fails with EINVAL.
 		struct bsd_msghdr msg = { .msg_iov = iovp, .msg_iovlen = len };
 		long sent = cancelable ? sys_sendmsg(fd, &msg, 0) : sys_sendmsg_nocancel(fd, &msg, 0);
 		if (sent != -ENOTSOCK)
