@@ -17,6 +17,7 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/fdpath.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bpf/bpf_device.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/network/nosigpipe.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/csops.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/fstat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
@@ -378,6 +379,7 @@ static long sys_fcntl_common(int fd, int cmd, long arg, bool cancelable)
 			if (ret >= 0) {
 				kqueue_dup(fd, ret);
 				bpf_device_dup(fd, ret);
+				nosigpipe_dup(fd, ret);
 			}
 			break;
 	}

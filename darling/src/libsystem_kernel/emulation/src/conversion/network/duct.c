@@ -56,6 +56,8 @@ int msgflags_bsd_to_linux(int flags)
 		oflags |= LINUX_MSG_WAITALL;
 	if (flags & BSD_MSG_DONTWAIT)
 		oflags |= LINUX_MSG_DONTWAIT;
+	if (flags & BSD_MSG_NOSIGNAL)
+		oflags |= LINUX_MSG_NOSIGNAL;
 
 	return oflags;
 }

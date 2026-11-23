@@ -9,6 +9,7 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/duct.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/network/nosigpipe.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 
 long sys_socketpair(int domain, int type, int protocol, int sv[2])
@@ -43,6 +44,10 @@ long sys_socketpair(int domain, int type, int protocol, int sv[2])
 		close_internal(sv[0]);
 		close_internal(sv[1]);
 		ret = -EMFILE;
+	}
+	else {
+		nosigpipe_created(sv[0]);
+		nosigpipe_created(sv[1]);
 	}
 
 	return ret;
