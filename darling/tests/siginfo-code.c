@@ -1,9 +1,9 @@
 // The si_code a SA_SIGINFO handler receives (sigaction(2), <sys/signal.h>).
 //
-// Signals sent by a process (kill, raise, pthread_kill) and by the system (setitimer) carry
-// no fault information: a Darwin program sees si_code 0, or SI_USER (0x10001) if the system
-// follows the header's comment. It never sees the negative values (SI_TKILL, SI_QUEUE, ...)
-// or SI_KERNEL (0x80) that the Linux kernel uses for these.
+// Signals sent by a process (kill, raise, pthread_kill) and by the system (setitimer, alarm) carry
+// no fault information: a Darwin program sees si_code 0, not the SI_USER (0x10001) that the header
+// describes (observed on macOS 10.14.4 i386 and x86_64 and on 26.7.3). It never sees the negative
+// values (SI_TKILL, SI_QUEUE, ...) or SI_KERNEL (0x80) that the Linux kernel uses for these.
 // Fault codes are the ones of <sys/signal.h> even where Linux numbers them differently
 // (FPE_INTDIV is 7 here and 1 on Linux), and SIGCHLD reports CLD_EXITED with the child's pid.
 #include <errno.h>
@@ -52,7 +52,7 @@ static int install(int sig) {
   return sigaction(sig, &sa, NULL);
 }
 
-static int user_code(int code) { return code == 0 || code == SI_USER; }
+static int user_code(int code) { return code == 0; }
 
 static int test_kill(void) {
   runs = 0;

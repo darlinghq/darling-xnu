@@ -20,11 +20,12 @@ static void ucontext_linux_to_bsd(const struct linux_ucontext *lc, struct bsd_uc
 // the handler with si_code 0, not SI_USER (0x10001) as <sys/signal.h> and
 // POSIX describe. The same holds for SI_QUEUE, SI_TIMER and the other SI_*
 // values, which the Darwin kernel never produces.
-// Evidence (tier: open source of the original): bsd/kern/kern_sig.c, in
-// psignal_internal(), sets si_code = 0 for every signal but SIGCHLD, and
-// bsd/dev/arm/unix_signal.c, in sendsig(), passes it to the handler as is.
-// Affected OS versions: unknown, the source in this repository only.
-// Test: siginfo-code.c, test_kill() (it also accepts SI_USER).
+// Evidence: black-box observation, tier 2: macOS 10.14.4 (i386 and x86_64)
+// and 26.7.3 (x86_64) all report si_code 0 to a SA_SIGINFO handler for
+// kill(), raise(), pthread_kill(), setitimer() and alarm() (and for the
+// SIGSEGV of a privileged instruction); and the XNU source in this
+// repository sets si_code = 0 in these paths too.
+// Test: siginfo-code.c, test_kill() and the other tests that send signals.
 //
 // So codes that say who sent the signal (zero or negative on Linux,
 // SI_KERNEL) become 0. Fault and SIGCHLD/SIGIO codes keep their meaning but
