@@ -600,8 +600,11 @@ static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t
 			if (DSQ_IS_CLOSED(h))
 			{
 				uint32_t reason = __atomic_load_n(&sslot->close_reason, __ATOMIC_ACQUIRE);
-				// what XNU's blocked receivers get when the receive right moves or is destroyed
-				if (reason == DSQ_CLOSE_MOVED || reason == DSQ_CLOSE_DESTROYED)
+				// what XNU's blocked receivers get when the receive right moves or is destroyed, if the close
+				// was this call's port's: the slot may have been given to another port since, and closed again
+				// with that port's reason (the server changes gen before it writes a new port's reason)
+				if ((reason == DSQ_CLOSE_MOVED || reason == DSQ_CLOSE_DESTROYED) &&
+						__atomic_load_n(&sslot->gen, __ATOMIC_ACQUIRE) == gen)
 				{
 					*result = MACH_RCV_PORT_CHANGED;
 					return true;
