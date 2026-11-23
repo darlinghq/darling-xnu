@@ -45,6 +45,10 @@ unsigned long sigexc_handlers_run(void);
 // with every other signal that could run a handler blocked until the server has answered.
 int sigexc_interrupt_enter(void);
 
+// Called by sigaltstack() before it replaces the calling thread's alternate stack, so that Darling's
+// own stays known (see sigexc_thread_state).
+void sigexc_altstack_will_change(void);
+
 void sigexc_thread_setup(void);
 void sigexc_thread_exit(void);
 
