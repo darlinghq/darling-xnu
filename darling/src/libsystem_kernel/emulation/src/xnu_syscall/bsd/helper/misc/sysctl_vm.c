@@ -6,6 +6,7 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/read.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/common/string.h>
 #include <darling/emulation/common/simple.h>
@@ -17,16 +18,22 @@ enum {
 	// the OID for this sysctl is OID_AUTO, so we can assign anything to it
 	_VM_PAGE_PURGEABLE_COUNT = 1000,
 	_VM_PAGE_PAGEABLE_INTERNAL_COUNT,
-	_VM_SWAPUSAGE,
 };
+
+// fixed numbers of <sys/sysctl.h> (VM_LOADAVG, VM_SWAPUSAGE); sysctl(3) callers use
+// them as {CTL_VM, number} without looking the name up
+#define _VM_LOADAVG 2
+#define _VM_SWAPUSAGE 5
 
 static sysctl_handler(handle_page_purgeable_count);
 static sysctl_handler(handle_page_pageable_internal_count);
 static sysctl_handler(handle_swapusage);
+static sysctl_handler(handle_loadavg);
 
 const struct known_sysctl sysctls_vm[] = {
 	{ .oid = _VM_PAGE_PURGEABLE_COUNT, .type = CTLTYPE_INT, .exttype = "I", .name = "page_purgeable_count", .handler = handle_page_purgeable_count },
 	{ .oid = _VM_PAGE_PAGEABLE_INTERNAL_COUNT, .type = CTLTYPE_INT, .exttype = "IU", .name = "page_pageable_internal_count", .handler = handle_page_pageable_internal_count },
+	{ .oid = _VM_LOADAVG, .type = CTLTYPE_OPAQUE, .exttype = "S,loadavg", .name = "loadavg", .handler = handle_loadavg },
 	{ .oid = _VM_SWAPUSAGE, .type = CTLTYPE_OPAQUE, .exttype = "S,xsw_usage", .name = "swapusage", .handler = handle_swapusage },
 	{ .oid = -1 },
 };
@@ -184,3 +191,63 @@ static sysctl_handler(handle_swapusage) {
     memcpy(old, &usage, sizeof(usage));
     return 0;
 }
+
+// Parses the leading decimal number of a /proc/loadavg field ("0.68") into a
+// fixed-point value scaled by `scale`; stops at the first character that is not
+// part of the number and returns a pointer to it.
+static const char* parse_load_field(const char* p, unsigned scale, unsigned* out) {
+	uint64_t whole = 0;
+	uint64_t frac = 0;
+	uint64_t frac_div = 1;
+
+	while (*p >= '0' && *p <= '9') {
+		whole = whole * 10 + (*p - '0');
+		++p;
+	}
+	if (*p == '.') {
+		++p;
+		while (*p >= '0' && *p <= '9') {
+			if (frac_div < 1000000) {
+				frac = frac * 10 + (*p - '0');
+				frac_div *= 10;
+			}
+			++p;
+		}
+	}
+	*out = (unsigned)(whole * scale + frac * scale / frac_div);
+	return p;
+};
+
+// The one-, five- and fifteen-minute run queue averages of the host, as the
+// struct loadavg of <sys/sysctl.h>: the averages are fixed-point numbers that
+// are divided by fscale to get the real value (this is what getloadavg(3) does).
+static sysctl_handler(handle_loadavg) {
+	struct loadavg result;
+	// FSCALE of <sys/param.h>
+	const unsigned scale = 1 << 11;
+	char buffer[128];
+	int fd;
+	long count;
+
+	if (!oldlen) return -EINVAL;
+	if (_new) return -EPERM;
+	sysctl_handle_size(sizeof(result));
+
+	fd = sys_open_nocancel("/proc/loadavg", BSD_O_RDONLY, 0);
+	if (fd < 0) return fd;
+	count = sys_read_nocancel(fd, buffer, sizeof(buffer) - 1);
+	close_internal(fd);
+	if (count <= 0) return -EIO;
+	buffer[count] = '\0';
+
+	memset(&result, 0, sizeof(result));
+	const char* p = buffer;
+	for (int i = 0; i < 3; i++) {
+		while (*p == ' ') ++p;
+		p = parse_load_field(p, scale, &result.ldavg[i]);
+	}
+	result.fscale = scale;
+
+	memcpy(old, &result, sizeof(result));
+	return 0;
+};
