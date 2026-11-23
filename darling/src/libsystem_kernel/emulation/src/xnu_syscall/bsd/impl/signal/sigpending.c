@@ -1,7 +1,6 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/sigpending.h>
 
 #include <stddef.h>
-#include <sys/errno.h>
 
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
@@ -13,9 +12,9 @@ long sys_sigpending(sigset_t* set)
 	linux_sigset_t set_linux;
 	int ret;
 
-	// XNU copies the pending set out to the caller and fails with EFAULT when it cannot be written
+	// sigpending(2) reports no errors: XNU stores the set only when one is given
 	if (set == NULL)
-		return -EFAULT;
+		return 0;
 
 	ret = LINUX_SYSCALL(__NR_rt_sigpending, &set_linux, sizeof(linux_sigset_t));
 
