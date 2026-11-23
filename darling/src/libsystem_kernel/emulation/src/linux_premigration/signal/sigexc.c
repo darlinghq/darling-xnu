@@ -136,7 +136,10 @@ static struct sigexc_thread_state* thread_state(void)
 
 void sigexc_altstack_will_change(void)
 {
-	thread_state();
+	// The application's stack replaces whatever Darling parked, live handler or not.
+	struct sigexc_thread_state* state = thread_state();
+	if (state != NULL)
+		state->parked.ss_flags = LINUX_SS_DISABLE;
 }
 
 // void sigexc_call_on_stack(uintptr_t sp, void (*fn)(void*), void* arg): calls fn(arg) with the stack
@@ -228,7 +231,7 @@ static uintptr_t app_handler_stack(int linux_signum, const struct linux_ucontext
 
 // A handler that left by longjmp() never gave back the alternate stack it parked. A signal that
 // interrupts the thread above where that handler started (a nested one is always below) gives it
-// back, and makes sure this signal's return keeps it.
+// back, if nothing installed another since, and makes sure this signal's return keeps it.
 // Known limit: the test compares addresses, so a handler that switches to a stack at higher addresses
 // (swapcontext() to a fiber) and is interrupted there gets the stack back while its frames are live.
 static void unpark_abandoned_altstack(struct linux_ucontext* ctxt)
@@ -238,9 +241,22 @@ static void unpark_abandoned_altstack(struct linux_ucontext* ctxt)
 			|| interrupted_sp(ctxt) <= state->handler_sp)
 		return;
 
-	if (LINUX_SYSCALL(__NR_sigaltstack, &state->parked, NULL) == 0)
+	struct linux_stack current;
+	if (LINUX_SYSCALL(__NR_sigaltstack, NULL, &current) == 0 && (current.ss_flags & LINUX_SS_DISABLE)
+			&& LINUX_SYSCALL(__NR_sigaltstack, &state->parked, NULL) == 0)
 		ctxt->uc_stack = state->parked;
 	state->parked.ss_flags = LINUX_SS_DISABLE;
+}
+
+// Linux's sigreturn reinstalls the alternate stack the signal found (uc_stack); XNU's leaves the
+// one the handler ended with, which may be one the handler installed or disabled itself.
+static void keep_current_altstack(struct linux_ucontext* ctxt)
+{
+	struct linux_stack current;
+	if (LINUX_SYSCALL(__NR_sigaltstack, NULL, &current) != 0)
+		return;
+	current.ss_flags &= ~LINUX_SS_ONSTACK;
+	ctxt->uc_stack = current;
 }
 
 struct app_handler_call
@@ -972,6 +988,9 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 			}
 			else
 				handler_linux_to_bsd(linux_signum, info, ctxt);
+
+			if (ctxt != NULL)
+				keep_current_altstack(ctxt);
 
 			set_guard_signal(lifted_guard_signal);
 		}

@@ -7,6 +7,7 @@
 //   not on it already. Without the flag, or without an alternate stack, the handler runs on the
 //   interrupted stack, below the interrupted stack pointer and its 128-byte red zone.
 #include <pthread.h>
+#include <setjmp.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -380,6 +381,180 @@ static void test_fault_stack(const char* what)
 	check(runs == 1 && on_interrupted_stack(0), what, detail);
 }
 
+// --- the alternate stack after a handler: what the handler left, also when it left by longjmp()
+
+static char other_altstack[64 * 1024] __attribute__((aligned(16)));
+static sigjmp_buf escape;
+
+static void escaping_handler(int sig, siginfo_t* info, void* uc)
+{
+	(void) sig;
+	(void) info;
+	(void) uc;
+	siglongjmp(escape, 1);
+}
+
+static void installing_handler(int sig, siginfo_t* info, void* uc)
+{
+	(void) sig;
+	(void) info;
+	(void) uc;
+	stack_t ss = { .ss_sp = other_altstack, .ss_size = sizeof(other_altstack), .ss_flags = 0 };
+	sigaltstack(&ss, NULL);
+}
+
+static void disabling_handler(int sig, siginfo_t* info, void* uc)
+{
+	(void) sig;
+	(void) info;
+	(void) uc;
+	// Libc refuses a size below MINSIGSTKSZ even with SS_DISABLE, as on macOS
+	stack_t ss = { .ss_sp = other_altstack, .ss_size = sizeof(other_altstack), .ss_flags = SS_DISABLE };
+	sigaltstack(&ss, NULL);
+	if (fault_page != NULL)
+		mprotect(fault_page, (size_t) getpagesize(), PROT_READ | PROT_WRITE);
+}
+
+static int current_altstack_is(void* sp)
+{
+	stack_t cur;
+	if (sigaltstack(NULL, &cur) != 0)
+		return 0;
+	return sp == NULL ? (cur.ss_flags & SS_DISABLE) != 0 : !(cur.ss_flags & SS_DISABLE) && cur.ss_sp == sp;
+}
+
+static void* altstack_after_handlers(void* arg)
+{
+	(void) arg;
+	// a thread without an alternate stack: an SA_ONSTACK handler that installs one keeps it
+	install(SIGUSR1, installing_handler, SA_ONSTACK);
+	raise(SIGUSR1);
+	check(current_altstack_is(other_altstack), "a handler that installs an alternate stack keeps it",
+		"sigaltstack() does not report the handler's stack after it returned");
+
+	// a handler without SA_ONSTACK, run on this thread's stack, that installs another one keeps it
+	stack_t ss = { .ss_sp = altstack, .ss_size = sizeof(altstack), .ss_flags = 0 };
+	sigaltstack(&ss, NULL);
+	install(SIGUSR1, installing_handler, 0);
+	raise(SIGUSR1);
+	check(current_altstack_is(other_altstack), "a handler without SA_ONSTACK that installs an alternate stack "
+		"keeps it", "sigaltstack() does not report the handler's stack after it returned");
+
+	// a SIGSEGV handler without SA_ONSTACK that disables the alternate stack leaves it disabled
+	fault_page = mmap(NULL, (size_t) getpagesize(), PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0);
+	install(SIGSEGV, disabling_handler, 0);
+	install(SIGBUS, disabling_handler, 0);
+	*(volatile char*) fault_page = 1;
+	reset_default(SIGSEGV);
+	reset_default(SIGBUS);
+	munmap(fault_page, (size_t) getpagesize());
+	fault_page = NULL;
+	check(current_altstack_is(NULL), "a SIGSEGV handler that disables the alternate stack leaves it disabled",
+		"sigaltstack() reports a stack after the handler disabled it");
+	reset_default(SIGUSR1);
+	return NULL;
+}
+
+// A handler left by longjmp() hands the alternate stack back to the next signal that interrupts the
+// thread above where the handler started: a signal that arrives while the thread spins in a shallow
+// frame, after one that started in a deep frame.
+static void __attribute__((noinline)) deep_fault(void)
+{
+	volatile char pad[16384];
+	pad[0] = 0;
+	*(volatile char*) fault_page = 1;
+	(void) pad[0];
+}
+
+static volatile int spinner_ready;
+
+static void* altstack_after_longjmp(void* arg)
+{
+	(void) arg;
+	// a thread without an alternate stack whose SA_ONSTACK handler leaves by longjmp(), then installs one
+	fault_page = mmap(NULL, (size_t) getpagesize(), PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0);
+	install(SIGSEGV, escaping_handler, SA_ONSTACK);
+	if (!sigsetjmp(escape, 1))
+		deep_fault();
+	reset_default(SIGSEGV);
+	munmap(fault_page, (size_t) getpagesize());
+	fault_page = NULL;
+	stack_t ss = { .ss_sp = other_altstack, .ss_size = sizeof(other_altstack), .ss_flags = 0 };
+	sigaltstack(&ss, NULL);
+
+	// a signal from another thread, taken while this one spins, then two on the alternate stack
+	runs = 0;
+	install(SIGUSR2, counting_handler, 0);
+	spinner_ready = 1;
+	while (runs == 0)
+		;
+	reset_default(SIGUSR2);
+	runs = depth = max_depth = 0;
+	install(SIGUSR1, recording_handler, SA_ONSTACK);
+	raise(SIGUSR1);
+	raise(SIGUSR1);
+	reset_default(SIGUSR1);
+	int on_own = handler_sp[0] >= (uintptr_t) other_altstack
+		&& handler_sp[0] < (uintptr_t) other_altstack + sizeof(other_altstack);
+	check(on_own && current_altstack_is(other_altstack),
+		"after a handler left by longjmp(), the alternate stack installed next stays", "it was replaced");
+	return NULL;
+}
+
+// The application's stack parked for a SIGSEGV handler that left by longjmp(), then disabled and
+// made inaccessible: no signal may bring it back (the child would die writing a frame there).
+static void test_disabled_after_longjmp(void)
+{
+	pid_t child = fork();
+	if (child < 0) {
+		perror("fork");
+		exit(2);
+	}
+	if (child == 0) {
+		char* stack = mmap(NULL, 64 * 1024, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+		stack_t ss = { .ss_sp = stack, .ss_size = 64 * 1024, .ss_flags = 0 };
+		sigaltstack(&ss, NULL);
+		fault_page = mmap(NULL, (size_t) getpagesize(), PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0);
+		install(SIGSEGV, escaping_handler, 0);
+		install(SIGBUS, escaping_handler, 0);
+		if (!sigsetjmp(escape, 1))
+			deep_fault();
+		ss.ss_flags = SS_DISABLE;
+		sigaltstack(&ss, NULL);
+		mprotect(stack, 64 * 1024, PROT_NONE);
+		runs = 0;
+		install(SIGALRM, counting_handler, SA_ONSTACK);
+		struct itimerval it = { { 0, 0 }, { 0, 50000 } };
+		setitimer(ITIMER_REAL, &it, NULL);
+		while (runs == 0)
+			;
+		install(SIGUSR1, recording_handler, SA_ONSTACK);
+		raise(SIGUSR1);
+		raise(SIGUSR1);
+		_exit(current_altstack_is(NULL) ? 0 : 5);
+	}
+	int status;
+	waitpid(child, &status, 0);
+	char detail[96];
+	snprintf(detail, sizeof(detail), "child status 0x%x; expected exit 0", status);
+	check(WIFEXITED(status) && WEXITSTATUS(status) == 0,
+		"an alternate stack disabled after a handler left by longjmp() stays disabled", detail);
+}
+
+static void test_altstack_after_handlers(void)
+{
+	pthread_t thread;
+	pthread_create(&thread, NULL, altstack_after_handlers, NULL);
+	pthread_join(thread, NULL);
+	spinner_ready = 0;
+	pthread_create(&thread, NULL, altstack_after_longjmp, NULL);
+	while (!spinner_ready)
+		;
+	pthread_kill(thread, SIGUSR2);
+	pthread_join(thread, NULL);
+	test_disabled_after_longjmp();
+}
+
 static void test_stacks(void)
 {
 	// The main thread has not called sigaltstack() yet.
@@ -413,6 +588,7 @@ static void test_stacks(void)
 		INTERRUPTED);
 
 	test_stack_overflow();
+	test_altstack_after_handlers();
 }
 
 int main(void)
