@@ -13,6 +13,63 @@ void handler_linux_to_bsd(int linux_signum, struct linux_siginfo *info, void *ct
 static void mcontext_bsd_to_linux(const struct bsd_mcontext *bm, struct linux_mcontext *lm);
 static void ucontext_linux_to_bsd(const struct linux_ucontext *lc, struct bsd_ucontext *bc, struct bsd_mcontext *bm);
 
+// The si_code a Darwin handler sees for a signal that arrived with si_code
+// `code` from the Linux kernel.
+//
+// Codes that say who sent the signal (zero or negative on Linux, SI_KERNEL)
+// become 0: the Darwin kernel leaves si_code 0 for every signal that is not a
+// fault or a child state change, kill() included (SI_USER, SI_QUEUE and the
+// other SI_* values of <sys/signal.h> are never produced). Fault and
+// SIGCHLD/SIGIO codes keep their meaning but not always their number; those a
+// Darwin program cannot tell apart become the "no information" code 0.
+static int sicode_linux_to_bsd(int linux_signum, int code)
+{
+	if (code <= 0 || code == LINUX_SI_KERNEL)
+		return 0;
+
+	switch (linux_signum)
+	{
+		case LINUX_SIGILL:
+			switch (code)
+			{
+				case LINUX_ILL_ILLOPC: return ILL_ILLOPC;
+				case LINUX_ILL_ILLOPN: return ILL_ILLOPN;
+				case LINUX_ILL_ILLADR: return ILL_ILLADR;
+				case LINUX_ILL_ILLTRP: return ILL_ILLTRP;
+				case LINUX_ILL_PRVOPC: return ILL_PRVOPC;
+				case LINUX_ILL_PRVREG: return ILL_PRVREG;
+				case LINUX_ILL_COPROC: return ILL_COPROC;
+				case LINUX_ILL_BADSTK: return ILL_BADSTK;
+			}
+			return 0;
+		case LINUX_SIGFPE:
+			switch (code)
+			{
+				case LINUX_FPE_INTDIV: return FPE_INTDIV;
+				case LINUX_FPE_INTOVF: return FPE_INTOVF;
+				case LINUX_FPE_FLTDIV: return FPE_FLTDIV;
+				case LINUX_FPE_FLTOVF: return FPE_FLTOVF;
+				case LINUX_FPE_FLTUND: return FPE_FLTUND;
+				case LINUX_FPE_FLTRES: return FPE_FLTRES;
+				case LINUX_FPE_FLTINV: return FPE_FLTINV;
+				case LINUX_FPE_FLTSUB: return FPE_FLTSUB;
+			}
+			return 0;
+		// The codes below are numbered alike on both systems.
+		case LINUX_SIGSEGV:
+			return code <= SEGV_ACCERR ? code : 0;
+		case LINUX_SIGBUS:
+			return code <= BUS_OBJERR ? code : 0;
+		case LINUX_SIGTRAP:
+			return code <= TRAP_TRACE ? code : 0;
+		case LINUX_SIGCHLD:
+			return code <= CLD_CONTINUED ? code : 0;
+		case LINUX_SIGIO:
+			return code <= POLL_HUP ? code : 0;
+	}
+	return 0;
+}
+
 void handler_linux_to_bsd(int linux_signum, struct linux_siginfo* info, void* ctxt)
 {
 	int bsd_signum;
@@ -27,7 +84,7 @@ void handler_linux_to_bsd(int linux_signum, struct linux_siginfo* info, void* ct
 		memset(&binfo, 0, sizeof(binfo));
 		binfo.si_signo = signum_linux_to_bsd(info->si_signo);
 		binfo.si_errno = errno_linux_to_bsd(info->si_errno);
-		binfo.si_code = info->si_code;
+		binfo.si_code = sicode_linux_to_bsd(linux_signum, info->si_code);
 		binfo.si_pid = info->si_pid;
 		binfo.si_uid = info->si_uid;
 		binfo.si_addr = info->si_addr;
