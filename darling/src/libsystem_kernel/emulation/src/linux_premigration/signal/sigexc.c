@@ -19,6 +19,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/kill.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/pthread_canceled.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/psynch/psynch_inproc.h>
 #include <darling/emulation/common/tsd.h>
 #include <darling/emulation/xnu_syscall/machdep/impl/tls.h>
 #include <darling/emulation/linux_premigration/signal/tsd_trap.h>
@@ -694,6 +695,9 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 		if (sig_handlers[linux_signum])
 		{
 			kern_printf("sigexc: will forward signal to app handler (%p)\n", sig_handlers[linux_signum]);
+
+			// a psynch wait this signal interrupts ends before the handler runs, as in XNU
+			psynch_inproc_signal_arrived();
 
 			// Update the signal mask to what the application actually wanted
 			// sig_masks holds the Darwin-numbered mask given to sigaction()

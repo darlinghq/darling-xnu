@@ -10,10 +10,10 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 add_subdirectory(emulation)
 
-# DARLING: -msse* is x86-only; gate by target arch.
-if (TARGET_i386 OR TARGET_x86_64)
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -msse -msse2 -msse3")
-endif()
+# The SSE options are for the Intel slices only
+darling_archs(_sse_archs FAMILY x86)
+darling_xarch_flags(_sse_flags ARCHS ${_sse_archs} OPTIONS -msse -msse2 -msse3)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_sse_flags}")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w -fblocks -ffreestanding")
 
 # Why -bind_at_load is necessary:
@@ -43,6 +43,7 @@ add_circular(system_kernel FAT
 		$<IF:$<BOOL:${BUILD_TARGET_32BIT}>,$<TARGET_OBJECTS:libsyscall_32>,>
 		$<IF:$<BOOL:${BUILD_TARGET_64BIT}>,$<TARGET_OBJECTS:libsyscall_64>,>
 		$<TARGET_OBJECTS:libsyscall>
+		${libsyscall_pre1050_objects}
 		$<TARGET_OBJECTS:libsyscall_dynamic>
 		$<TARGET_OBJECTS:kqueue>
 		$<TARGET_OBJECTS:emulation>
@@ -59,25 +60,29 @@ add_circular(system_kernel FAT
 #target_link_libraries(system_kernel system_duct platform_static32 platform_static64)
 make_fat(system_kernel)
 
-add_library(system_kernel_static32 STATIC
-	$<TARGET_OBJECTS:libsyscall_32>
-	$<TARGET_OBJECTS:libsyscall>
-	$<TARGET_OBJECTS:emulation_dyld>
-)
+if (BUILD_TARGET_32BIT)
+	add_library(system_kernel_static32 STATIC
+		$<TARGET_OBJECTS:libsyscall_32>
+		$<TARGET_OBJECTS:libsyscall>
+		${libsyscall_pre1050_objects}
+		$<TARGET_OBJECTS:emulation_dyld>
+	)
+	target_link_libraries(system_kernel_static32 PRIVATE
+		libsimple_darling
+	)
+endif()
 
-add_library(system_kernel_static64 STATIC
-	$<TARGET_OBJECTS:libsyscall_64>
-	$<TARGET_OBJECTS:libsyscall>
-	$<TARGET_OBJECTS:emulation_dyld>
-)
-
-target_link_libraries(system_kernel_static32 PRIVATE
-	libsimple_darling
-)
-
-target_link_libraries(system_kernel_static64 PRIVATE
-	libsimple_darling
-)
+if (BUILD_TARGET_64BIT)
+	add_library(system_kernel_static64 STATIC
+		$<TARGET_OBJECTS:libsyscall_64>
+		$<TARGET_OBJECTS:libsyscall>
+		${libsyscall_pre1050_objects}
+		$<TARGET_OBJECTS:emulation_dyld>
+	)
+	target_link_libraries(system_kernel_static64 PRIVATE
+		libsimple_darling
+	)
+endif()
 
 install(TARGETS system_kernel DESTINATION libexec/darling/usr/lib/system)
 

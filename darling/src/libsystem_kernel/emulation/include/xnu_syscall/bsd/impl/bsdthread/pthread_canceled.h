@@ -5,6 +5,16 @@
 
 #include <stdint.h>
 
+// The TSD slot __PTK_DARLING_CANCEL_MARKED is shared with darlingserver (see set_thread_handles()).
+// darlingserver sets its first byte when it marks the thread for cancellation.
+// The thread sets its second byte while it blocks in a cancelable syscall, which tells darlingserver
+// to interrupt the syscall (with SIGNAL_SIGEXC_SUSPEND) when it marks the thread.
+// The thread keeps its third byte set while it has cancellation disabled (for other threads of the
+// process, which read the slot to tell whether the thread is about to act on a mark).
+#define PTHREAD_CANCEL_MARKED_BYTE   0
+#define PTHREAD_CANCEL_WAITING_BYTE  1
+#define PTHREAD_CANCEL_DISABLED_BYTE 2
+
 long sys_pthread_canceled(int action);
 bool pthread_testcancel_presyscall(void);
 
