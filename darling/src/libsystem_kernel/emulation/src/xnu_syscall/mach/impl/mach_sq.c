@@ -771,8 +771,11 @@ static bool sq_set_receive(dsq_name_entry_t entry, void* rcv_addr, mach_msg_opti
 		{
 			dsq_set_exit(&sq_view, entry.slot);
 			uint32_t reason = __atomic_load_n(&sslot->close_reason, __ATOMIC_ACQUIRE);
-			// what XNU's blocked receivers get when the set is destroyed
-			if (reason == DSQ_CLOSE_MOVED || reason == DSQ_CLOSE_DESTROYED)
+			// what XNU's blocked receivers get when the set is destroyed, if the close was this call's set's:
+			// the slot may have been given to another set or port since, and closed again with its reason
+			// (the server changes gen before it writes a new reason)
+			if ((reason == DSQ_CLOSE_MOVED || reason == DSQ_CLOSE_DESTROYED) &&
+					__atomic_load_n(&sslot->gen, __ATOMIC_ACQUIRE) == gen)
 			{
 				*result = MACH_RCV_PORT_CHANGED;
 				return true;
