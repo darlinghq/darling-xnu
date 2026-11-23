@@ -1,18 +1,42 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/network/getsockopt.h>
 
 #include <stddef.h>
+#include <sys/errno.h>
 
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/conversion/network/getsockopt.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/duct.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/network/nosigpipe.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/gettimeofday.h>
+
+extern void* memcpy(void*, const void*, __SIZE_TYPE__);
 
 long sys_getsockopt(int fd, int level, int optname, void* optval, int* optlen)
 {
 	int ret, linux_level, linux_optname;
-	
+
+	if (level == BSD_SOL_SOCKET && optname == BSD_SO_NOSIGPIPE)
+	{
+		int type, value, len = sizeof(type);
+
+		ret = sys_getsockopt(fd, BSD_SOL_SOCKET, BSD_SO_TYPE, &type, &len);
+		if (ret < 0)
+			return ret;
+		if (!optval || !optlen)
+			return -EFAULT;
+
+		// A shorter buffer gets the leading bytes, as for any int option.
+		value = nosigpipe_get(fd);
+		if (*optlen > (int)sizeof(value))
+			*optlen = sizeof(value);
+		else if (*optlen < 0)
+			return -EINVAL;
+		memcpy(optval, &value, *optlen);
+		return 0;
+	}
+
 	linux_level = level;
 	linux_optname = optname;
 	

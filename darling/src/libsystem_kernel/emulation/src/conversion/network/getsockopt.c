@@ -77,8 +77,8 @@ int sockopt_bsd_to_linux(int* level, int* optname, void** optval, void* optbuf)
 				*optname = LINUX_SO_TYPE; break;
 			case BSD_SO_LINGER_SEC:
 				*optname = LINUX_SO_LINGER; break;
-			case BSD_SO_NOSIGNAL:
-				*optname = 0; break; // FIXME: send() with MSG_NOSIGNAL...
+			// BSD_SO_NOSIGPIPE has no Linux option: sys_setsockopt() and
+			// sys_getsockopt() keep it per descriptor (nosigpipe.c).
 			default:
 				return -EINVAL;
 		}

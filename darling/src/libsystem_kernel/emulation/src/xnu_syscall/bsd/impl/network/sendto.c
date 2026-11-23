@@ -9,6 +9,7 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/duct.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/network/nosigpipe.h>
 
 extern void *memcpy(void *dest, const void *src, __SIZE_TYPE__ n);
 
@@ -46,6 +47,8 @@ static long sys_sendto_common(int fd, const void* buffer, unsigned long length,
 	}
 
 	linux_flags = msgflags_bsd_to_linux(flags);
+	if (nosigpipe_get(fd))
+		linux_flags |= LINUX_MSG_NOSIGNAL;
 
 #ifdef __NR_socketcall
 	ret = LINUX_SYSCALL_C(cancelable, __NR_socketcall, LINUX_SYS_SENDTO,
