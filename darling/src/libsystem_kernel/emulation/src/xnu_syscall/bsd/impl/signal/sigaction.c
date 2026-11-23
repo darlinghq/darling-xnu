@@ -192,8 +192,13 @@ long sys_sigaction(int signum, const struct bsd___sigaction* nsa, struct bsd_sig
 #endif
 
 static void handler_linux_to_bsd_wrapper(int linux_signum, struct linux_siginfo* info, void* ctxt) {
+	if (ctxt != NULL)
+		sigexc_unpark_abandoned_altstack((struct linux_ucontext*) ctxt);
 	sigexc_interrupt_enter();
-	handler_linux_to_bsd(linux_signum, info, ctxt);
+	// the mask the kernel applied for the application's handler
+	linux_sigset_t mask;
+	LINUX_SYSCALL(__NR_rt_sigprocmask, 0 /* LINUX_SIG_BLOCK */, NULL, &mask, sizeof(mask));
+	sigexc_run_app_handler(linux_signum, info, (struct linux_ucontext*) ctxt, &mask);
 	dserver_rpc_interrupt_exit();
 };
 
