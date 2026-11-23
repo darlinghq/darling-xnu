@@ -5,6 +5,7 @@
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/conversion/signal/duct_signals.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/sigaction.h>
+#include <darling/emulation/linux_premigration/signal/sigexc.h>
 
 extern void* memset(void* dest, int v, __SIZE_TYPE__ len);
 extern void* memcpy(void* dest, const void* src, __SIZE_TYPE__ len);
@@ -61,8 +62,15 @@ void handler_linux_to_bsd(int linux_signum, struct linux_siginfo* info, void* ct
 	// __simple_printf("Handling signal %d\n", linux_signum);
 
 	bsd_sig_handler* handler = sig_handlers[linux_signum];
-	if (sig_flags[linux_signum] & LINUX_SA_RESETHAND)
+	// sig_flags holds the Darwin flags given to sigaction(). As in XNU (bsd/kern/kern_sig.c, postsig()),
+	// SIGILL and SIGTRAP are never reset, and the reset also drops SA_SIGINFO and SA_NODEFER.
+	if ((sig_flags[linux_signum] & BSD_SA_RESETHAND)
+			&& linux_signum != LINUX_SIGILL && linux_signum != LINUX_SIGTRAP)
 	{
+		sig_flags[linux_signum] &= ~(BSD_SA_SIGINFO | BSD_SA_NODEFER);
+		// the default disposition never interrupts a blocking call
+		sigexc_set_restart(linux_signum, true);
+
 		switch (linux_signum)
 		{
 			case LINUX_SIGWINCH:

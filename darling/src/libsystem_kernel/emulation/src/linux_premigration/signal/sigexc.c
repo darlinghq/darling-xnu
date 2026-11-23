@@ -706,7 +706,8 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 			sigset_bsd_to_linux(&bsd_mask, &set);
 
 			// Keep the current signal blocked, which is the default behavior
-			if (!(sig_flags[linux_signum] & LINUX_SA_NODEFER))
+			// (sig_flags holds the Darwin flags given to sigaction())
+			if (!(sig_flags[linux_signum] & BSD_SA_NODEFER))
 				set |= (1ull << (linux_signum-1));
 
 			LINUX_SYSCALL(__NR_rt_sigprocmask, 2 /* LINUX_SIG_SETMASK */,
