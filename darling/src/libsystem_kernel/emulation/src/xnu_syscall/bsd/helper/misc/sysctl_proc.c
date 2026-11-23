@@ -238,11 +238,11 @@ bool darling_process_name(int pid, char* out, unsigned long size)
 	if (size == 0)
 		return false;
 	// The Mach-O executable darlingserver recorded for the process (inherited by forked children)...
-	if (dserver_rpc_get_executable_path(pid, path, sizeof(path), &fullLength) == 0) {
-		path[sizeof(path) - 1] = '\0';
-		base = path_basename(path);
-	}
-	// ...or, when it has none, argv[0] from the process's command line.
+	if (dserver_rpc_get_executable_path(pid, path, sizeof(path), &fullLength) != 0)
+		return false; // darlingserver does not know it: host process or already gone
+	path[sizeof(path) - 1] = '\0';
+	base = path_basename(path);
+	// ...or, when a registered guest has none yet, argv[0] from its command line.
 	if (*base == '\0') {
 		char cmdpath[48];
 		__simple_sprintf(cmdpath, "/proc/%d/cmdline", pid);

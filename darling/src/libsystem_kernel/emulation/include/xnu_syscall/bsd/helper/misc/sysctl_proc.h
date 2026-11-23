@@ -12,7 +12,7 @@ bool proc_start_time(uint64_t starttime, uint64_t* sec, uint64_t* usec);
 
 // The macOS process name: the basename of the process's executable, truncated to
 // fit `size` (a NUL is always written). Returns false when no name is known
-// (e.g. host processes); callers then keep the Linux comm.
+// (e.g. host processes) so KERN_PROC_* omits them.
 bool darling_process_name(int pid, char* out, unsigned long size);
 
 #endif // _SYSCTL_PROC_H
