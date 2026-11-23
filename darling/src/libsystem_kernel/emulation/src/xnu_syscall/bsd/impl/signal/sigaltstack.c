@@ -6,11 +6,7 @@
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
-
-#define BSD_SS_ONSTACK 1
-#define BSD_SS_DISABLE 4
-#define LINUX_SS_ONSTACK 1
-#define LINUX_SS_DISABLE 2
+#include <darling/emulation/linux_premigration/signal/sigexc.h>
 
 static void stack_linux_to_bsd(const struct linux_stack* loss, struct bsd_stack* oss)
 {
@@ -52,6 +48,9 @@ long sys_sigaltstack(const struct bsd_stack* ss, struct bsd_stack* oss)
 		lss.ss_flags = (ss->ss_flags & BSD_SS_DISABLE) ? LINUX_SS_DISABLE : 0;
 		lss.ss_size = ss->ss_size;
 	}
+
+	if (ss != NULL)
+		sigexc_altstack_will_change();
 
 	ret = LINUX_SYSCALL(__NR_sigaltstack, (ss != NULL) ? &lss : NULL, &loss);
 	if (ret < 0)

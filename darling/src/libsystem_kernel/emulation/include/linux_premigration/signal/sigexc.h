@@ -24,9 +24,11 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 // an ignored SIGTTIN makes its read() from the terminal fail with EIO instead of looping).
 bool sigexc_handles_signal(int linux_signum);
 
-// Sets whether the kernel restarts blocking syscalls interrupted by this signal's sigexc_handler.
-// sigaction() uses it to apply the application's SA_RESTART.
-void sigexc_set_restart(int linux_signum, bool restart);
+// Applies the application's disposition of a signal to its sigexc_handler: whether the kernel restarts
+// blocking syscalls the handler interrupted (SA_RESTART) and whether it runs the handler on the
+// alternate stack (SA_ONSTACK). bsd_flags are the Darwin sigaction() flags; without a handler (SIG_DFL,
+// SIG_IGN) they do not matter, as no application code runs and no syscall is interrupted.
+void sigexc_set_disposition(int linux_signum, bool has_handler, int bsd_flags);
 
 // Registers an eventfd that counts each delivery of the signal (for kqueue
 // signal filters); returns 0 or a negative BSD errno.
@@ -42,6 +44,10 @@ unsigned long sigexc_handlers_run(void);
 // Tells darlingserver that the calling thread has entered a signal handler (dserver_rpc_interrupt_enter()),
 // with every other signal that could run a handler blocked until the server has answered.
 int sigexc_interrupt_enter(void);
+
+// Called by sigaltstack() before it replaces the calling thread's alternate stack, so that Darling's
+// own stays known (see sigexc_thread_state).
+void sigexc_altstack_will_change(void);
 
 void sigexc_thread_setup(void);
 void sigexc_thread_exit(void);
