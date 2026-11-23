@@ -518,6 +518,15 @@ static int sq_send(const mach_msg_header_t* msg, mach_msg_option_t option, mach_
 
 // ---- receive --------------------------------------------------------------------------
 
+// A publish wakes one waiting receiver. One that returns without taking the message (MACH_RCV_TOO_LARGE with
+// MACH_RCV_LARGE leaves it queued) passes the wake on, so that another waiting receiver gets it, as XNU's
+// ipc_mqueue_post() goes on to the next receiver after giving one the too-large indication.
+static void sq_pass_wake(uint32_t* waiters, uint64_t* word)
+{
+	if (__atomic_load_n(waiters, __ATOMIC_ACQUIRE) != 0)
+		sq_futex_wake(word, 1);
+}
+
 // The slot a receive uses is not the one its name table entry described any more: a right of the name
 // changed (the receive goes on with the entry as it is now), or the slot was closed and given to another
 // port (the receive is for the port that was). Only the first is for the receive to continue.
@@ -611,8 +620,11 @@ static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t
 			if (DSQ_IS_CLOSED(h))
 			{
 				uint32_t reason = __atomic_load_n(&sslot->close_reason, __ATOMIC_ACQUIRE);
-				// what XNU's blocked receivers get when the receive right moves or is destroyed
-				if (reason == DSQ_CLOSE_MOVED || reason == DSQ_CLOSE_DESTROYED)
+				// what XNU's blocked receivers get when the receive right moves or is destroyed, if the close
+				// was this call's port's: the slot may have been given to another port since, and closed again
+				// with that port's reason (the server changes gen before it writes a new port's reason)
+				if ((reason == DSQ_CLOSE_MOVED || reason == DSQ_CLOSE_DESTROYED) &&
+						__atomic_load_n(&sslot->gen, __ATOMIC_ACQUIRE) == gen)
 				{
 					*result = MACH_RCV_PORT_CHANGED;
 					return true;
@@ -660,6 +672,7 @@ static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t
 					if (!sq_copyout((char*) rcv_addr + 4, &size, sizeof(size)))
 						mr = MACH_RCV_INVALID_DATA;
 				}
+				sq_pass_wake(&qslot->rcv_waiters, &qslot->head);
 				*result = mr;
 				return true;
 			}
@@ -673,6 +686,9 @@ static bool sq_receive(void* rcv_addr, mach_msg_option_t option, mach_msg_size_t
 				(option & MACH_RCV_TIMEOUT) && have_deadline ? sq_remaining(&deadline) : timeout, true);
 			if (mr == DSQ_RCV_WAIT_LOCALLY)
 				continue;
+			// the server leaves a message too large for a MACH_RCV_LARGE receive queued, too
+			if (mr == MACH_RCV_TOO_LARGE && (option & MACH_RCV_LARGE))
+				sq_pass_wake(&qslot->rcv_waiters, &qslot->head);
 			*result = mr;
 			return true;
 		}
