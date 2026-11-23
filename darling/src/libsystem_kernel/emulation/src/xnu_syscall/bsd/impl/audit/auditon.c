@@ -89,6 +89,21 @@ long sys_auditon(int cmd, void* data, int length) {
 			}
 			return 0;
 		}
+		case A_GETSINFO_ADDR: {
+			// Session information by session id. The caller's own session
+			// can be answered; the sessions of other processes are not
+			// tracked (see audit_session_lookup).
+			auditinfo_addr_t info;
+
+			if (length != (int) sizeof(auditinfo_addr_t)) {
+				return -EINVAL;
+			}
+			if (data == NULL) {
+				return -EFAULT;
+			}
+			memcpy(&info, data, sizeof(auditinfo_addr_t));
+			return audit_session_lookup(info.ai_asid, (auditinfo_addr_t*) data);
+		}
 		case A_OLDGETCOND:
 		case A_GETCOND: {
 			// Report the audit condition. Darling never writes audit
