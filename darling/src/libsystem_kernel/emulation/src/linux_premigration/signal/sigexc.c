@@ -983,7 +983,22 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 	int sig_code = info ? info->si_code : 0;
 	unsigned long long sig_addr = info ? (unsigned long long) info->si_addr : 0;
 
-	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, sig_pid, sig_code, (void *) sig_addr, &tstate, &fstate, &bsd_signum);
+	// the exception state that thread_get_state() reports for a fault, as the kernel recorded it in the frame
+	bool has_exception_state = false;
+	uint64_t exception_fault_address = 0;
+	uint32_t exception_trapno = 0, exception_err = 0;
+#if defined(__x86_64__)
+	if (is_thread_fault(linux_signum, info))
+	{
+		has_exception_state = true;
+		exception_fault_address = ctxt->uc_mcontext.gregs.cr2;
+		exception_trapno = ctxt->uc_mcontext.gregs.trapno;
+		exception_err = ctxt->uc_mcontext.gregs.err;
+	}
+#endif
+
+	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, sig_pid, sig_code, (void *) sig_addr, &tstate, &fstate,
+			exception_fault_address, exception_trapno, exception_err, has_exception_state, &bsd_signum);
 	if (ret < 0) {
 #if defined(__x86_64__)
 		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d in PID %d (RIP 0x%llx)\n", linux_signum, ret, getpid(), (unsigned long long)ctxt->uc_mcontext.gregs.rip);
