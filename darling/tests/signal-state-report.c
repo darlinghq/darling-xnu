@@ -4,6 +4,9 @@
 //   which makes children be reaped as with SA_NOCLDWAIT). Never SA_RESETHAND. A signal never set reports
 //   SA_RESTART: XNU records which signals interrupt system calls, and none does until an action without
 //   SA_RESTART is set. The mask is reported without SIGKILL and SIGSTOP, which cannot be blocked.
+// - after SA_RESETHAND took effect, the action is SIG_DFL without SA_SIGINFO and SA_NODEFER, also for the
+//   signals whose default action is to ignore them (SIGCHLD, SIGURG, SIGWINCH), which are not SIG_IGN.
+//   Those, and SIGIO and SIGINFO, are ignored by default: raising them does not end the process.
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -103,11 +106,70 @@ static void test_flags(void)
 	signal(SIGUSR1, SIG_DFL);
 }
 
+// --- the action after SA_RESETHAND took effect
+
+static void test_resethand(int sig)
+{
+	char what[128];
+	sigset_t none;
+	sigemptyset(&none);
+	runs = 0;
+	install(sig, SA_SIGINFO | SA_RESETHAND | SA_NODEFER | SA_RESTART, none);
+	if (sig == SIGCHLD) {
+		pid_t child = fork();
+		if (child == 0)
+			_exit(0);
+		while (runs == 0)
+			usleep(1000);
+		waitpid(child, NULL, 0);
+	} else {
+		raise(sig);
+	}
+	snprintf(what, sizeof(what), "signal %d after SA_RESETHAND: SIG_DFL with SA_RESTART only", sig);
+	check_action(sig, (void*) SIG_DFL, SA_RESTART, what);
+	signal(sig, SIG_DFL);
+}
+
+static void test_ignored_by_default(void)
+{
+	char what[128];
+	int sigs[] = { SIGCHLD, SIGURG, SIGWINCH };
+	for (unsigned i = 0; i < sizeof(sigs) / sizeof(sigs[0]); i++) {
+		snprintf(what, sizeof(what), "signal %d, ignored by default, reports SIG_DFL before it is set", sigs[i]);
+		check_action(sigs[i], (void*) SIG_DFL, SA_RESTART, what);
+	}
+
+	pid_t child = fork();
+	if (child < 0) {
+		perror("fork");
+		exit(2);
+	}
+	if (child == 0) {
+		int raised[] = { SIGCHLD, SIGURG, SIGWINCH, SIGIO, SIGINFO };
+		for (unsigned i = 0; i < sizeof(raised) / sizeof(raised[0]); i++) {
+			signal(raised[i], SIG_DFL);
+			raise(raised[i]);
+		}
+		_exit(0);
+	}
+	int status;
+	waitpid(child, &status, 0);
+	char detail[96];
+	snprintf(detail, sizeof(detail), "child status 0x%x; expected exit 0", status);
+	check(WIFEXITED(status) && WEXITSTATUS(status) == 0,
+		"SIGCHLD, SIGURG, SIGWINCH, SIGIO and SIGINFO with SIG_DFL do not end the process", detail);
+}
+
 int main(void)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
 
+	test_ignored_by_default();
 	test_flags();
+	test_resethand(SIGUSR2);
+	test_resethand(SIGWINCH);
+	test_resethand(SIGURG);
+	test_resethand(SIGCHLD);
 
 	if (failures) {
 		printf("%d failure(s)\n", failures);

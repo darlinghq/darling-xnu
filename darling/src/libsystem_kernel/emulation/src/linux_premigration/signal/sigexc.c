@@ -793,6 +793,24 @@ static bool emulate_darling_tsd_read(const struct linux_siginfo* info, struct li
 
 #endif
 
+// Darwin signals whose default action is to ignore them (SIGCONT also continues the process); on Linux
+// SIGIO and SIGPWR, which SIGINFO maps to, end it.
+static bool default_action_ignores(int bsd_signum)
+{
+	switch (bsd_signum)
+	{
+		case SIGURG:
+		case SIGCONT:
+		case SIGCHLD:
+		case SIGIO:
+		case SIGWINCH:
+		case SIGINFO:
+			return true;
+		default:
+			return false;
+	}
+}
+
 void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
 #if defined(__aarch64__) || defined(__arm64__)
@@ -942,7 +960,8 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 
 	linux_signum = signum_bsd_to_linux(bsd_signum);
 
-	if (sig_handlers[linux_signum] != SIG_IGN)
+	if (sig_handlers[linux_signum] != SIG_IGN
+			&& !(sig_handlers[linux_signum] == SIG_DFL && default_action_ignores(bsd_signum)))
 	{
 		if (sig_handlers[linux_signum])
 		{
