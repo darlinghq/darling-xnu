@@ -5,6 +5,7 @@
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/conversion/signal/duct_signals.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/signal/sigaction.h>
+#include <darling/emulation/linux_premigration/signal/sigexc.h>
 
 extern void* memset(void* dest, int v, __SIZE_TYPE__ len);
 extern void* memcpy(void* dest, const void* src, __SIZE_TYPE__ len);
@@ -127,8 +128,14 @@ void handler_linux_to_bsd(int linux_signum, struct linux_siginfo* info, void* ct
 	// __simple_printf("Handling signal %d\n", linux_signum);
 
 	bsd_sig_handler* handler = sig_handlers[linux_signum];
-	if (sig_flags[linux_signum] & LINUX_SA_RESETHAND)
+	// sig_flags holds the Darwin flags given to sigaction(). As in XNU (bsd/kern/kern_sig.c, postsig()),
+	// SIGILL and SIGTRAP are never reset, and the reset also drops SA_SIGINFO and SA_NODEFER.
+	if ((sig_flags[linux_signum] & BSD_SA_RESETHAND)
+			&& linux_signum != LINUX_SIGILL && linux_signum != LINUX_SIGTRAP)
 	{
+		sig_flags[linux_signum] &= ~(BSD_SA_SIGINFO | BSD_SA_NODEFER);
+		sigexc_set_disposition(linux_signum, false, 0);
+
 		switch (linux_signum)
 		{
 			case LINUX_SIGWINCH:
@@ -159,7 +166,8 @@ static void ucontext_linux_to_bsd(const struct linux_ucontext* lc, struct bsd_uc
 	
 	sigset_linux_to_bsd(&lc->uc_sigmask, &bc->uc_sigmask);
 	
-	bc->uc_stack.ss_flags = lc->uc_stack.ss_flags;
+	bc->uc_stack.ss_flags = ((lc->uc_stack.ss_flags & LINUX_SS_ONSTACK) ? BSD_SS_ONSTACK : 0)
+		| ((lc->uc_stack.ss_flags & LINUX_SS_DISABLE) ? BSD_SS_DISABLE : 0);
 	bc->uc_stack.ss_size = lc->uc_stack.ss_size;
 	bc->uc_stack.ss_sp = lc->uc_stack.ss_sp;
 	
