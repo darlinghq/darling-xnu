@@ -23,40 +23,45 @@ long sys_sigaltstack(const struct bsd_stack* ss, struct bsd_stack* oss)
 {
 	int ret;
 	struct linux_stack lss, loss;
+	struct bsd_stack previous_oss;
 
-	if (ss != NULL)
+	// oss is filled in before the new stack is read (the same structure may be passed for both, and
+	// then the old stack is what stays installed).
+	if (oss != NULL)
 	{
-		// XNU accepts only SS_DISABLE as an input flag. In particular,
-		// do not silently discard unknown bits or pass Linux's value 2.
-		if (ss->ss_flags & ~BSD_SS_DISABLE)
-		{
-			// QUIRK: when the new stack is rejected with EINVAL, oss is
-			// still filled in with the current stack. POSIX does not say
-			// what happens to oss on failure. Evidence: black-box
-			// observation on macOS 27.0.1, arm64 and x86_64 (tier 2).
-			// Test: sigaltstack-flags (the "rejected call" checks).
-			if (oss != NULL)
-			{
-				ret = LINUX_SYSCALL(__NR_sigaltstack, NULL, &loss);
-				if (ret < 0)
-					return errno_linux_to_bsd(ret);
-				stack_linux_to_bsd(&loss, oss);
-			}
-			return -EINVAL;
-		}
-		lss.ss_sp = ss->ss_sp;
-		lss.ss_flags = (ss->ss_flags & BSD_SS_DISABLE) ? LINUX_SS_DISABLE : 0;
-		lss.ss_size = ss->ss_size;
+		ret = LINUX_SYSCALL(__NR_sigaltstack, NULL, &loss);
+		if (ret < 0)
+			return errno_linux_to_bsd(ret);
+		previous_oss = *oss;
+		sigexc_altstack_app_view(&loss);
+		stack_linux_to_bsd(&loss, oss);
 	}
 
-	if (ss != NULL)
-		sigexc_altstack_will_change();
+	if (ss == NULL)
+		return 0;
 
-	ret = LINUX_SYSCALL(__NR_sigaltstack, (ss != NULL) ? &lss : NULL, &loss);
+	// XNU accepts only SS_DISABLE as an input flag. In particular,
+	// do not silently discard unknown bits or pass Linux's value 2.
+	// QUIRK: when the new stack is rejected with EINVAL because of its flags, oss is still filled in
+	// with the current stack; when it is rejected with ENOMEM (stack too small), oss is left alone.
+	// POSIX does not say what happens to oss on failure. Evidence: black-box observation on macOS
+	// 26.7.3 (x86_64) and 10.14.4 (x86_64 and i386) (tier 2).
+	// Test: sigaltstack-flags (the "rejected call" checks), signal-state-report ("too small").
+	if (ss->ss_flags & ~BSD_SS_DISABLE)
+		return -EINVAL;
+
+	lss.ss_sp = ss->ss_sp;
+	lss.ss_flags = (ss->ss_flags & BSD_SS_DISABLE) ? LINUX_SS_DISABLE : 0;
+	lss.ss_size = ss->ss_size;
+
+	sigexc_altstack_will_change();
+
+	ret = LINUX_SYSCALL(__NR_sigaltstack, &lss, NULL);
 	if (ret < 0)
+	{
+		if (oss != NULL)
+			*oss = previous_oss;
 		return errno_linux_to_bsd(ret);
-
-	if (oss != NULL)
-		stack_linux_to_bsd(&loss, oss);
+	}
 	return 0;
 }
