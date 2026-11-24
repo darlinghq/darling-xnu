@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <sys/errno.h>
+#include <sys/signal.h>
 
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
@@ -12,7 +13,6 @@
 #include <darlingserver/rpc.h>
 
 static int sigflags_bsd_to_linux(int flags);
-static int sigflags_linux_to_bsd(int flags);
 extern void sig_restorer(void);
 
 extern void* memcpy(void* dest, const void* src, __SIZE_TYPE__ len);
@@ -23,12 +23,13 @@ static void handler_linux_to_bsd_wrapper(int linux_signum, struct linux_siginfo*
 // Libc uses only one trampoline
 void (*sa_tramp)(void*, int, int, struct bsd_siginfo*, void*) = 0;
 bsd_sig_tramp sig_tramps[32] = {0};
-bsd_sig_handler* sig_handlers[32] = {
-	[LINUX_SIGWINCH] = (bsd_sig_handler*) SIG_IGN,
-	[LINUX_SIGURG] = (bsd_sig_handler*) SIG_IGN,
-};
-int sig_flags[32];
+bsd_sig_handler* sig_handlers[32];
+// The Darwin flags given to sigaction(). A signal never set reports SA_RESTART, as on XNU, where
+// only an action set without it makes the signal interrupt system calls.
+int sig_flags[32] = { [0 ... 31] = BSD_SA_RESTART };
 unsigned int sig_masks[32];
+
+static int sigflags_reported(int linux_signum);
 
 long sys_sigaction(int signum, const struct bsd___sigaction* nsa, struct bsd_sigaction* osa)
 {
@@ -83,7 +84,7 @@ long sys_sigaction(int signum, const struct bsd___sigaction* nsa, struct bsd_sig
 			else // values such as SIG_DFL
 				osa->sa_sigaction = (bsd_sig_handler*) olsa.sa_sigaction;
 			sigset_linux_to_bsd(&olsa.sa_mask, &osa->sa_mask);
-			osa->sa_flags = sigflags_linux_to_bsd(olsa.sa_flags);
+			osa->sa_flags = sigflags_reported(linux_signum);
 		}
 	}
 	else
@@ -93,8 +94,9 @@ long sys_sigaction(int signum, const struct bsd___sigaction* nsa, struct bsd_sig
 		if (osa != NULL)
 		{
 			osa->sa_sigaction = sig_handlers[linux_signum];
-			osa->sa_flags = sig_flags[linux_signum];
-			osa->sa_mask = sig_masks[linux_signum];
+			osa->sa_flags = sigflags_reported(linux_signum);
+			// as XNU keeps it: SIGKILL and SIGSTOP cannot be blocked
+			osa->sa_mask = sig_masks[linux_signum] & ~((1u << (SIGKILL - 1)) | (1u << (SIGSTOP - 1)));
 		}
 	}
 	
@@ -104,6 +106,9 @@ long sys_sigaction(int signum, const struct bsd___sigaction* nsa, struct bsd_sig
 		sig_handlers[linux_signum] = nsa->sa_sigaction;
 		sig_tramps[linux_signum] = nsa->sa_tramp;
 		sig_flags[linux_signum] = nsa->sa_flags;
+		// XNU's SIGCHLD set to SIG_IGN reaps children as with SA_NOCLDWAIT, and reports that flag
+		if (linux_signum == LINUX_SIGCHLD && nsa->sa_sigaction == XNU_SIG_IGN)
+			sig_flags[linux_signum] |= BSD_SA_NOCLDWAIT;
 		sig_masks[linux_signum] = nsa->sa_mask;
 
 		if (sigexc_handles_signal(linux_signum))
@@ -187,10 +192,25 @@ long sys_sigaction(int signum, const struct bsd___sigaction* nsa, struct bsd_sig
 #endif
 
 static void handler_linux_to_bsd_wrapper(int linux_signum, struct linux_siginfo* info, void* ctxt) {
+	if (ctxt != NULL)
+		sigexc_unpark_abandoned_altstack((struct linux_ucontext*) ctxt);
 	sigexc_interrupt_enter();
-	handler_linux_to_bsd(linux_signum, info, ctxt);
+	// the mask the kernel applied for the application's handler
+	linux_sigset_t mask;
+	LINUX_SYSCALL(__NR_rt_sigprocmask, 0 /* LINUX_SIG_BLOCK */, NULL, &mask, sizeof(mask));
+	sigexc_run_app_handler(linux_signum, info, (struct linux_ucontext*) ctxt, &mask);
 	dserver_rpc_interrupt_exit();
 };
+
+// The flags XNU's sigaction() reports for the old action (bsd/kern/kern_sig.c): the ones it keeps per
+// signal, never SA_RESETHAND, and SA_NOCLDSTOP and SA_NOCLDWAIT for SIGCHLD only.
+static int sigflags_reported(int linux_signum)
+{
+	int flags = sig_flags[linux_signum] & (BSD_SA_ONSTACK | BSD_SA_RESTART | BSD_SA_SIGINFO | BSD_SA_NODEFER);
+	if (linux_signum == LINUX_SIGCHLD)
+		flags |= sig_flags[linux_signum] & (BSD_SA_NOCLDSTOP | BSD_SA_NOCLDWAIT);
+	return flags;
+}
 
 static int sigflags_bsd_to_linux(int flags)
 {
@@ -210,24 +230,4 @@ static int sigflags_bsd_to_linux(int flags)
 		linux_flags |= LINUX_SA_RESTART;
 
 	return linux_flags;
-}
-
-static int sigflags_linux_to_bsd(int flags)
-{
-	int bsd_flags = 0;
-
-	if (flags & LINUX_SA_NOCLDSTOP)
-		bsd_flags |= BSD_SA_NOCLDSTOP;
-	if (flags & LINUX_SA_NOCLDWAIT)
-		bsd_flags |= BSD_SA_NOCLDWAIT;
-	if (flags & LINUX_SA_ONSTACK)
-		bsd_flags |= BSD_SA_ONSTACK;
-	if (flags & LINUX_SA_NODEFER)
-		bsd_flags |= BSD_SA_NODEFER;
-	if (flags & LINUX_SA_RESETHAND)
-		bsd_flags |= BSD_SA_RESETHAND;
-	if (flags & LINUX_SA_RESTART)
-		bsd_flags |= BSD_SA_RESTART;
-
-	return bsd_flags;
 }

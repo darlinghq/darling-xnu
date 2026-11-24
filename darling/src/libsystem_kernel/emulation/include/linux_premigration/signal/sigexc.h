@@ -45,9 +45,28 @@ unsigned long sigexc_handlers_run(void);
 // with every other signal that could run a handler blocked until the server has answered.
 int sigexc_interrupt_enter(void);
 
+// Gives back the alternate stack Darling took away for a handler that then left by longjmp(), when the
+// signal of ctxt interrupted the thread above where that handler started. Every Linux handler that runs
+// application handlers calls it first.
+void sigexc_unpark_abandoned_altstack(struct linux_ucontext* ctxt);
+
+// Runs the application's handler of a signal (handler_linux_to_bsd()) with the signal mask given, for
+// sigexc_handler and for the handler sigaction() installs for SIGCHLD, SIGTTOU and SIGTTIN. Where the
+// kernel ran the caller on an alternate stack the application's handler is not to run on (Darling's
+// own, or any for a handler without SA_ONSTACK), it runs on the interrupted stack, below its red zone.
+void sigexc_run_app_handler(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt,
+		const linux_sigset_t* mask);
+
 // Called by sigaltstack() before it replaces the calling thread's alternate stack, so that Darling's
 // own stays known (see sigexc_thread_state).
 void sigexc_altstack_will_change(void);
+
+// Turns the calling thread's alternate stack, as Linux reports it, into the one the application installed:
+// Darling's own is reported as none (SS_DISABLE, no address or size, as for a thread that never installed
+// one), and the application's stack, while Darling has taken it away for a handler running on the
+// interrupted stack, as still installed.
+struct linux_stack;
+void sigexc_altstack_app_view(struct linux_stack* stack);
 
 void sigexc_thread_setup(void);
 void sigexc_thread_exit(void);

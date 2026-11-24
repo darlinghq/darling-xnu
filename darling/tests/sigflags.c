@@ -196,12 +196,11 @@ static int on_interrupted_stack(int level)
 
 enum where { INTERRUPTED, ALTSTACK };
 
-// Raises SIGUSR1 (one level) or, with SA_NODEFER, SIGUSR2 (whose handler raises it again: two levels).
-static void test_stack(const char* what, int flags, enum where expected)
+// Raises sig; for SIGUSR2, whose handler raises it again, with SA_NODEFER: two levels.
+static void test_stack_of(const char* what, int sig, int flags, enum where expected)
 {
 	char detail[256];
-	int sig = (flags & SA_NODEFER) ? SIGUSR2 : SIGUSR1;
-	int levels = (flags & SA_NODEFER) ? 2 : 1;
+	int levels = (sig == SIGUSR2 && (flags & SA_NODEFER)) ? 2 : 1;
 	runs = depth = max_depth = 0;
 	memset((void*) handler_sp, 0, sizeof(handler_sp));
 	memset((void*) interrupted_sp, 0, sizeof(interrupted_sp));
@@ -219,6 +218,12 @@ static void test_stack(const char* what, int flags, enum where expected)
 		(unsigned long) handler_sp[1], (unsigned long) interrupted_sp[0], (unsigned long) interrupted_sp[1],
 		(void*) altstack, (void*) (altstack + sizeof(altstack)));
 	check(ok, what, detail);
+}
+
+// Raises SIGUSR1 (one level) or, with SA_NODEFER, SIGUSR2 (two levels).
+static void test_stack(const char* what, int flags, enum where expected)
+{
+	test_stack_of(what, (flags & SA_NODEFER) ? SIGUSR2 : SIGUSR1, flags, expected);
 }
 
 // A thread that never called sigaltstack() has no alternate stack.
@@ -546,6 +551,42 @@ static void test_disabled_after_longjmp(void)
 		"an alternate stack disabled after a handler left by longjmp() stays disabled", detail);
 }
 
+static int sigchld_runs;
+static uintptr_t sigchld_sp;
+static volatile int sigchld_spinning, sigchld_gave_up;
+
+// After a handler without SA_ONSTACK that ran off the alternate stack left by longjmp(), SIGCHLD's
+// handler gives the stack back as well: the next SA_ONSTACK one runs on it.
+static void* sigchld_after_longjmp(void* arg)
+{
+	(void) arg;
+	stack_t ss = { .ss_sp = altstack, .ss_size = sizeof(altstack), .ss_flags = 0 };
+	sigaltstack(&ss, NULL);
+	fault_page = mmap(NULL, (size_t) getpagesize(), PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0);
+	install(SIGSEGV, escaping_handler, 0);
+	install(SIGBUS, escaping_handler, 0);
+	if (!sigsetjmp(escape, 1))
+		deep_fault();
+	reset_default(SIGSEGV);
+	reset_default(SIGBUS);
+	munmap(fault_page, (size_t) getpagesize());
+	fault_page = NULL;
+	runs = depth = max_depth = 0;
+	install(SIGCHLD, recording_handler, SA_ONSTACK);
+	// The signals come from another thread while this one spins in a shallow frame (raise() would take
+	// them deeper down the stack than the handler left by longjmp() started).
+	sigchld_spinning = 1;
+	while (runs < 2 && !sigchld_gave_up)
+		;
+	reset_default(SIGCHLD);
+	int ok = runs == 2 && on_altstack(handler_sp[0]);
+	sigchld_runs = runs;
+	sigchld_sp = handler_sp[0];
+	ss.ss_flags = SS_DISABLE;
+	sigaltstack(&ss, NULL);
+	return (void*) (uintptr_t) ok;
+}
+
 static void test_altstack_after_handlers(void)
 {
 	pthread_t thread;
@@ -558,6 +599,26 @@ static void test_altstack_after_handlers(void)
 	pthread_kill(thread, SIGUSR2);
 	pthread_join(thread, NULL);
 	test_disabled_after_longjmp();
+
+	void* ok;
+	pthread_create(&thread, NULL, sigchld_after_longjmp, NULL);
+	while (!sigchld_spinning)
+		;
+	// one at a time: a second SIGCHLD sent while the first is pending would be merged with it
+	for (int i = 1; i <= 2; i++) {
+		pthread_kill(thread, SIGCHLD);
+		for (int wait = 0; runs < i && wait < 2000; wait++) {
+			struct timespec ms = { 0, 1000000 };
+			nanosleep(&ms, NULL);
+		}
+	}
+	sigchld_gave_up = 1;
+	pthread_join(thread, &ok);
+	char detail[160];
+	snprintf(detail, sizeof(detail), "%d runs, the second at %#lx; alternate stack %p-%p", sigchld_runs,
+		(unsigned long) sigchld_sp, (void*) altstack, (void*) (altstack + sizeof(altstack)));
+	check(ok != NULL, "after a handler left by longjmp(), an SA_ONSTACK SIGCHLD handler gets the alternate stack back",
+		detail);
 }
 
 static void test_stacks(void)
@@ -574,6 +635,10 @@ static void test_stacks(void)
 
 	test_signal_stress();
 	test_fault_stack("no alternate stack: a SIGSEGV handler without SA_ONSTACK runs on the interrupted stack");
+	test_stack_of("no alternate stack: an SA_ONSTACK SIGCHLD handler runs on the interrupted stack", SIGCHLD,
+		SA_ONSTACK, INTERRUPTED);
+	test_stack_of("no alternate stack: an SA_ONSTACK SIGTTIN handler runs on the interrupted stack", SIGTTIN,
+		SA_ONSTACK, INTERRUPTED);
 
 	stack_t ss = { .ss_sp = altstack, .ss_size = sizeof(altstack), .ss_flags = 0 };
 	if (sigaltstack(&ss, NULL) != 0) {
@@ -586,6 +651,8 @@ static void test_stacks(void)
 	test_stack("nested SA_NODEFER handlers without SA_ONSTACK run on the interrupted stack", SA_NODEFER,
 		INTERRUPTED);
 	test_fault_stack("a SIGSEGV handler without SA_ONSTACK runs on the interrupted stack");
+	test_stack_of("an SA_ONSTACK SIGCHLD handler runs on the alternate stack", SIGCHLD, SA_ONSTACK, ALTSTACK);
+	test_stack_of("a SIGCHLD handler without SA_ONSTACK runs on the interrupted stack", SIGCHLD, 0, INTERRUPTED);
 
 	ss.ss_flags = SS_DISABLE;
 	sigaltstack(&ss, NULL);

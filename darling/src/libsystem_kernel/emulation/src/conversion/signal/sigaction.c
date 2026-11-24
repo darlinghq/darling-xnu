@@ -135,17 +135,8 @@ void handler_linux_to_bsd(int linux_signum, struct linux_siginfo* info, void* ct
 	{
 		sig_flags[linux_signum] &= ~(BSD_SA_SIGINFO | BSD_SA_NODEFER);
 		sigexc_set_disposition(linux_signum, false, 0);
-
-		switch (linux_signum)
-		{
-			case LINUX_SIGWINCH:
-			case LINUX_SIGCHLD:
-			case LINUX_SIGURG:
-				sig_handlers[linux_signum] = (bsd_sig_handler*) SIG_IGN;
-				break;
-			default:
-				sig_handlers[linux_signum] = NULL; // SIG_DFL
-		}
+		// SIG_DFL, also for the signals whose default action is to ignore them
+		sig_handlers[linux_signum] = NULL;
 	}
 
 	handler(bsd_signum, info ? &binfo : NULL, (lc != NULL) ? &bc : NULL);
