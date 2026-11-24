@@ -65,6 +65,26 @@ struct linux_siginfo
 	};
 };
 
+// si_code values of the Linux kernel (asm-generic/siginfo.h) that differ from
+// Darwin's, or that Darwin does not have.
+#define LINUX_SI_KERNEL     0x80
+#define LINUX_ILL_ILLOPC    1
+#define LINUX_ILL_ILLOPN    2
+#define LINUX_ILL_ILLADR    3
+#define LINUX_ILL_ILLTRP    4
+#define LINUX_ILL_PRVOPC    5
+#define LINUX_ILL_PRVREG    6
+#define LINUX_ILL_COPROC    7
+#define LINUX_ILL_BADSTK    8
+#define LINUX_FPE_INTDIV    1
+#define LINUX_FPE_INTOVF    2
+#define LINUX_FPE_FLTDIV    3
+#define LINUX_FPE_FLTOVF    4
+#define LINUX_FPE_FLTUND    5
+#define LINUX_FPE_FLTRES    6
+#define LINUX_FPE_FLTINV    7
+#define LINUX_FPE_FLTSUB    8
+
 typedef void (bsd_sig_handler)(int, struct bsd_siginfo*, void*);
 typedef void (linux_sig_handler)(int, struct linux_siginfo*, void*);
 

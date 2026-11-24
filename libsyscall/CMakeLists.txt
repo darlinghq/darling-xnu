@@ -108,7 +108,12 @@ endforeach()
 list(APPEND syscall_mig_sources_32 "${CMAKE_CURRENT_BINARY_DIR}/mach/exc-i386-Server.c")
 list(APPEND syscall_mig_sources_64 "${CMAKE_CURRENT_BINARY_DIR}/mach/exc-x86_64-Server.c")
 
-unset(MIG_MULTIARCH)
+# The libsyscall-internal MIG headers declare the stubs' vm_address_t and vm_size_t parameters with the
+# types of the architecture they were generated for (mach_vm_address_t and mach_vm_size_t on a 64-bit
+# slice, the 32-bit types on i386). One header generated for the primary slice only makes the hand-written
+# wrappers in mach/mach_vm.c call the i386 stubs with 64-bit arguments (vm_remap, vm_map). Each slice gets
+# its own header, <name>-<arch>-_internal.h, and <name>_internal.h picks the one of the slice being compiled.
+set(MIG_MULTIARCH ${DARLING_ARCHS})
 set(MIG_USER_HEADER_SUFFIX "_internal.h")
 set(MIG_USER_SOURCE_SUFFIX "_unused_internal_user.c")
 set(MIG_SERVER_HEADER_SUFFIX "_unused_internal_server.h")
@@ -116,7 +121,15 @@ set(MIG_SERVER_SOURCE_SUFFIX "_unused_internal_server.c")
 set(MIG_XTRACE_SUFFIX "_unused_xtrace2.c")
 foreach(MIG_FILENAME IN LISTS LIBSYSCALL_MIGS_INTERNAL)
 	mig("${MIG_FILENAME}.defs")
-	list(APPEND syscall_mig_internal_headers "${CMAKE_CURRENT_BINARY_DIR}/${MIG_FILENAME}_internal.h")
+	set(MIG_INTERNAL_SELECTOR "")
+	set(MIG_INTERNAL_CONDITION "if")
+	foreach(MIG_ARCH IN LISTS DARLING_ARCHS)
+		list(APPEND syscall_mig_internal_headers "${CMAKE_CURRENT_BINARY_DIR}/${MIG_FILENAME}-${MIG_ARCH}-_internal.h")
+		string(APPEND MIG_INTERNAL_SELECTOR "#${MIG_INTERNAL_CONDITION} defined(__${MIG_ARCH}__)\n#include \"${MIG_FILENAME}-${MIG_ARCH}-_internal.h\"\n")
+		set(MIG_INTERNAL_CONDITION "elif")
+	endforeach()
+	string(APPEND MIG_INTERNAL_SELECTOR "#else\n#error \"no libsyscall-internal MIG header for this architecture\"\n#endif\n")
+	file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${MIG_FILENAME}_internal.h" CONTENT "${MIG_INTERNAL_SELECTOR}")
 
 	get_filename_component(MIG_HEADER_DIR ${MIG_FILENAME} DIRECTORY)
 
