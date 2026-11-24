@@ -2,6 +2,9 @@
 
 #include <libsimple/lock.h>
 
+#include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/duct_errno.h>
+
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/geteuid.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/getentropy.h>
 
@@ -47,6 +50,18 @@ long sys_setaudit_addr(struct auditinfo_addr* auditinfo_addr, int length) {
 	libsimple_lock_unlock(&info_lock);
 	return 0;
 };
+
+long audit_session_lookup(au_asid_t asid, struct auditinfo_addr* out) {
+	long ret = -EINVAL;
+
+	libsimple_lock_lock(&info_lock);
+	if (asid == info.ai_asid) {
+		memcpy(out, &info, sizeof(auditinfo_addr_t));
+		ret = 0;
+	}
+	libsimple_lock_unlock(&info_lock);
+	return ret;
+}
 
 void audit_session_set_mask(au_mask_t mask) {
 	libsimple_lock_lock(&info_lock);

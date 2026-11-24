@@ -5,6 +5,7 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bpf/bpf_device.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/network/nosigpipe.h>
 
 __attribute__((weak))
 __attribute__((visibility("default")))
@@ -22,6 +23,7 @@ long sys_dup(int fd)
 		if (ret >= 0) {
 			kqueue_dup(fd, ret);
 			bpf_device_dup(fd, ret);
+			nosigpipe_dup(fd, ret);
 		}
 	}
 

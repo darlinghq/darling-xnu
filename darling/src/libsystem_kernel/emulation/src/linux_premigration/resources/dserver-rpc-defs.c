@@ -10,8 +10,9 @@
 #include <darlingserver/rpc.h>
 
 #ifndef DSERVER_RPC_USE_LOG_FILE
-	// CHANGE TO 0 BEFORE COMMITTING
-	#define DSERVER_RPC_USE_LOG_FILE 1
+	// Logging RPC errors to a hard-coded, unbounded host file is a debugging aid only.
+	// Pass -DDSERVER_RPC_USE_LOG_FILE=1 to enable it.
+	#define DSERVER_RPC_USE_LOG_FILE 0
 #endif
 
 void __dserver_rpc_hooks_push_reply(int socket, const dserver_rpc_hooks_msghdr_t* reply, size_t size) {
