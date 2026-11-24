@@ -2,14 +2,18 @@
 // - sigaction() reports the flags XNU keeps for a signal: SA_ONSTACK, SA_RESTART, SA_SIGINFO, SA_NODEFER,
 //   and for SIGCHLD only SA_NOCLDSTOP and SA_NOCLDWAIT (also reported after SIGCHLD was set to SIG_IGN,
 //   which makes children be reaped as with SA_NOCLDWAIT). Never SA_RESETHAND. A signal never set reports
-//   SA_RESTART: XNU records which signals interrupt system calls, and none does until an action without
-//   SA_RESTART is set. The mask is reported without SIGKILL and SIGSTOP, which cannot be blocked.
+//   no flags at all, SA_RESTART included (observed on macOS 26.7.3 and 10.14.4; on 26.7.3 a signal that the
+//   parent process set with signal() before exec also reports SA_RESTART, which this test cannot depend on,
+//   so it looks at signals no shell sets). The mask is reported without SIGKILL and SIGSTOP, which cannot
+//   be blocked.
 // - after SA_RESETHAND took effect, the action is SIG_DFL without SA_SIGINFO and SA_NODEFER, also for the
 //   signals whose default action is to ignore them (SIGCHLD, SIGURG, SIGWINCH), which are not SIG_IGN.
 //   Those, and SIGIO and SIGINFO, are ignored by default: raising them does not end the process.
 // - sigaltstack() reports the alternate stack the thread installed, SS_DISABLE with no address and size
 //   when it installed none, also inside a handler; and the installed one, also while a handler without
 //   SA_ONSTACK runs on the interrupted stack.
+// - a sigaltstack() call whose new stack is rejected: EINVAL for flags other than SS_DISABLE, which still
+//   fills in the old stack, and ENOMEM for a stack that is too small, which leaves it alone.
 // - a SIGCHLD handler without SA_RESTART interrupts a blocking call, which fails with EINTR.
 #include <errno.h>
 #include <pthread.h>
@@ -77,7 +81,7 @@ static void test_flags(void)
 	sigemptyset(&none);
 
 	// nothing in this process sets SIGXCPU before
-	check_action(SIGXCPU, (void*) SIG_DFL, SA_RESTART, "a signal never set reports SIG_DFL with SA_RESTART");
+	check_action(SIGXCPU, (void*) SIG_DFL, 0, "a signal never set reports SIG_DFL with no flags");
 
 	install(SIGUSR1, SA_SIGINFO | SA_RESETHAND | SA_NODEFER | SA_ONSTACK | SA_RESTART, none);
 	check_action(SIGUSR1, (void*) counting_handler, SA_SIGINFO | SA_NODEFER | SA_ONSTACK | SA_RESTART,
@@ -113,6 +117,51 @@ static void test_flags(void)
 	signal(SIGUSR1, SIG_DFL);
 }
 
+// --- flags the reports keep, observed on macOS 26.7.3 and 10.14.4
+
+static void test_flag_bookkeeping(void)
+{
+	struct sigaction act;
+	memset(&act, 0, sizeof(act));
+
+	// signal() installs with SA_RESTART
+	signal(SIGUSR2, SIG_DFL);
+	check_action(SIGUSR2, (void*) SIG_DFL, SA_RESTART, "signal(SIG_DFL) reports SA_RESTART");
+	signal(SIGUSR2, SIG_IGN);
+	check_action(SIGUSR2, (void*) SIG_IGN, SA_RESTART, "signal(SIG_IGN) reports SA_RESTART");
+
+	// the flags given with SIG_DFL and SIG_IGN are kept
+	act.sa_handler = SIG_DFL;
+	act.sa_flags = SA_RESTART;
+	sigaction(SIGUSR2, &act, NULL);
+	check_action(SIGUSR2, (void*) SIG_DFL, SA_RESTART, "SIG_DFL set with SA_RESTART reports SA_RESTART");
+	act.sa_handler = SIG_IGN;
+	act.sa_flags = 0;
+	sigaction(SIGUSR2, &act, NULL);
+	check_action(SIGUSR2, (void*) SIG_IGN, 0, "SIG_IGN set without flags reports no flags");
+
+	// SIGCHLD: SIG_IGN reports SA_NOCLDWAIT, which does not stay when the action is set again
+	act.sa_handler = SIG_IGN;
+	act.sa_flags = SA_NOCLDSTOP;
+	sigaction(SIGCHLD, &act, NULL);
+	check_action(SIGCHLD, (void*) SIG_IGN, SA_NOCLDSTOP | SA_NOCLDWAIT, "SIGCHLD set to SIG_IGN with SA_NOCLDSTOP");
+	act.sa_handler = SIG_DFL;
+	act.sa_flags = 0;
+	sigaction(SIGCHLD, &act, NULL);
+	check_action(SIGCHLD, (void*) SIG_DFL, 0, "SIGCHLD set to SIG_DFL again: SA_NOCLDWAIT is gone");
+
+	// what an SA_RESETHAND reset keeps: the other flags the action was set with
+	sigset_t none;
+	sigemptyset(&none);
+	install(SIGUSR2, SA_SIGINFO | SA_RESETHAND | SA_ONSTACK, none);
+	raise(SIGUSR2);
+	check_action(SIGUSR2, (void*) SIG_DFL, SA_ONSTACK, "SA_RESETHAND reset keeps SA_ONSTACK");
+	install(SIGUSR2, SA_SIGINFO | SA_RESETHAND, none);
+	raise(SIGUSR2);
+	check_action(SIGUSR2, (void*) SIG_DFL, 0, "SA_RESETHAND reset without SA_RESTART reports no flags");
+	signal(SIGUSR2, SIG_DFL);
+}
+
 // --- the action after SA_RESETHAND took effect
 
 static void test_resethand(int sig)
@@ -142,8 +191,9 @@ static void test_ignored_by_default(void)
 	char what[128];
 	int sigs[] = { SIGCHLD, SIGURG, SIGWINCH };
 	for (unsigned i = 0; i < sizeof(sigs) / sizeof(sigs[0]); i++) {
-		snprintf(what, sizeof(what), "signal %d, ignored by default, reports SIG_DFL before it is set", sigs[i]);
-		check_action(sigs[i], (void*) SIG_DFL, SA_RESTART, what);
+		snprintf(what, sizeof(what), "signal %d, ignored by default, reports SIG_DFL with no flags before it is set",
+			sigs[i]);
+		check_action(sigs[i], (void*) SIG_DFL, 0, what);
 	}
 
 	pid_t child = fork();
@@ -270,6 +320,46 @@ static void* altstack_reports(void* arg)
 	return NULL;
 }
 
+// --- a rejected sigaltstack() call: observed on macOS 26.7.3 and 10.14.4
+
+static void test_altstack_rejected(void)
+{
+	char detail[192];
+	stack_t mine = { .ss_sp = altstack, .ss_size = sizeof(altstack), .ss_flags = 0 };
+	sigaltstack(&mine, NULL);
+
+	// QUIRK: flags that are not SS_DISABLE are rejected with EINVAL, and oss is filled in anyway;
+	// too small a stack is rejected with ENOMEM and oss stays as it was. Pinned by the checks below.
+	stack_t bad = { .ss_sp = altstack, .ss_size = sizeof(altstack), .ss_flags = 0x40 };
+	stack_t old;
+	memset(&old, 0xa5, sizeof(old));
+	int rc = sigaltstack(&bad, &old);
+	int err = errno;
+	describe(detail, sizeof(detail), &old);
+	check(rc == -1 && err == EINVAL && is_altstack(&old, 0), "an invalid flag is EINVAL and fills in oss", detail);
+
+	stack_t small = { .ss_sp = altstack, .ss_size = 100, .ss_flags = 0 };
+	memset(&old, 0xa5, sizeof(old));
+	rc = sigaltstack(&small, &old);
+	err = errno;
+	snprintf(detail, sizeof(detail), "rc %d, errno %d, oss flags %#x", rc, err, old.ss_flags);
+	check(rc == -1 && err == ENOMEM && old.ss_flags == (int) 0xa5a5a5a5, "a too small stack is ENOMEM and leaves oss alone",
+		detail);
+
+	// the same structure as new and old stack: the old stack is written first, so it is installed again
+	stack_t other = { .ss_sp = altstack + 4096, .ss_size = sizeof(altstack) - 4096, .ss_flags = 0 };
+	rc = sigaltstack(&other, &other);
+	describe(detail, sizeof(detail), &other);
+	check(rc == 0 && is_altstack(&other, 0), "the same structure as ss and oss: oss gets the old stack", detail);
+	stack_t now;
+	sigaltstack(NULL, &now);
+	describe(detail, sizeof(detail), &now);
+	check(is_altstack(&now, 0), "the same structure as ss and oss: the old stack stays installed", detail);
+
+	mine.ss_flags = SS_DISABLE;
+	sigaltstack(&mine, NULL);
+}
+
 // --- SIGCHLD, SIGTTOU and SIGTTIN handlers interrupt a blocking call without SA_RESTART
 
 static int unblock_fd;
@@ -325,6 +415,7 @@ int main(void)
 
 	test_ignored_by_default();
 	test_flags();
+	test_flag_bookkeeping();
 	test_resethand(SIGUSR2);
 	test_resethand(SIGWINCH);
 	test_resethand(SIGURG);
@@ -334,6 +425,7 @@ int main(void)
 	pthread_create(&thread, NULL, altstack_reports, "new thread");
 	pthread_join(thread, NULL);
 	altstack_reports("main thread");
+	test_altstack_rejected();
 
 	test_sigchld_interrupts();
 

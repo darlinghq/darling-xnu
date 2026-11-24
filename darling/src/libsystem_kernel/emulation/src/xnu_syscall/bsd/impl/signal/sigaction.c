@@ -24,9 +24,8 @@ static void handler_linux_to_bsd_wrapper(int linux_signum, struct linux_siginfo*
 void (*sa_tramp)(void*, int, int, struct bsd_siginfo*, void*) = 0;
 bsd_sig_tramp sig_tramps[32] = {0};
 bsd_sig_handler* sig_handlers[32];
-// The Darwin flags given to sigaction(). A signal never set reports SA_RESTART, as on XNU, where
-// only an action set without it makes the signal interrupt system calls.
-int sig_flags[32] = { [0 ... 31] = BSD_SA_RESTART };
+// The Darwin flags given to sigaction(). A signal never set reports no flags, not even SA_RESTART.
+int sig_flags[32];
 unsigned int sig_masks[32];
 
 static int sigflags_reported(int linux_signum);

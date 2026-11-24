@@ -23,13 +23,16 @@ long sys_sigaltstack(const struct bsd_stack* ss, struct bsd_stack* oss)
 {
 	int ret;
 	struct linux_stack lss, loss;
+	struct bsd_stack previous_oss;
 
-	// As in XNU, oss is filled in before the new stack is checked.
+	// oss is filled in before the new stack is read (the same structure may be passed for both, and
+	// then the old stack is what stays installed).
 	if (oss != NULL)
 	{
 		ret = LINUX_SYSCALL(__NR_sigaltstack, NULL, &loss);
 		if (ret < 0)
 			return errno_linux_to_bsd(ret);
+		previous_oss = *oss;
 		sigexc_altstack_app_view(&loss);
 		stack_linux_to_bsd(&loss, oss);
 	}
@@ -39,6 +42,11 @@ long sys_sigaltstack(const struct bsd_stack* ss, struct bsd_stack* oss)
 
 	// XNU accepts only SS_DISABLE as an input flag. In particular,
 	// do not silently discard unknown bits or pass Linux's value 2.
+	// QUIRK: when the new stack is rejected with EINVAL because of its flags, oss is still filled in
+	// with the current stack; when it is rejected with ENOMEM (stack too small), oss is left alone.
+	// POSIX does not say what happens to oss on failure. Evidence: black-box observation on macOS
+	// 26.7.3 (x86_64) and 10.14.4 (x86_64 and i386) (tier 2).
+	// Test: sigaltstack-flags (the "rejected call" checks), signal-state-report ("too small").
 	if (ss->ss_flags & ~BSD_SS_DISABLE)
 		return -EINVAL;
 
@@ -50,6 +58,10 @@ long sys_sigaltstack(const struct bsd_stack* ss, struct bsd_stack* oss)
 
 	ret = LINUX_SYSCALL(__NR_sigaltstack, &lss, NULL);
 	if (ret < 0)
+	{
+		if (oss != NULL)
+			*oss = previous_oss;
 		return errno_linux_to_bsd(ret);
+	}
 	return 0;
 }
