@@ -827,21 +827,40 @@ unsigned long sigexc_handlers_run(void)
 }
 
 #if defined(__aarch64__) || defined(__arm64__)
-// Emulates the Darling-private TSD read trap (see tsd_trap.h) that dyld leaves
-// in place of a Darwin TPIDRRO_EL0 read. Linux owns TPIDR_EL0; returning it
-// here would expose and corrupt native ELF TLS.
-static bool emulate_darling_tsd_read(const struct linux_siginfo* info, struct linux_ucontext* ctxt)
+// Emulates trapped ARM64 EL0 register reads before RPC and Mach exception delivery:
+// - Darling-private TSD read trap (see tsd_trap.h) that dyld leaves in place of
+//   a Darwin TPIDRRO_EL0 read; Linux owns TPIDR_EL0.
+// - Darwin `mrs Xt, CNTPCT_EL0` where the host kernel traps it (seen on Asahi
+//   aarch64, where CNTVCT_EL0 and CNTFRQ_EL0 are readable). CNTVCT_EL0 equals
+//   CNTPCT_EL0 only when CNTVOFF_EL2 is zero, which EL0 cannot read.
+static bool emulate_arm64_sigill(const struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
 	struct linux_gregset* regs = &ctxt->uc_mcontext.gregs;
 	// Only a synchronous undefined-instruction trap at the saved PC: the
 	// instruction word is not read for any other SIGILL.
 	if (info->si_code != 1 /* ILL_ILLOPC */ || (uintptr_t)info->si_addr != (uintptr_t)regs->pc)
 		return false;
+
+	uint32_t insn = *(const uint32_t*)regs->pc;
 	uint32_t destination;
-	if (!darling_tsd_trap_decode(*(const uint32_t*)regs->pc, &destination))
+	uint64_t value;
+
+	if (darling_tsd_trap_decode(insn, &destination))
+	{
+		value = (uintptr_t)sys_thread_get_tsd_base();
+	}
+	else if ((insn & 0xFFFFFFE0u) == 0xD53BE020u)
+	{
+		__asm__ volatile("mrs %0, cntvct_el0" : "=r"(value));
+		destination = insn & 0x1F;
+	}
+	else
+	{
 		return false;
+	}
+
 	if (destination != 31)
-		regs->regs[destination] = (uintptr_t)sys_thread_get_tsd_base();
+		regs->regs[destination] = value;
 	regs->pc += sizeof(uint32_t);
 	return true;
 }
@@ -869,8 +888,8 @@ static bool default_action_ignores(int bsd_signum)
 void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
 #if defined(__aarch64__) || defined(__arm64__)
-	// Consume the emulated register read before RPC and Mach exception delivery.
-	if (linux_signum == LINUX_SIGILL && info && emulate_darling_tsd_read(info, ctxt))
+	// Consume the emulated register reads before RPC and Mach exception delivery.
+	if (linux_signum == LINUX_SIGILL && info && emulate_arm64_sigill(info, ctxt))
 		return;
 #endif
 	// the same for a signal delivered as a Mach exception, which can stop the thread for long
