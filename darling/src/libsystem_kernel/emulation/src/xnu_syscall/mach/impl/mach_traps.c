@@ -7,6 +7,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <mach/mach_init.h>
 #include <mach/vm_page_size.h>
 
@@ -142,37 +144,74 @@ kern_return_t semaphore_signal_thread_trap_impl(
 	return KERN_FAILURE;
 }
 
+extern uint64_t mach_absolute_time(void);
+
+#define SEMAPHORE_NSEC_PER_SEC 1000000000ull
+
+// The four semaphore wait traps share this. The server answers -DSERVER_RPC_RESTART when one of Darling's own
+// interrupts of the thread (a suspension, or a call the server makes the thread perform) ended the wait;
+// in XNU, these don't end the wait, so wait again. The semaphore of a *_signal variant has been signaled by
+// then, so only the wait is made again, and a timed wait keeps its original deadline (mach_absolute_time()
+// counts nanoseconds in Darling). Test: tests/mach-semaphore-thread-suspend.c in the main tree.
+static kern_return_t semaphore_wait_common(const char* name, mach_port_name_t wait_name, mach_port_name_t signal_name,
+		bool timed, unsigned int sec, clock_res_t nsec)
+{
+	uint64_t deadline = 0;
+
+	if (timed) {
+		deadline = mach_absolute_time() + (uint64_t)sec * SEMAPHORE_NSEC_PER_SEC + (uint32_t)nsec;
+	}
+
+	for (;;) {
+		int code;
+
+		if (signal_name != MACH_PORT_NULL) {
+			code = timed
+				? dserver_rpc_semaphore_timedwait_signal(wait_name, signal_name, sec, nsec)
+				: dserver_rpc_semaphore_wait_signal(wait_name, signal_name);
+		} else {
+			code = timed
+				? dserver_rpc_semaphore_timedwait(wait_name, sec, nsec)
+				: dserver_rpc_semaphore_wait(wait_name);
+		}
+
+		if (code == -DSERVER_RPC_RESTART) {
+			signal_name = MACH_PORT_NULL;
+			if (timed) {
+				uint64_t now = mach_absolute_time();
+				if (now >= deadline) {
+					return KERN_OPERATION_TIMED_OUT;
+				}
+				uint64_t remaining = deadline - now;
+				sec = (unsigned int)(remaining / SEMAPHORE_NSEC_PER_SEC);
+				nsec = (clock_res_t)(remaining % SEMAPHORE_NSEC_PER_SEC);
+			}
+			continue;
+		}
+
+		if (code < 0) {
+			if (code == -LINUX_EINTR) {
+				return KERN_ABORTED;
+			}
+			__simple_printf("%s failed (internally): %d\n", name, code);
+			__simple_abort();
+		}
+
+		return code;
+	}
+}
+
 kern_return_t semaphore_wait_trap_impl(
 				mach_port_name_t wait_name)
 {
-	int code = dserver_rpc_semaphore_wait(wait_name);
-
-	if (code < 0) {
-		if (code == -LINUX_EINTR) {
-			return KERN_ABORTED;
-		}
-		__simple_printf("semaphore_wait failed (internally): %d\n", code);
-		__simple_abort();
-	}
-
-	return code;
+	return semaphore_wait_common("semaphore_wait", wait_name, MACH_PORT_NULL, false, 0, 0);
 }
 
 kern_return_t semaphore_wait_signal_trap_impl(
 				mach_port_name_t wait_name,
 				mach_port_name_t signal_name)
 {
-	int code = dserver_rpc_semaphore_wait_signal(wait_name, signal_name);
-
-	if (code < 0) {
-		if (code == -LINUX_EINTR) {
-			return KERN_ABORTED;
-		}
-		__simple_printf("semaphore_wait_signal failed (internally): %d\n", code);
-		__simple_abort();
-	}
-
-	return code;
+	return semaphore_wait_common("semaphore_wait_signal", wait_name, signal_name, false, 0, 0);
 }
 
 kern_return_t semaphore_timedwait_trap_impl(
@@ -180,17 +219,7 @@ kern_return_t semaphore_timedwait_trap_impl(
 				unsigned int sec,
 				clock_res_t nsec)
 {
-	int code = dserver_rpc_semaphore_timedwait(wait_name, sec, nsec);
-
-	if (code < 0) {
-		if (code == -LINUX_EINTR) {
-			return KERN_ABORTED;
-		}
-		__simple_printf("semaphore_timedwait failed (internally): %d\n", code);
-		__simple_abort();
-	}
-
-	return code;
+	return semaphore_wait_common("semaphore_timedwait", wait_name, MACH_PORT_NULL, true, sec, nsec);
 }
 
 kern_return_t semaphore_timedwait_signal_trap_impl(
@@ -199,17 +228,7 @@ kern_return_t semaphore_timedwait_signal_trap_impl(
 				unsigned int sec,
 				clock_res_t nsec)
 {
-	int code = dserver_rpc_semaphore_timedwait_signal(wait_name, signal_name, sec, nsec);
-
-	if (code < 0) {
-		if (code == -LINUX_EINTR) {
-			return KERN_ABORTED;
-		}
-		__simple_printf("semaphore_timedwait_signal failed (internally): %d\n", code);
-		__simple_abort();
-	}
-
-	return code;
+	return semaphore_wait_common("semaphore_timedwait_signal", wait_name, signal_name, true, sec, nsec);
 }
 
 kern_return_t clock_sleep_trap_impl(

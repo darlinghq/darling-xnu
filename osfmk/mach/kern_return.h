@@ -335,6 +335,14 @@
 /* The KC on which the function is operating is invalid
  */
 
+#define KERN_NOT_FOUND                  56
+/* No result was found by a search or query operation.
+ */
+
+#define KERN_INVALID_GUARD_OBJECT_SLOT  57
+/* An access to a guarded object slot was attempted.
+ */
+
 #define KERN_RETURN_MAX                 0x100
 /* Maximum return value allowable
  */

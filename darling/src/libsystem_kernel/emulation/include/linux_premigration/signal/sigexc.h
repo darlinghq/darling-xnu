@@ -40,8 +40,11 @@ void sigexc_kqueue_unwatch(int linux_signum, int fd);
 unsigned long sigexc_handlers_run(void);
 
 // Tells darlingserver that the calling thread has entered a signal handler (dserver_rpc_interrupt_enter()),
-// with every other signal that could run a handler blocked until the server has answered.
-int sigexc_interrupt_enter(void);
+// with every other signal that could run a handler blocked until the server has answered. `transparent` is
+// true for the signals of Darling's own machinery (thread suspension, server-to-client calls), which the
+// application never sees: a semaphore wait they interrupt is made again instead of ending with
+// KERN_ABORTED, as in XNU.
+int sigexc_interrupt_enter(bool transparent);
 
 void sigexc_thread_setup(void);
 void sigexc_thread_exit(void);

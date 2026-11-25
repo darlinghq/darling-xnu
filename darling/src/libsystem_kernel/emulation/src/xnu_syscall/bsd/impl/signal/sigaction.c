@@ -190,7 +190,7 @@ long sys_sigaction(int signum, const struct bsd___sigaction* nsa, struct bsd_sig
 #endif
 
 static void handler_linux_to_bsd_wrapper(int linux_signum, struct linux_siginfo* info, void* ctxt) {
-	sigexc_interrupt_enter();
+	sigexc_interrupt_enter(false);
 	handler_linux_to_bsd(linux_signum, info, ctxt);
 	dserver_rpc_interrupt_exit();
 };
