@@ -331,6 +331,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/unistd/mknod.c
 	src/xnu_syscall/bsd/impl/unistd/mknodat.c
 	src/xnu_syscall/bsd/impl/unistd/pipe.c
+	src/xnu_syscall/bsd/impl/aio/aio.c
 	src/xnu_syscall/bsd/impl/unistd/pread.c
 	src/xnu_syscall/bsd/impl/unistd/preadv.c
 	src/xnu_syscall/bsd/impl/unistd/pwrite.c
