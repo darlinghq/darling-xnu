@@ -20,6 +20,7 @@
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/pthread_canceled.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/psynch/psynch_inproc.h>
+#include <darling/emulation/xnu_syscall/mach/impl/mach_sq.h>
 #include <darling/emulation/common/tsd.h>
 #include <darling/emulation/xnu_syscall/machdep/impl/tls.h>
 #include <darling/emulation/linux_premigration/signal/tsd_trap.h>
@@ -47,17 +48,298 @@ void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext
 	#define SIGALTSTACK_GUARD 1
 #endif
 
+// Each thread's state for running handlers off Darling's alternate stack. It sits right below that
+// stack (in memory the stack's allocation reserves for it) and is found through the thread's
+// __PTK_DARLING_SIGEXC_SIGNAL slot, which it shares with the fault guard's signal number.
+struct sigexc_thread_state
+{
+	// Darling's alternate stack of this thread
+	struct linux_stack darling;
+	// the alternate stack taken away while an application handler runs on the interrupted stack
+	// (LINUX_SS_DISABLE in ss_flags when none is), and where that handler's stack started
+	struct linux_stack parked;
+	uintptr_t handler_sp;
+};
+#define SIGEXC_STATE_SIZE 64
+_Static_assert(sizeof(struct sigexc_thread_state) <= SIGEXC_STATE_SIZE, "state must fit its reserve");
+// the low bits of the slot hold the guard's signal number (1-31), the rest the state's address
+#define SIGEXC_SLOT_SIGNAL_MASK ((uintptr_t) (SIGEXC_STATE_SIZE - 1))
+
 #if SIGALTSTACK_GUARD
 // The guard is one page, and mprotect needs its address page-aligned. A static array's
 // alignment is fixed at compile time, so reserve the largest page we cater for and take
 // vm_page_size within it.
 #define SIGEXC_GUARD_RESERVE (16ULL * 1024ULL)
-static char sigexc_altstack[SIGEXC_STACK_SIZE + SIGEXC_GUARD_RESERVE]
+static char sigexc_altstack[SIGEXC_GUARD_RESERVE + SIGEXC_STATE_SIZE + SIGEXC_STACK_SIZE]
 		__attribute__((aligned(SIGEXC_GUARD_RESERVE)));
 #else
-static char sigexc_altstack[SIGEXC_STACK_SIZE];
+static char sigexc_altstack[SIGEXC_STATE_SIZE + SIGEXC_STACK_SIZE] __attribute__((aligned(SIGEXC_STATE_SIZE)));
 #endif
 size_t default_sigaltstack_size = SIGEXC_STACK_SIZE;
+
+static uintptr_t sigexc_slot(void)
+{
+	return (uintptr_t) _pthread_getspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL);
+}
+
+static int guard_signal(void)
+{
+	return (int) (sigexc_slot() & SIGEXC_SLOT_SIGNAL_MASK);
+}
+
+static void set_guard_signal(int linux_signum)
+{
+	_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
+			(void*) ((sigexc_slot() & ~SIGEXC_SLOT_SIGNAL_MASK) | (uintptr_t) linux_signum));
+}
+
+// Recorded for a thread that has no alternate stack of Darling's (its allocation failed), so that a
+// stack the application installs later is never taken for Darling's.
+static struct sigexc_thread_state sigexc_no_altstack __attribute__((aligned(SIGEXC_STATE_SIZE)));
+
+// The state as recorded so far: NULL before the first change, or &sigexc_no_altstack.
+static struct sigexc_thread_state* recorded_state(void)
+{
+	return (struct sigexc_thread_state*) (sigexc_slot() & ~SIGEXC_SLOT_SIGNAL_MASK);
+}
+
+static void record_state(struct sigexc_thread_state* state)
+{
+	_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL, (void*) ((uintptr_t) state | guard_signal()));
+}
+
+// The thread's state, recorded the first time Darling's alternate stack is about to change (the
+// application installs its own, or Darling takes it away). Until then the alternate stack the kernel
+// has is Darling's, so the state is found below it. NULL when the thread has no alternate stack.
+static struct sigexc_thread_state* thread_state(void)
+{
+	struct sigexc_thread_state* state = recorded_state();
+	if (state == &sigexc_no_altstack)
+		return NULL;
+	if (state != NULL)
+		return state;
+
+	struct linux_stack current;
+	if (LINUX_SYSCALL(__NR_sigaltstack, NULL, &current) != 0 || (current.ss_flags & LINUX_SS_DISABLE))
+	{
+		record_state(&sigexc_no_altstack);
+		return NULL;
+	}
+
+	state = (struct sigexc_thread_state*) ((char*) current.ss_sp - SIGEXC_STATE_SIZE);
+	state->darling = current;
+	state->darling.ss_flags = 0;
+	state->parked.ss_flags = LINUX_SS_DISABLE;
+	state->handler_sp = 0;
+	record_state(state);
+	return state;
+}
+
+void sigexc_altstack_will_change(void)
+{
+	// The application's stack replaces whatever Darling parked, live handler or not.
+	struct sigexc_thread_state* state = thread_state();
+	if (state != NULL)
+		state->parked.ss_flags = LINUX_SS_DISABLE;
+}
+
+void sigexc_altstack_app_view(struct linux_stack* stack)
+{
+	struct sigexc_thread_state* state = thread_state();
+	if (state == NULL)
+		return;
+	if ((stack->ss_flags & LINUX_SS_DISABLE) && !(state->parked.ss_flags & LINUX_SS_DISABLE))
+		*stack = state->parked;
+	if (!(stack->ss_flags & LINUX_SS_DISABLE) && stack->ss_sp == state->darling.ss_sp)
+	{
+		stack->ss_sp = NULL;
+		stack->ss_flags = LINUX_SS_DISABLE;
+		stack->ss_size = 0;
+	}
+}
+
+// void sigexc_call_on_stack(uintptr_t sp, void (*fn)(void*), void* arg): calls fn(arg) with the stack
+// pointer set to sp (16-byte aligned) and returns on the caller's stack. The frame pointer links fn's
+// frames to the caller's, so backtraces go through.
+void sigexc_call_on_stack(uintptr_t sp, void (*fn)(void*), void* arg);
+__asm__(
+	".text\n"
+	".private_extern _sigexc_call_on_stack\n"
+#if defined(__x86_64__)
+	"_sigexc_call_on_stack:\n"
+	"	pushq %rbp\n"
+	"	movq %rsp, %rbp\n"
+	"	movq %rdi, %rsp\n"
+	"	movq %rdx, %rdi\n"
+	"	callq *%rsi\n"
+	"	movq %rbp, %rsp\n"
+	"	popq %rbp\n"
+	"	retq\n"
+#elif defined(__i386__)
+	"_sigexc_call_on_stack:\n"
+	"	pushl %ebp\n"
+	"	movl %esp, %ebp\n"
+	"	movl 8(%ebp), %esp\n"
+	"	subl $12, %esp\n" // keeps the stack 16-byte aligned at the call
+	"	pushl 16(%ebp)\n"
+	"	calll *12(%ebp)\n"
+	"	movl %ebp, %esp\n"
+	"	popl %ebp\n"
+	"	retl\n"
+#elif defined(__aarch64__) || defined(__arm64__)
+	".p2align 2\n"
+	"_sigexc_call_on_stack:\n"
+	"	stp x29, x30, [sp, #-16]!\n"
+	"	mov x29, sp\n"
+	"	mov sp, x0\n"
+	"	mov x0, x2\n"
+	"	blr x1\n"
+	"	mov sp, x29\n"
+	"	ldp x29, x30, [sp], #16\n"
+	"	ret\n"
+#endif
+);
+
+// Darwin's x86_64 and arm64 ABIs let a function use the 128 bytes below its stack pointer, and XNU
+// leaves them alone when it puts a signal frame on that stack.
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)
+#define SIGEXC_RED_ZONE 128
+#else
+#define SIGEXC_RED_ZONE 0
+#endif
+
+static uintptr_t interrupted_sp(const struct linux_ucontext* ctxt)
+{
+#if defined(__x86_64__)
+	return ctxt->uc_mcontext.gregs.rsp;
+#elif defined(__i386__)
+	return ctxt->uc_mcontext.gregs.esp;
+#elif defined(__aarch64__) || defined(__arm64__)
+	return ctxt->uc_mcontext.gregs.sp;
+#endif
+}
+
+// Where the application's handler for the signal of ctxt runs: 0 for right here, on the stack the
+// kernel gave sigexc_handler, or the stack pointer to run it at on the interrupted stack. The kernel
+// switched to the alternate stack because the handler asked for it (SA_ONSTACK), or because the
+// signal is a fault that may come from an overflowed stack. The handler stays there only if it asked
+// for it and the stack is the application's: Darling's means the application installed none.
+static uintptr_t app_handler_stack(int linux_signum, const struct linux_ucontext* ctxt)
+{
+	const struct linux_stack* altstack = &ctxt->uc_stack;
+	uintptr_t base = (uintptr_t) altstack->ss_sp;
+	uintptr_t here = (uintptr_t) __builtin_frame_address(0);
+	uintptr_t sp = interrupted_sp(ctxt);
+
+	bool here_on_altstack = here > base && here - base <= altstack->ss_size;
+	bool interrupted_on_altstack = sp > base && sp - base <= altstack->ss_size;
+	if ((altstack->ss_flags & LINUX_SS_DISABLE) || !here_on_altstack || interrupted_on_altstack)
+		return 0;
+
+	struct sigexc_thread_state* state = recorded_state();
+	bool darling_altstack = state == NULL
+		|| (state != &sigexc_no_altstack && state->darling.ss_sp == altstack->ss_sp);
+	if (!darling_altstack && (sig_flags[linux_signum] & BSD_SA_ONSTACK))
+		return 0;
+
+	return (sp - SIGEXC_RED_ZONE) & ~(uintptr_t) 15;
+}
+
+// A handler that left by longjmp() never gave back the alternate stack it parked. A signal that
+// interrupts the thread above where that handler started (a nested one is always below) gives it
+// back, if nothing installed another since, and makes sure this signal's return keeps it.
+// Known limit: the test compares addresses, so a handler that switches to a stack at higher addresses
+// (swapcontext() to a fiber) and is interrupted there gets the stack back while its frames are live.
+void sigexc_unpark_abandoned_altstack(struct linux_ucontext* ctxt)
+{
+	struct sigexc_thread_state* state = recorded_state();
+	if (state == NULL || state == &sigexc_no_altstack || (state->parked.ss_flags & LINUX_SS_DISABLE)
+			|| interrupted_sp(ctxt) <= state->handler_sp)
+		return;
+
+	struct linux_stack current;
+	if (LINUX_SYSCALL(__NR_sigaltstack, NULL, &current) == 0 && (current.ss_flags & LINUX_SS_DISABLE)
+			&& LINUX_SYSCALL(__NR_sigaltstack, &state->parked, NULL) == 0)
+		ctxt->uc_stack = state->parked;
+	state->parked.ss_flags = LINUX_SS_DISABLE;
+}
+
+// Linux's sigreturn reinstalls the alternate stack the signal found (uc_stack); XNU's leaves the
+// one the handler ended with, which may be one the handler installed or disabled itself.
+static void keep_current_altstack(struct linux_ucontext* ctxt)
+{
+	struct linux_stack current;
+	if (LINUX_SYSCALL(__NR_sigaltstack, NULL, &current) != 0)
+		return;
+	current.ss_flags &= ~LINUX_SS_ONSTACK;
+	ctxt->uc_stack = current;
+}
+
+struct app_handler_call
+{
+	int linux_signum;
+	struct linux_siginfo* info;
+	struct linux_ucontext* ctxt;
+	linux_sigset_t mask;
+	uintptr_t sp;
+};
+
+// Runs the application's handler on the interrupted stack while sigexc_handler's frames stay on the
+// alternate stack. Every signal is blocked on the way in and out. A signal arriving while the handler
+// runs must not be delivered on top of those frames, so the alternate stack is taken away for the time
+// and given back afterwards, unless the handler installed a stack of its own.
+static void run_app_handler_off_altstack(void* arg)
+{
+	const struct app_handler_call* call = (const struct app_handler_call*) arg;
+	struct sigexc_thread_state* state = thread_state();
+	const struct linux_stack off = { .ss_sp = NULL, .ss_flags = LINUX_SS_DISABLE, .ss_size = 0 };
+	const linux_sigset_t all = ~0ull;
+
+	if (state != NULL && LINUX_SYSCALL(__NR_sigaltstack, &off, &state->parked) == 0)
+	{
+		state->parked.ss_flags = 0;
+		state->handler_sp = call->sp;
+	}
+
+	LINUX_SYSCALL(__NR_rt_sigprocmask, 2 /* LINUX_SIG_SETMASK */, &call->mask, NULL, sizeof(linux_sigset_t));
+	handler_linux_to_bsd(call->linux_signum, call->info, call->ctxt);
+	LINUX_SYSCALL(__NR_rt_sigprocmask, 2 /* LINUX_SIG_SETMASK */, &all, NULL, sizeof(linux_sigset_t));
+
+	if (state != NULL && !(state->parked.ss_flags & LINUX_SS_DISABLE))
+	{
+		struct linux_stack now;
+		if (LINUX_SYSCALL(__NR_sigaltstack, NULL, &now) == 0 && (now.ss_flags & LINUX_SS_DISABLE))
+			LINUX_SYSCALL(__NR_sigaltstack, &state->parked, NULL);
+		state->parked.ss_flags = LINUX_SS_DISABLE;
+	}
+}
+
+void sigexc_run_app_handler(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt,
+		const linux_sigset_t* mask)
+{
+	// On another stack, the mask is applied there (run_app_handler_off_altstack()); until then every
+	// signal stays blocked, and so it stays after that handler (the rest of the caller,
+	// dserver_rpc_interrupt_exit() included, runs with it until sigreturn restores the interrupted
+	// mask; faults then cannot be caught there).
+	_pthread_setspecific_direct(__PTK_DARLING_SIGNAL_HANDLERS_RUN,
+			(void*)((uintptr_t)_pthread_getspecific_direct(__PTK_DARLING_SIGNAL_HANDLERS_RUN) + 1));
+
+	uintptr_t stack = ctxt ? app_handler_stack(linux_signum, ctxt) : 0;
+	const linux_sigset_t all = ~0ull;
+	LINUX_SYSCALL(__NR_rt_sigprocmask, 2 /* LINUX_SIG_SETMASK */,
+		stack != 0 ? &all : mask, NULL, sizeof(linux_sigset_t));
+
+	if (stack != 0)
+	{
+		struct app_handler_call call = { linux_signum, info, ctxt, *mask, stack };
+		sigexc_call_on_stack(stack, run_app_handler_off_altstack, &call);
+	}
+	else
+		handler_linux_to_bsd(linux_signum, info, ctxt);
+
+	if (ctxt != NULL)
+		keep_current_altstack(ctxt);
+}
 
 #if defined(__x86_64__)
 static void mcontext_to_thread_state(const struct linux_gregset* regs, x86_thread_state64_t* s);
@@ -207,6 +489,9 @@ static void cancel_interrupted_syscall(struct linux_ucontext* ctxt)
 
 void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
+	// a suspension must wait until this thread has woken the waiter of a message it just queued
+	if (signum == SIGNAL_SIGEXC_SUSPEND && mach_sq_defer_signal(signum, info))
+		return;
 
 	int status = sigexc_interrupt_enter(true);
 
@@ -265,18 +550,20 @@ void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext
 
 
 // Makes sigexc_handler the Linux handler of a signal. Whether the kernel restarts a
-// blocking syscall that this handler interrupted is what the application asked for with
-// SA_RESTART (see sigexc_set_restart()); the handler is installed with restarting
-// until the application says otherwise.
-static void install_sigexc_handler(int linux_signum, bool restart)
+// blocking syscall that this handler interrupted, and whether it runs the handler on the
+// alternate stack, is what the application asked for with SA_RESTART and SA_ONSTACK (see
+// sigexc_set_disposition()), because the application's handler runs within this one.
+static void install_sigexc_handler(int linux_signum, bool restart, bool onstack)
 {
 	struct linux_sigaction sa;
 	sa.sa_sigaction = (linux_sig_handler*) sigexc_handler;
 	sa.sa_mask = 0x7fffffff; // all other standard Unix signals should be blocked while the handler is run
 	sa.sa_mask |= (1ull << (SIGNAL_SIGEXC_SUSPEND-1));
-	sa.sa_flags = LINUX_SA_RESTORER | LINUX_SA_SIGINFO | LINUX_SA_ONSTACK;
+	sa.sa_flags = LINUX_SA_RESTORER | LINUX_SA_SIGINFO;
 	if (restart)
 		sa.sa_flags |= LINUX_SA_RESTART;
+	if (onstack)
+		sa.sa_flags |= LINUX_SA_ONSTACK;
 	sa.sa_restorer = sig_restorer;
 
 	LINUX_SYSCALL(__NR_rt_sigaction, linux_signum,
@@ -292,10 +579,19 @@ bool sigexc_handles_signal(int linux_signum)
 		&& linux_signum != LINUX_SIGTTIN;
 }
 
-void sigexc_set_restart(int linux_signum, bool restart)
+void sigexc_set_disposition(int linux_signum, bool has_handler, int bsd_flags)
 {
-	if (sigexc_handles_signal(linux_signum))
-		install_sigexc_handler(linux_signum, restart);
+	if (!sigexc_handles_signal(linux_signum))
+		return;
+	// Without an application handler, nothing but Darling's own code runs. SIGSEGV and SIGBUS may
+	// come from an overflowed stack, which has no room for sigexc_handler: it runs on the alternate
+	// stack to report them as a Mach exception, as XNU does before any handler runs, and moves a
+	// handler without SA_ONSTACK to the interrupted stack (app_handler_stack()).
+	bool fault = linux_signum == LINUX_SIGSEGV || linux_signum == LINUX_SIGBUS;
+	if (!has_handler)
+		install_sigexc_handler(linux_signum, true, true);
+	else
+		install_sigexc_handler(linux_signum, bsd_flags & BSD_SA_RESTART, fault || (bsd_flags & BSD_SA_ONSTACK));
 }
 
 void darling_sigexc_self(void)
@@ -309,7 +605,7 @@ void darling_sigexc_self(void)
 		if (i == LINUX_SIGSTOP || i == LINUX_SIGKILL || i == LINUX_SIGCHLD)
 			continue;
 
-		install_sigexc_handler(i, true);
+		install_sigexc_handler(i, true, true);
 	}
 
 #if SIGALTSTACK_GUARD
@@ -328,16 +624,18 @@ void darling_sigexc_self(void)
 	}
 #endif
 
-	struct bsd_stack newstack = {
+	// the thread's state (sigexc_thread_state) goes right below the stack
+	struct linux_stack newstack = {
 #if SIGALTSTACK_GUARD
-		.ss_sp = sigexc_altstack + guard,
+		.ss_sp = sigexc_altstack + guard + SIGEXC_STATE_SIZE,
 #else
-		.ss_sp = sigexc_altstack,
+		.ss_sp = sigexc_altstack + SIGEXC_STATE_SIZE,
 #endif
-		.ss_size = SIGEXC_STACK_SIZE,
-		.ss_flags = 0
+		.ss_flags = 0,
+		.ss_size = SIGEXC_STACK_SIZE
 	};
-	sys_sigaltstack(&newstack, NULL);
+	// not sys_sigaltstack(): that is the application's, and records the stack it replaces
+	LINUX_SYSCALL(__NR_sigaltstack, &newstack, NULL);
 }
 
 
@@ -541,6 +839,24 @@ static bool emulate_darling_tsd_read(const struct linux_siginfo* info, struct li
 
 #endif
 
+// Darwin signals whose default action is to ignore them (SIGCONT also continues the process); on Linux
+// SIGIO and SIGPWR, which SIGINFO maps to, end it.
+static bool default_action_ignores(int bsd_signum)
+{
+	switch (bsd_signum)
+	{
+		case SIGURG:
+		case SIGCONT:
+		case SIGCHLD:
+		case SIGIO:
+		case SIGWINCH:
+		case SIGINFO:
+			return true;
+		default:
+			return false;
+	}
+}
+
 void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
 #if defined(__aarch64__) || defined(__arm64__)
@@ -548,6 +864,9 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 	if (linux_signum == LINUX_SIGILL && info && emulate_darling_tsd_read(info, ctxt))
 		return;
 #endif
+	// the same for a signal delivered as a Mach exception, which can stop the thread for long
+	if (!is_thread_fault(linux_signum, info) && mach_sq_defer_signal(linux_signum, info))
+		return;
 	// Re-entrancy guard. The first thing this handler does is enter a server RPC,
 	// which takes duct-tape mutexes. A thread running inside a signal handler has
 	// no registered dtape thread, so dtape_mutex_lock takes its fallback path
@@ -570,8 +889,7 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 	// startup - must not take the thread down with it.
 	// Compiler TLS requires __tlv_bootstrap, which is unavailable in the
 	// static dyld variant. Direct TSD is already initialized for signal delivery.
-	int in_sigexc_handler_signal = (int)(uintptr_t)
-			_pthread_getspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL);
+	int in_sigexc_handler_signal = guard_signal();
 
 	if (in_sigexc_handler_signal) {
 		bool nested_is_fault =
@@ -610,16 +928,17 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 
 		// Not a fault: fall through and let the nested signal be handled.
 	} else {
-		_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
-				(void*)(uintptr_t)linux_signum);
+		set_guard_signal(linux_signum);
 	}
+
+	if (ctxt != NULL)
+		sigexc_unpark_abandoned_altstack(ctxt);
 
 	int status = sigexc_interrupt_enter(false);
 
 	if (status != 0) {
 		handle_signal_without_server(linux_signum, info, ctxt);
-		_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
-				(void*)(uintptr_t)in_sigexc_handler_signal);
+		set_guard_signal(in_sigexc_handler_signal);
 		return;
 	}
 
@@ -671,7 +990,22 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 	int sig_code = info ? info->si_code : 0;
 	unsigned long long sig_addr = info ? (unsigned long long) info->si_addr : 0;
 
-	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, sig_pid, sig_code, (void *) sig_addr, &tstate, &fstate, &bsd_signum);
+	// the exception state that thread_get_state() reports for a fault, as the kernel recorded it in the frame
+	bool has_exception_state = false;
+	uint64_t exception_fault_address = 0;
+	uint32_t exception_trapno = 0, exception_err = 0;
+#if defined(__x86_64__)
+	if (is_thread_fault(linux_signum, info))
+	{
+		has_exception_state = true;
+		exception_fault_address = ctxt->uc_mcontext.gregs.cr2;
+		exception_trapno = ctxt->uc_mcontext.gregs.trapno;
+		exception_err = ctxt->uc_mcontext.gregs.err;
+	}
+#endif
+
+	int ret = dserver_rpc_sigprocess(bsd_signum, linux_signum, sig_pid, sig_code, (void *) sig_addr, &tstate, &fstate,
+			exception_fault_address, exception_trapno, exception_err, has_exception_state, &bsd_signum);
 	if (ret < 0) {
 #if defined(__x86_64__)
 		__simple_printf("sigprocess failed internally while processing Linux signal %d: %d in PID %d (RIP 0x%llx)\n", linux_signum, ret, getpid(), (unsigned long long)ctxt->uc_mcontext.gregs.rip);
@@ -690,7 +1024,8 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 
 	linux_signum = signum_bsd_to_linux(bsd_signum);
 
-	if (sig_handlers[linux_signum] != SIG_IGN)
+	if (sig_handlers[linux_signum] != SIG_IGN
+			&& !(sig_handlers[linux_signum] == SIG_DFL && default_action_ignores(bsd_signum)))
 	{
 		if (sig_handlers[linux_signum])
 		{
@@ -706,27 +1041,20 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 			sigset_bsd_to_linux(&bsd_mask, &set);
 
 			// Keep the current signal blocked, which is the default behavior
-			if (!(sig_flags[linux_signum] & LINUX_SA_NODEFER))
+			// (sig_flags holds the Darwin flags given to sigaction())
+			if (!(sig_flags[linux_signum] & BSD_SA_NODEFER))
 				set |= (1ull << (linux_signum-1));
-
-			LINUX_SYSCALL(__NR_rt_sigprocmask, 2 /* LINUX_SIG_SETMASK */,
-				&set, NULL, sizeof(linux_sigset_t));
 
 			// The guard covers only Darling's own handler code. The
 			// application's handler may fault on purpose (and handle that
 			// fault with its own SIGSEGV handler), as it can on macOS, so
 			// lift the guard while it runs and put it back afterwards.
-			int guard_signal = (int)(uintptr_t)
-					_pthread_getspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL);
-			_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL, (void*)0);
+			int lifted_guard_signal = guard_signal();
+			set_guard_signal(0);
 
-			_pthread_setspecific_direct(__PTK_DARLING_SIGNAL_HANDLERS_RUN,
-					(void*)((uintptr_t)_pthread_getspecific_direct(__PTK_DARLING_SIGNAL_HANDLERS_RUN) + 1));
+			sigexc_run_app_handler(linux_signum, info, ctxt, &set);
 
-			handler_linux_to_bsd(linux_signum, info, ctxt);
-
-			_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
-					(void*)(uintptr_t)guard_signal);
+			set_guard_signal(lifted_guard_signal);
 		}
 		else
 		{
@@ -775,8 +1103,7 @@ out:
 	}
 
 	// Clear the outermost guard, retaining it when a benign nested signal returns.
-	_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL,
-			(void*)(uintptr_t)in_sigexc_handler_signal);
+	set_guard_signal(in_sigexc_handler_signal);
 }
 
 #define DUMPREG(regname) kern_printf("sigexc:   " #regname ": 0x%llx\n", regs->regname);
@@ -1114,45 +1441,55 @@ void float_state_to_mcontext(const arm_neon_state64_t_linux* s, unsigned char* r
 
 #endif /* __aarch64__ || __arm64__ */
 
+#if SIGALTSTACK_GUARD
+#define SIGEXC_THREAD_GUARD vm_page_size
+#else
+#define SIGEXC_THREAD_GUARD 0
+#endif
+
 void sigexc_thread_setup(void)
 {
-	struct bsd_stack newstack = {
-		.ss_size = default_sigaltstack_size,
-		.ss_flags = 0
+	// [guard page][sigexc_thread_state][stack]
+	struct linux_stack newstack = {
+		.ss_flags = 0,
+		.ss_size = default_sigaltstack_size
 	};
-
-#if SIGALTSTACK_GUARD
-	// mprotect protects a whole page, so the reserve must be a page: a smaller one
-	// leaves the guard overlapping the stack it sits below.
-	newstack.ss_sp = (void*) sys_mmap(NULL, newstack.ss_size + vm_page_size, PROT_READ | PROT_WRITE,
-			MAP_ANON | MAP_PRIVATE, -1, 0);
+	size_t length = SIGEXC_THREAD_GUARD + SIGEXC_STATE_SIZE + newstack.ss_size;
+	char* mapping = (char*) sys_mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
 
 	// -1..-4095 is the Linux syscall error range, not an address.
-	if (((intptr_t)newstack.ss_sp) < 0 && ((intptr_t)newstack.ss_sp) >= -4095) {
+	if (((intptr_t) mapping) < 0 && ((intptr_t) mapping) >= -4095) {
 		__simple_kprintf("sigexc: could not allocate a thread alt stack\n");
 		return;
 	}
 
-	if (sys_mprotect(newstack.ss_sp, vm_page_size, PROT_NONE) < 0) {
+#if SIGALTSTACK_GUARD
+	// mprotect protects a whole page, so the reserve must be a page: a smaller one
+	// leaves the guard overlapping the stack it sits below.
+	if (sys_mprotect(mapping, vm_page_size, PROT_NONE) < 0) {
 		__simple_kprintf("sigexc: could not protect the thread alt stack guard page\n");
 	}
-
-	newstack.ss_sp = (char*)newstack.ss_sp + vm_page_size;
-#else
-	newstack.ss_sp = (void*) sys_mmap(NULL, newstack.ss_size, PROT_READ | PROT_WRITE,
-			MAP_ANON | MAP_PRIVATE, -1, 0);
 #endif
-	sys_sigaltstack(&newstack, NULL);
+
+	newstack.ss_sp = mapping + SIGEXC_THREAD_GUARD + SIGEXC_STATE_SIZE;
+	// not sys_sigaltstack(): that is the application's, and records the stack it replaces
+	LINUX_SYSCALL(__NR_sigaltstack, &newstack, NULL);
 }
 
+// Not called at the moment.
 void sigexc_thread_exit(void)
 {
-	struct bsd_stack oldstack;
-	sys_sigaltstack(NULL, &oldstack);
+	struct sigexc_thread_state* state = thread_state();
+	if (state == NULL)
+		return;
 
-#if SIGALTSTACK_GUARD
-	sys_munmap((char*)oldstack.ss_sp - vm_page_size, oldstack.ss_size + vm_page_size);
-#else
-	sys_munmap(oldstack.ss_sp, oldstack.ss_size);
-#endif
+	const struct linux_stack off = { .ss_sp = NULL, .ss_flags = LINUX_SS_DISABLE, .ss_size = 0 };
+	struct linux_stack current;
+	if (LINUX_SYSCALL(__NR_sigaltstack, NULL, &current) == 0 && current.ss_sp == state->darling.ss_sp)
+		LINUX_SYSCALL(__NR_sigaltstack, &off, NULL);
+
+	size_t size = state->darling.ss_size;
+	char* mapping = (char*) state->darling.ss_sp - SIGEXC_STATE_SIZE - SIGEXC_THREAD_GUARD;
+	_pthread_setspecific_direct(__PTK_DARLING_SIGEXC_SIGNAL, (void*) (uintptr_t) guard_signal());
+	sys_munmap(mapping, SIGEXC_THREAD_GUARD + SIGEXC_STATE_SIZE + size);
 }

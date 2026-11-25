@@ -25,6 +25,7 @@
 #include <darling/emulation/conversion/network/getsockopt.h>
 #include <darling/emulation/conversion/network/recvmsg.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/network/nosigpipe.h>
 
 extern void* memcpy(void* dest, const void* src, __SIZE_TYPE__ len);
 extern void* memset(void* dest, int c, __SIZE_TYPE__ len);
@@ -296,6 +297,7 @@ static void close_fds(const unsigned char* data, size_t from, size_t count)
 	{
 		int fd;
 		memcpy(&fd, data + i * sizeof(int), sizeof(int));
+		nosigpipe_close(fd);
 		LINUX_SYSCALL1(__NR_close, fd);
 	}
 }

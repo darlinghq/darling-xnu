@@ -73,7 +73,11 @@ long sys_openat_common(int fd, const char* filename, int flags, unsigned int mod
 	}
 
 	struct vchroot_expand_args vc;
-	vc.flags = (flags & BSD_O_SYMLINK || flags & BSD_O_NOFOLLOW) ? 0 : VCHROOT_FOLLOW;
+	// O_EXCL together with O_CREAT never follows a final symbolic link: a dangling or live link
+	// makes the call fail with EEXIST (POSIX open(2)) instead of creating or opening its target.
+	// Resolving the link here would hide it from the kernel.
+	bool exclusive_create = (flags & BSD_O_CREAT) && (flags & BSD_O_EXCL);
+	vc.flags = (flags & BSD_O_SYMLINK || flags & BSD_O_NOFOLLOW || exclusive_create) ? 0 : VCHROOT_FOLLOW;
 	vc.dfd = atfd(fd);
 
 	strcpy(vc.path, filename);

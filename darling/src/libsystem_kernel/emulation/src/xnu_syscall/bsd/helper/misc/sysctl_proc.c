@@ -48,6 +48,42 @@ extern int strncmp(const char* str1, const char* str2, __SIZE_TYPE__ num);
 extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
 extern char *strrchr(const char *str, int ch);
 
+// Like on macOS, the kernel (kernel_task, pid 0) is among the processes the kern.proc sysctls list.
+// It is owned by root and is its own parent and process group. The server that stands for it
+// is not a process of the guest, so there is nothing in /proc to read it from.
+static bool kernel_proc_matches(int what, int flag)
+{
+	switch (what)
+	{
+		case KERN_PROC_ALL:
+		case KERN_PROC_LCID:
+			return true;
+		case KERN_PROC_PID:
+		case KERN_PROC_PGRP:
+		case KERN_PROC_UID:
+		case KERN_PROC_RUID:
+			return flag == 0;
+		default:
+			return false;
+	}
+}
+
+static struct kinfo_proc_chain* load_kernel_proc(void)
+{
+	struct kinfo_proc_chain* kinfo = (struct kinfo_proc_chain*) malloc(sizeof(*kinfo));
+	if (kinfo == NULL)
+		return NULL;
+	memset(kinfo, 0, sizeof(*kinfo));
+
+	strcpy(kinfo->kinfo.kp_proc.p_comm, "kernel_task");
+	kinfo->kinfo.kp_proc.p_pid = 0;
+	kinfo->kinfo.kp_proc.p_stat = SRUN;
+#if defined(__LP64__)
+	kinfo->kinfo.kp_proc.p_flag |= P_LP64;
+#endif
+	return kinfo;
+}
+
 int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* buflen)
 {
 	int fd, ret = 0;
@@ -60,6 +96,19 @@ int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* bufl
 
 	if (buflen == NULL)
 		return -EFAULT;
+
+	if (kernel_proc_matches(what, flag))
+	{
+		// Avoid loading process info unless really needed
+		if (what != KERN_PROC_ALL || *buflen > 0)
+		{
+			first = last = load_kernel_proc();
+			if (first != NULL)
+				nproc++;
+		}
+		else
+			nproc++;
+	}
 
 	fd = sys_open_nocancel("/proc", BSD_O_RDONLY | BSD_O_DIRECTORY, 0);
 	if (fd >= 0)
@@ -89,7 +138,10 @@ int _sysctl_proc(int what, int flag, struct kinfo_proc* out, unsigned long* bufl
 		}
 	}
 	if (fd < 0)
+	{
+		free_chain(first);
 		return fd;
+	}
 
 	while (ret > 0)
 	{

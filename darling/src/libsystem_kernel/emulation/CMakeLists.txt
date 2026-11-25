@@ -106,6 +106,7 @@ set(linux_premigration_sources
 	src/linux_premigration/signal/sigexc.c
 	src/linux_premigration/elfcalls_wrapper.c
 	src/linux_premigration/linux-syscall.S
+	src/linux_premigration/name_equivalence.c
 	src/linux_premigration/vchroot_userspace.c
 )
 
@@ -117,6 +118,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/helper/bpf/bpf_program.c
 
 	src/xnu_syscall/bsd/helper/stat/guest_mount.c
+	src/xnu_syscall/bsd/helper/stat/mount_options.c
 
 	src/xnu_syscall/bsd/helper/ioctl/termios.c
 	src/xnu_syscall/bsd/helper/ioctl/filio.c
@@ -137,6 +139,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/helper/misc/sysctl_unspec.c
 	src/xnu_syscall/bsd/helper/misc/sysctl_vm.c
 	src/xnu_syscall/bsd/helper/network/duct.c
+	src/xnu_syscall/bsd/helper/network/nosigpipe.c
 
 	src/xnu_syscall/bsd/impl/audit/audit_addr.c
 	src/xnu_syscall/bsd/impl/audit/auditon.c
@@ -382,6 +385,8 @@ set(xnu_syscall_mach_sources
 
 	src/xnu_syscall/mach/impl/mach_time.c
 	src/xnu_syscall/mach/impl/mach_traps.c
+	src/xnu_syscall/mach/impl/mach_sq.c
+	${CMAKE_SOURCE_DIR}/src/external/darlingserver/sq/mach-sq.c
 )
 
 set(xnu_syscall_machdep_sources

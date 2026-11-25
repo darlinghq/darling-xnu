@@ -1,6 +1,11 @@
 #ifndef LINUX_SIGALTSTACK_H
 #define LINUX_SIGALTSTACK_H
 
+#define BSD_SS_ONSTACK 1
+#define BSD_SS_DISABLE 4
+#define LINUX_SS_ONSTACK 1
+#define LINUX_SS_DISABLE 2
+
 struct bsd_stack
 {
 	void* ss_sp;

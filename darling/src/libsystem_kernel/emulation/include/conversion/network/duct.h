@@ -42,6 +42,7 @@
 #define BSD_MSG_HAVEMORE    0x2000
 #define BSD_MSG_RCVMORE     0x4000
 #define BSD_MSG_NEEDSA      0x10000
+#define BSD_MSG_NOSIGNAL    0x80000
 
 int sfamily_linux_to_bsd(int family);
 int sfamily_bsd_to_linux(int family);

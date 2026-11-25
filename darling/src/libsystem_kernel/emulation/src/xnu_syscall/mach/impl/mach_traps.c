@@ -17,6 +17,7 @@
 #include <darling/emulation/linux_premigration/ext/mremap.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/conversion/duct_errno.h>
+#include <darling/emulation/xnu_syscall/mach/impl/mach_sq.h>
 
 #include <darlingserver/rpc.h>
 #include <darlingserver/rpc-supplement.h>
@@ -77,6 +78,11 @@ mach_msg_return_t mach_msg_overwrite_trap_impl(
 				mach_msg_size_t rcv_limit)
 {
 	int code;
+	mach_msg_return_t result;
+
+	// simple messages to this task's own ports in shared-queue mode
+	if (mach_sq_msg(msg, option, send_size, rcv_size, rcv_name, timeout, rcv_msg, &result))
+		return result;
 
 retry:
 	code = dserver_rpc_mach_msg_overwrite(msg, option, send_size, rcv_size, rcv_name, timeout, notify, rcv_msg);
@@ -428,7 +434,13 @@ kern_return_t _kernelrpc_mach_port_allocate_trap_impl(
 				mach_port_name_t *name
 )
 {
-	int code = dserver_rpc_mach_port_allocate(target, right, name);
+	int code;
+
+	// the server puts the new receive right in shared-queue mode only for a task with a region
+	if (right == MACH_PORT_RIGHT_RECEIVE)
+		mach_sq_prepare();
+
+	code = dserver_rpc_mach_port_allocate(target, right, name);
 
 	if (code < 0) {
 		__simple_printf("mach_port_allocate failed (internally): %d\n", code);
@@ -558,7 +570,11 @@ kern_return_t _kernelrpc_mach_port_construct_trap_impl(
 				mach_port_name_t *name
 )
 {
-	int code = dserver_rpc_mach_port_construct(target, options, context, name);
+	int code;
+
+	mach_sq_prepare();
+
+	code = dserver_rpc_mach_port_construct(target, options, context, name);
 
 	if (code < 0) {
 		__simple_printf("mach_port_construct failed (internally): %d\n", code);
