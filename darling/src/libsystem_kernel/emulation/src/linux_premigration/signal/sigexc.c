@@ -20,6 +20,7 @@
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/pthread_canceled.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/psynch/psynch_inproc.h>
+#include <darling/emulation/xnu_syscall/mach/impl/mach_sq.h>
 #include <darling/emulation/common/tsd.h>
 #include <darling/emulation/xnu_syscall/machdep/impl/tls.h>
 #include <darling/emulation/linux_premigration/signal/tsd_trap.h>
@@ -488,6 +489,9 @@ static void cancel_interrupted_syscall(struct linux_ucontext* ctxt)
 
 void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext* ctxt)
 {
+	// a suspension must wait until this thread has woken the waiter of a message it just queued
+	if (signum == SIGNAL_SIGEXC_SUSPEND && mach_sq_defer_signal(signum, info))
+		return;
 
 	int status = sigexc_interrupt_enter();
 
@@ -860,6 +864,9 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 	if (linux_signum == LINUX_SIGILL && info && emulate_darling_tsd_read(info, ctxt))
 		return;
 #endif
+	// the same for a signal delivered as a Mach exception, which can stop the thread for long
+	if (!is_thread_fault(linux_signum, info) && mach_sq_defer_signal(linux_signum, info))
+		return;
 	// Re-entrancy guard. The first thing this handler does is enter a server RPC,
 	// which takes duct-tape mutexes. A thread running inside a signal handler has
 	// no registered dtape thread, so dtape_mutex_lock takes its fallback path
