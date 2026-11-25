@@ -547,6 +547,44 @@ static int vch_resolve(const char* path, bool in_prefix, bool follow, char* out,
 	return rv;
 }
 
+// "/proc/<pid>/<file>" for a few plain files of the prefix's procfs. The
+// component walk lstat()s /proc, /proc/<pid> and the file for each; these
+// entries are not symlinks (unlike /proc/self, exe, cwd, root and fd/), so the
+// walk's result is the prefix followed by the path. A pid that does not exist
+// fails in the caller's syscall.
+static bool vch_proc_file(const char* path)
+{
+	static const char* const files[] = { "stat", "cmdline", "status", "statm", "comm", "environ", "auxv", NULL };
+	if (strncmp(path, "/proc/", 6) != 0 || path[6] < '1' || path[6] > '9')
+		return false;
+	const char* p = path + 6;
+	while (*p >= '0' && *p <= '9')
+		p++;
+	if (*p++ != '/')
+		return false;
+	for (int i = 0; files[i]; i++)
+		if (strcmp(p, files[i]) == 0)
+			return true;
+	return false;
+}
+
+// Whether the prefix's /proc is a link to the host's (Darling's nonroot mode,
+// with no private PID namespace or procfs) rather than a mounted procfs. The
+// link means nothing to Linux, so <prefix>/proc/<pid>/stat fails with ENOENT:
+// the host's /proc/<pid>/stat is the file. Checked once.
+static bool vch_proc_is_host(void)
+{
+	static int known = -1;
+	if (known < 0)
+	{
+		char path[4096 + 8], link[64];
+		__simple_sprintf(path, "%s/proc", prefix_path);
+		known = LINUX_SYSCALL(__NR_readlinkat, LINUX_AT_FDCWD, path, link, sizeof(link)) > 0;
+	}
+	return known;
+}
+
+
 // true if it produced the result (ctxt->current_path, *out_rv); false: run the walk as before
 static bool vchroot_fast(struct context* ctxt, const char* input_path, int* out_rv)
 {
@@ -579,6 +617,15 @@ static bool vchroot_fast(struct context* ctxt, const char* input_path, int* out_
 			if (n + 1 > (int)sizeof(path))
 				return false;
 			memcpy(path, input_path, n + 1);
+			if (vch_proc_file(path) && prefix_path_len + n + 1 <= (int)sizeof(ctxt->current_path))
+			{
+				int at = vch_proc_is_host() ? 0 : prefix_path_len;
+				memcpy(ctxt->current_path, prefix_path, at);
+				memcpy(ctxt->current_path + at, path, n + 1);
+				ctxt->current_path_len = at + n;
+				*out_rv = 0;
+				return true;
+			}
 		}
 	}
 	else
