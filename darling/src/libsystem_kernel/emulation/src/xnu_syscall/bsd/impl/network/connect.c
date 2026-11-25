@@ -18,6 +18,14 @@ extern char *strncpy(char *dest, const char *src, __SIZE_TYPE__ n);
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/common/bsdthread/per_thread_wd.h>
 
+// libkqueue parks EVFILT_READ/WRITE knotes on a stream socket that was never connected. A connect attempt ends
+// that state whatever its result (even a connect still in progress), so let libkqueue re-arm its knotes.
+__attribute__((weak))
+__attribute__((visibility("default")))
+void kqueue_socket_unpark(int fd)
+{
+}
+
 static long sys_connect_common(int fd, const void* name, int socklen, bool cancelable);
 
 #include <darling/emulation/xnu_syscall/bsd/impl/network/getsockopt.h>
@@ -80,6 +88,8 @@ static long sys_connect_common(int fd, const void* name, int socklen, bool cance
 
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
+
+	kqueue_socket_unpark(fd);
 
 	return ret;
 }
