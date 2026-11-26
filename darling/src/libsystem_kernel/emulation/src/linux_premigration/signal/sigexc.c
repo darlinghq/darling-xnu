@@ -388,7 +388,7 @@ void sigexc_setup2(void)
 		&set, NULL, sizeof(linux_sigset_t));
 }
 
-int sigexc_interrupt_enter(void)
+int sigexc_interrupt_enter(bool transparent)
 {
 	// a handler that ran while we wait for this reply would call interrupt_enter as well and take our reply for
 	// its own (they're indistinguishable); from then on, every call of both handlers would receive the reply meant
@@ -406,7 +406,7 @@ int sigexc_interrupt_enter(void)
 	LINUX_SYSCALL(__NR_rt_sigprocmask, 0 /* LINUX_SIG_BLOCK */,
 		&block, &previous, sizeof(linux_sigset_t));
 
-	int status = dserver_rpc_interrupt_enter();
+	int status = dserver_rpc_interrupt_enter(transparent);
 
 	LINUX_SYSCALL(__NR_rt_sigprocmask, 2 /* LINUX_SIG_SETMASK */,
 		&previous, NULL, sizeof(linux_sigset_t));
@@ -493,7 +493,7 @@ void sigrt_handler(int signum, struct linux_siginfo* info, struct linux_ucontext
 	if (signum == SIGNAL_SIGEXC_SUSPEND && mach_sq_defer_signal(signum, info))
 		return;
 
-	int status = sigexc_interrupt_enter();
+	int status = sigexc_interrupt_enter(true);
 
 	if (status != 0) {
 		__simple_printf("*** dserver_rpc_interrupt_enter failed with code %d ***\n", status);
@@ -934,7 +934,7 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 	if (ctxt != NULL)
 		sigexc_unpark_abandoned_altstack(ctxt);
 
-	int status = sigexc_interrupt_enter();
+	int status = sigexc_interrupt_enter(false);
 
 	if (status != 0) {
 		handle_signal_without_server(linux_signum, info, ctxt);

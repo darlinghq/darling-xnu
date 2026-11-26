@@ -81,6 +81,12 @@ void* sys_mmap(void* start, unsigned long len, int prot, int flags, int fd, long
 		linux_flags |= LINUX_MAP_SHARED;
 	if (flags & MAP_PRIVATE)
 		linux_flags |= LINUX_MAP_PRIVATE;
+	// XNU sets no memory aside when it maps: pages are committed as they are
+	// touched, so a process can map far more than the machine has (an 8 GB Mac
+	// maps 4 TB of read-write anonymous memory; observed on macOS 26.7.3, test:
+	// tests/mmap-large-anonymous.c). Linux would refuse a mapping that it
+	// thinks it can't back.
+	linux_flags |= LINUX_MAP_NORESERVE;
 	// if (flags & MAP_STACK)
 	// 	linux_flags |= LINUX_MAP_STACK;
 
