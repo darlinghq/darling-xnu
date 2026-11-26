@@ -12,6 +12,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/ptrace.h>
 #include <darling/emulation/other/mach/lkm.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#include <darlingserver/rpc.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 
 extern int getpid(void);
@@ -67,6 +68,14 @@ restart:
 	{
 		int signal = *status >> 8;
 		signal = signum_linux_to_bsd(signal);
+		// A process started with POSIX_SPAWN_START_SUSPENDED stops itself with a SIGSTOP of its own making. Like on
+		// macOS, where such a process is suspended and not stopped by a signal, it is reported as stopped without one.
+		if (signal == SIGSTOP)
+		{
+			bool at_start = false;
+			if (dserver_rpc_stopped_at_start(ret, &at_start) >= 0 && at_start)
+				signal = 0;
+		}
 		*status = (*status & 0x7f) | (signal << 8);
 	}
 

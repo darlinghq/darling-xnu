@@ -7,5 +7,4 @@ running child with `kill(SIGSTOP)` and checks the `WIFSTOPPED` / `WSTOPSIG` stat
 
 Reference behaviour on macOS 26.7.3 (probe `vd-upstream/mac-probes/sp134-spawn-suspended.c`): the suspended
 child is reported stopped (with a zero stop signal), is not run until SIGCONT and then exits normally;
-`kill(SIGSTOP)` is reported stopped with signal SIGSTOP. The test does not check the stop signal of the
-suspended child.
+`kill(SIGSTOP)` is reported stopped with signal SIGSTOP. The stop signal of the suspended child is 0.

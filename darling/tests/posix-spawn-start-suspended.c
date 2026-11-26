@@ -51,6 +51,7 @@ int main(int argc, char **argv)
 	pid_t r = wait_for(pid, &st, WUNTRACED);
 	CHECK(r == pid, "waitpid(WUNTRACED) reports the suspended child");
 	CHECK(r == pid && WIFSTOPPED(st), "the suspended child's status is a stop status");
+	CHECK(r == pid && WIFSTOPPED(st) && WSTOPSIG(st) == 0, "the suspended child is stopped without a signal, as on macOS");
 
 	// It must stay stopped: it neither exits nor reports anything else.
 	usleep(300000);

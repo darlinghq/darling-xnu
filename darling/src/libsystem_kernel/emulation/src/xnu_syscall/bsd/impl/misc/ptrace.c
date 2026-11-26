@@ -184,6 +184,16 @@ long ptrace_wait_tracee(int pid, int* linux_status, int nohang)
 	return candidates[ready];
 }
 
+// A process started with POSIX_SPAWN_START_SUSPENDED is stopped by Linux, so it cannot run the handler that reports
+// the attach stop (the SIGSTOP just sent) to the debugger. Let it continue: the handler runs first, and the process is
+// then held by the debugger's exception handling like any other attached process.
+static void resume_stopped_at_start(int pid)
+{
+	bool stopped = false;
+	if (dserver_rpc_stopped_at_start(pid, &stopped) >= 0 && stopped)
+		sys_kill(pid, SIGCONT, 1);
+}
+
 long sys_ptrace(int request, int pid, void* addr, int data)
 {
 	const char* cmd = NULL;
@@ -239,6 +249,7 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 
 			tracee_add(pid);
 			sys_kill(pid, SIGSTOP, 1);
+			resume_stopped_at_start(pid);
 
 			ret = dserver_rpc_ptrace_sigexc(pid, true);
 			if (ret < 0) {
@@ -263,6 +274,7 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 				// and PT_CONTINUE resumes it
 				tracee_add(pid);
 				sys_kill(pid, SIGSTOP, 1);
+				resume_stopped_at_start(pid);
 			}
 			cmd = "PT_ATTACH"; break;
 		}
