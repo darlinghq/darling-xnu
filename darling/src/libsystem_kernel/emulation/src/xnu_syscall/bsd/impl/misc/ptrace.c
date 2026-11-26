@@ -13,7 +13,6 @@
 #include <darling/emulation/conversion/signal/duct_signals.h>
 #include <darling/emulation/linux_premigration/signal/sigexc.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/process/wait4.h>
-#include <darling/emulation/conversion/process/wait4.h>
 #include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/read.h>
@@ -39,34 +38,21 @@ struct linux_timespec_tracee {
 	long tv_nsec;
 };
 
-struct tracee_info {
-	int pid;
-	int stop_pending;
-	int last_signal;
-};
-
 // Processes this process attached to; 0 marks a free slot.
-static struct tracee_info tracees[TRACEE_MAX];
+static int tracees[TRACEE_MAX];
 
 static void tracee_add(int pid)
 {
 	for (int i = 0; i < TRACEE_MAX; i++)
 	{
-		if (__atomic_load_n(&tracees[i].pid, __ATOMIC_ACQUIRE) == pid)
-		{
-			__atomic_store_n(&tracees[i].stop_pending, LINUX_SIGSTOP, __ATOMIC_RELEASE);
+		if (__atomic_load_n(&tracees[i], __ATOMIC_ACQUIRE) == pid)
 			return;
-		}
 	}
 	for (int i = 0; i < TRACEE_MAX; i++)
 	{
 		int expected = 0;
-		if (__atomic_compare_exchange_n(&tracees[i].pid, &expected, pid, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-		{
-			__atomic_store_n(&tracees[i].stop_pending, LINUX_SIGSTOP, __ATOMIC_RELEASE);
-			__atomic_store_n(&tracees[i].last_signal, 0, __ATOMIC_RELEASE);
+		if (__atomic_compare_exchange_n(&tracees[i], &expected, pid, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
 			return;
-		}
 	}
 }
 
@@ -74,49 +60,9 @@ static void tracee_remove(int pid)
 {
 	for (int i = 0; i < TRACEE_MAX; i++)
 	{
-		if (__atomic_load_n(&tracees[i].pid, __ATOMIC_ACQUIRE) == pid)
-		{
-			__atomic_store_n(&tracees[i].stop_pending, 0, __ATOMIC_RELEASE);
-			__atomic_store_n(&tracees[i].last_signal, 0, __ATOMIC_RELEASE);
-			int expected = pid;
-			__atomic_compare_exchange_n(&tracees[i].pid, &expected, 0, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
-		}
+		int expected = pid;
+		__atomic_compare_exchange_n(&tracees[i], &expected, 0, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 	}
-}
-
-static char tracee_state(int pid)
-{
-	char path[32] = "/proc/";
-	int len = 6;
-	char digits[12];
-	int nd = 0;
-	for (unsigned v = (unsigned) pid; v != 0; v /= 10)
-		digits[nd++] = '0' + (v % 10);
-	while (nd > 0)
-		path[len++] = digits[--nd];
-	const char suffix[] = "/stat";
-	for (int i = 0; i < (int) sizeof(suffix); i++)
-		path[len++] = suffix[i];
-
-	int fd = sys_open_nocancel(path, BSD_O_RDONLY, 0);
-	if (fd < 0)
-		return 0;
-	char buf[512];
-	int n = sys_read_nocancel(fd, buf, sizeof(buf) - 1);
-	close_internal(fd);
-	if (n <= 0)
-		return 0;
-	buf[n] = '\0';
-
-	char* p = buf + n;
-	while (p > buf && *p != ')')
-		p--;
-	if (*p != ')')
-		return 0;
-	p++;
-	while (*p == ' ')
-		p++;
-	return *p;
 }
 
 // Reads the exit status (Linux wait status format) of a process that has just exited
@@ -179,10 +125,9 @@ static int tracee_exit_status(int pid)
 	return (state == 'Z' && field == 52) ? (int) exit_code : 0;
 }
 
-long ptrace_wait_tracee(int pid, int* linux_status, int options)
+long ptrace_wait_tracee(int pid, int* linux_status, int nohang)
 {
 	int candidates[TRACEE_MAX];
-	int cand_idx[TRACEE_MAX];
 	struct linux_pollfd_tracee fds[TRACEE_MAX];
 	int count = 0;
 
@@ -191,41 +136,12 @@ long ptrace_wait_tracee(int pid, int* linux_status, int options)
 
 	for (int i = 0; i < TRACEE_MAX; i++)
 	{
-		int p = __atomic_load_n(&tracees[i].pid, __ATOMIC_ACQUIRE);
+		int p = __atomic_load_n(&tracees[i], __ATOMIC_ACQUIRE);
 		if (p != 0 && (pid == -1 || pid == p))
-		{
-			cand_idx[count] = i;
 			candidates[count++] = p;
-		}
 	}
 	if (count == 0)
 		return -LINUX_ECHILD;
-
-	if (options & BSD_WUNTRACED)
-	{
-		for (int retry = 0; retry < 50; retry++)
-		{
-			for (int i = 0; i < count; i++)
-			{
-				int idx = cand_idx[i];
-				int stop_sig = __atomic_load_n(&tracees[idx].stop_pending, __ATOMIC_ACQUIRE);
-				if (stop_sig != 0)
-				{
-					char st = tracee_state(candidates[i]);
-					if (st == 'T' || st == 't')
-					{
-						__atomic_store_n(&tracees[idx].stop_pending, 0, __ATOMIC_RELEASE);
-						*linux_status = (stop_sig << 8) | 0x7f;
-						return candidates[i];
-					}
-				}
-			}
-			if (options & BSD_WNOHANG)
-				break;
-			struct linux_timespec_tracee ts = { 0, 1000000 };
-			LINUX_SYSCALL(__NR_nanosleep, &ts, NULL);
-		}
-	}
 
 	int nfds = 0;
 	for (int i = 0; i < count; i++)
@@ -236,12 +152,10 @@ long ptrace_wait_tracee(int pid, int* linux_status, int options)
 			// gone already, and reaped by its real parent: nothing left to learn about it
 			for (int j = 0; j < nfds; j++)
 				LINUX_SYSCALL(__NR_close, fds[j].fd);
-			int last_sig = __atomic_load_n(&tracees[cand_idx[i]].last_signal, __ATOMIC_ACQUIRE);
 			tracee_remove(candidates[i]);
-			*linux_status = last_sig ? signum_bsd_to_linux(last_sig) : 0;
+			*linux_status = 0;
 			return candidates[i];
 		}
-		cand_idx[nfds] = cand_idx[i];
 		candidates[nfds] = candidates[i];
 		fds[nfds].fd = pidfd;
 		fds[nfds].events = LINUX_POLLIN;
@@ -250,7 +164,7 @@ long ptrace_wait_tracee(int pid, int* linux_status, int options)
 	}
 
 	struct linux_timespec_tracee zero = { 0, 0 };
-	long ret = LINUX_SYSCALL(__NR_ppoll, fds, nfds, (options & BSD_WNOHANG) ? &zero : NULL, NULL, 8);
+	long ret = LINUX_SYSCALL(__NR_ppoll, fds, nfds, nohang ? &zero : NULL, NULL, 8);
 
 	int ready = -1;
 	for (int i = 0; i < nfds; i++)
@@ -265,12 +179,8 @@ long ptrace_wait_tracee(int pid, int* linux_status, int options)
 	if (ret == 0 || ready < 0)
 		return 0;
 
-	int last_sig = __atomic_load_n(&tracees[cand_idx[ready]].last_signal, __ATOMIC_ACQUIRE);
 	tracee_remove(candidates[ready]);
-	int exit_st = tracee_exit_status(candidates[ready]);
-	if (exit_st == 0 && last_sig != 0)
-		exit_st = signum_bsd_to_linux(last_sig);
-	*linux_status = exit_st;
+	*linux_status = tracee_exit_status(candidates[ready]);
 	return candidates[ready];
 }
 
@@ -393,14 +303,6 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 		}
 		case XNU_PT_CONTINUE:
 		{
-			for (int i = 0; i < TRACEE_MAX; i++)
-			{
-				if (__atomic_load_n(&tracees[i].pid, __ATOMIC_ACQUIRE) == pid)
-				{
-					__atomic_store_n(&tracees[i].stop_pending, 0, __ATOMIC_RELEASE);
-					__atomic_store_n(&tracees[i].last_signal, 0, __ATOMIC_RELEASE);
-				}
-			}
 			ret = sys_kill(pid, SIGCONT, 1);
 
 			/*
@@ -435,12 +337,6 @@ long sys_ptrace(int request, int pid, void* addr, int data)
 				__simple_abort();
 			}
 			ret = errno_linux_to_bsd(-ret);
-			if (data != 0) {
-				for (int i = 0; i < TRACEE_MAX; i++) {
-					if (__atomic_load_n(&tracees[i].pid, __ATOMIC_ACQUIRE) == pid || pid == 0)
-						__atomic_store_n(&tracees[i].last_signal, data, __ATOMIC_RELEASE);
-				}
-			}
 
 			// return ret;
 			cmd = "PT_THUPDATE"; break;

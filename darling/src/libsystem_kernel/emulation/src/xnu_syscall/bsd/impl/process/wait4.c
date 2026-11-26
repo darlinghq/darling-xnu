@@ -46,7 +46,7 @@ restart:
 	{
 		// A process this one attached to with ptrace is not a Linux child,
 		// but XNU lets the tracer wait for it.
-		ret = ptrace_wait_tracee(pid, status, options);
+		ret = ptrace_wait_tracee(pid, status, options & BSD_WNOHANG);
 		if (ret == 0)
 			return 0;
 	}
