@@ -6,9 +6,7 @@ int atflags_bsd_to_linux(int flags)
 	int linux_flags = 0;
 
 	// AT_SYMLINK_NOFOLLOW_ANY (no symlink in any component): Linux's *at calls have no such flag (openat2's
-	// RESOLVE_NO_SYMLINKS only); the last component isn't followed, the others aren't checked. MetadataUtilities'
-	// fd_stat (Spotlight's journals, searchd) passes it to fstatat: the EINVAL left every journal without its
-	// inode and every journal write failed ("TOC update FAILED err=22"), so CSSearchableIndex failed (-1000).
+	// RESOLVE_NO_SYMLINKS only), so only the last component is not followed and the others are not checked.
 	if (flags & (BSD_AT_SYMLINK_NOFOLLOW | BSD_AT_SYMLINK_NOFOLLOW_ANY))
 		linux_flags |= LINUX_AT_SYMLINK_NOFOLLOW;
 	if (flags & BSD_AT_REMOVEDIR || flags & BSD_AT_REMOVEDIR_DATALESS)

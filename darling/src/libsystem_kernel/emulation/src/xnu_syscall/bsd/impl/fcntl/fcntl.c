@@ -346,9 +346,8 @@ static long sys_fcntl_common(int fd, int cmd, long arg, bool cancelable)
 		case F_GETPROTECTIONCLASS:
 		case F_SETPROTECTIONCLASS:
 			return protection_class(fd, cmd, (int) arg);
-		// F_SINGLE_WRITER (76): a hint for the I/O throttle that one process writes the file. Spotlight's
-		// journal (searchd) sets it and took the EINVAL as a failed journal write ("TOC update FAILED err=22").
-		case 76:
+		// F_SINGLE_WRITER: a hint that one process writes the file; there is nothing to do for it here.
+		case F_SINGLE_WRITER:
 			return 0;
 		case F_SETNOSIGPIPE:
 		case F_GETNOSIGPIPE:

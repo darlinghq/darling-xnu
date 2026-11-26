@@ -115,9 +115,9 @@ long sys_madvise(void* addr, unsigned long len, int advice)
 {
 	int ret;
 
-	// XNU's MADV_ZERO (macOS 15 / iOS 18) zero-fills the range, or fails with ENOTSUP where it can't, and callers
-	// (libpas' zero fill, libmalloc) then zero it themselves. Returning success without zeroing leaves stale data in
-	// memory the caller treats as zeroed (WebCore's wrapper-map tables in Safari's WebContent, for example).
+	// XNU's MADV_ZERO (macOS 15) zero-fills the range, or fails with ENOTSUP where it can't, and callers then
+	// zero the range themselves. Returning success without zeroing would leave stale data in memory the caller
+	// treats as zeroed.
 	if (advice == MADV_ZERO)
 		return -ENOTSUP;
 

@@ -44,8 +44,7 @@ long sys_statfs64(const char* path, struct bsd_statfs64* buf)
 	vc.flags = VCHROOT_FOLLOW;
 	vc.dfd = get_perthread_wd();
 
-	// statfs(NULL) is EFAULT on Darwin; strcpy from NULL killed the caller (the Files app opened by a
-	// shareddocuments: URL statfs'es a path it never got)
+	// statfs(NULL) is EFAULT on Darwin; strcpy from NULL would kill the caller
 	if (!path)
 		return -EFAULT;
 	strcpy(vc.path, path);

@@ -1,7 +1,5 @@
 // XNU BSD syscalls 496-498, the mach eventlink signal / wait "traps" (libsyscall mach_eventlink.c): done by
 // darlingserver's XNU (ipc_eventlink.c), which writes the 64-bit result (count | error << 56) to `result`.
-// They were missing: os_eventlink (AUAudioUnit's out-of-process render pipe: speech synthesis, AUv3 extensions)
-// failed to activate.
 #include <darling/emulation/xnu_syscall/bsd/impl/mach/mach_eventlink.h>
 
 #include <darling/emulation/common/base.h>
