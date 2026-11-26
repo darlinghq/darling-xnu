@@ -194,6 +194,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/readv.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/rename.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/renameat.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/renameatx_np.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/setegid.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/seteuid.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/setgid.h>
@@ -455,6 +456,7 @@ void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[381] = sys___mac_syscall,
 	[480] = sys_recvmsg_x,
 	[481] = sys_sendmsg_x,
+	[488] = sys_renameatx_np,
 	[496] = sys_mach_eventlink_signal,
 	[497] = sys_mach_eventlink_wait_until,
 	[498] = sys_mach_eventlink_signal_wait_until,

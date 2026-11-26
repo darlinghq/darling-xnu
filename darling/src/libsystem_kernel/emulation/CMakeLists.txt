@@ -340,6 +340,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/unistd/readv.c
 	src/xnu_syscall/bsd/impl/unistd/rename.c
 	src/xnu_syscall/bsd/impl/unistd/renameat.c
+	src/xnu_syscall/bsd/impl/unistd/renameatx_np.c
 	src/xnu_syscall/bsd/impl/unistd/setegid.c
 	src/xnu_syscall/bsd/impl/unistd/seteuid.c
 	src/xnu_syscall/bsd/impl/unistd/setgid.c
