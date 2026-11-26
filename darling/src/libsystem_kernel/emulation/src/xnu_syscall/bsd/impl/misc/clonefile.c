@@ -19,11 +19,17 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/openat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/fstat.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/fstatat.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/stat/fstatat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/futimes.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/fchmod.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/fchown.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/getuid.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/readlinkat.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/symlinkat.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/readlinkat.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/symlinkat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/unlinkat.h>
 
 // Linux's FICLONE ioctl is _IOW(0x94, 9, int) in <linux/fs.h>. Use the encoded
@@ -35,10 +41,16 @@
 #if defined(__i386__) || defined(__aarch64__) || defined(__arm64__)
 typedef struct stat clone_stat_t;
 #define clone_fstat sys_fstat
+#define clone_fstatat sys_fstatat
 #else
 typedef struct stat64 clone_stat_t;
 #define clone_fstat sys_fstat64
+#define clone_fstatat sys_fstatat64
 #endif
+
+// The flags clonefile(2) defines; any other bit is EINVAL.
+#define CLONE_KNOWN_FLAGS (XNU_CLONE_NOFOLLOW | XNU_CLONE_NOOWNERCOPY | XNU_CLONE_ACL | \
+	XNU_CLONE_NOFOLLOW_ANY | XNU_CLONE_RESOLVE_BENEATH)
 
 // CLONE_NOOWNERCOPY is the only other public clonefile flag. The private flags
 // in the emulation header are accepted but do not change Linux reflink behavior.
@@ -51,12 +63,15 @@ static long cloneFdToPath(int src_fd, int dest_fd, const char* dest_path, uint32
 
 	if (ret < 0)
 		return ret;
-	if (!S_ISREG(st.st_mode))
+	// macOS clones a directory too, but a Linux reflink cannot share one, so a directory is
+	// reported as not supported (copyfile then copies it entry by entry). Other kinds of file
+	// (FIFOs, devices, sockets) cannot be cloned at all and are EINVAL, as on macOS.
+	if (S_ISDIR(st.st_mode))
 		return -EOPNOTSUPP;
-	if ((flags & XNU_CLONE_NOFOLLOW) && S_ISLNK(st.st_mode))
-		return -ENOTSUP;
-	if (dest_path == NULL || dest_path[0] == '\0')
+	if (!S_ISREG(st.st_mode))
 		return -EINVAL;
+	if (dest_path == NULL || dest_path[0] == '\0')
+		return -ENOENT;
 
 	// O_EXCL makes a failed clone leave no partial destination behind.
 	real_dest_fd = sys_openat_nocancel(dest_fd, dest_path,
@@ -119,16 +134,42 @@ fail:
 	return ret;
 }
 
+// With CLONE_NOFOLLOW a symbolic link source is cloned as a link: the new link has the same target.
+static long cloneSymlink(int src_fd, const char* src_path, int dest_fd, const char* dest_path)
+{
+	char target[4096];
+	long length = sys_readlinkat(src_fd, src_path, target, sizeof(target) - 1);
+
+	if (length < 0)
+		return length;
+	target[length] = '\0';
+	return sys_symlinkat(target, dest_fd, dest_path);
+}
+
 long sys_clonefileat(int src_fd, const char* src_path, int dest_fd, const char* dest_path, uint32_t flags)
 {
-	int real_src_fd, open_flags = BSD_O_RDONLY | BSD_O_CLOEXEC;
+	int real_src_fd, open_flags = BSD_O_RDONLY | BSD_O_CLOEXEC | BSD_O_NONBLOCK;
+	clone_stat_t st;
 	long ret;
 
-	if (src_path == NULL || src_path[0] == '\0')
+	if (flags & ~CLONE_KNOWN_FLAGS)
 		return -EINVAL;
+	if (src_path == NULL || src_path[0] == '\0' || dest_path == NULL || dest_path[0] == '\0')
+		return -ENOENT;
+
+	// Look at the source before opening it: opening a FIFO would block.
+	ret = clone_fstatat(src_fd, src_path, &st, (flags & XNU_CLONE_NOFOLLOW) ? BSD_AT_SYMLINK_NOFOLLOW : 0);
+	if (ret < 0)
+		return ret;
+	if (S_ISLNK(st.st_mode))
+		return cloneSymlink(src_fd, src_path, dest_fd, dest_path);
+	if (S_ISDIR(st.st_mode))
+		return -EOPNOTSUPP;
+	if (!S_ISREG(st.st_mode))
+		return -EINVAL;
+
 	if (flags & XNU_CLONE_NOFOLLOW)
 		open_flags |= BSD_O_NOFOLLOW;
-
 	real_src_fd = sys_openat_nocancel(src_fd, src_path, open_flags, 0);
 	if (real_src_fd < 0)
 		return real_src_fd;
