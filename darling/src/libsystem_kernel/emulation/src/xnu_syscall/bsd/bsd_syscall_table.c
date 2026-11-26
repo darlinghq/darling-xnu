@@ -76,6 +76,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/network/recvfrom.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/network/recvmsg.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/network/sendmsg.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/network/sendfile.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/network/msg_x.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/network/sendto.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/network/setsockopt.h>
@@ -423,6 +424,7 @@ void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[333] = sys_pthread_canceled,
 	[334] = sys_semwait_signal,
 	[336] = sys_proc_info,
+	[337] = sys_sendfile,
 	[338] = sys_stat64,
 	[339] = sys_fstat64,
 	[340] = sys_lstat64,

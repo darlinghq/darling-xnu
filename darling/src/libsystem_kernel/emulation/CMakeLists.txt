@@ -216,6 +216,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/network/recvfrom.c
 	src/xnu_syscall/bsd/impl/network/recvmsg.c
 	src/xnu_syscall/bsd/impl/network/sendmsg.c
+	src/xnu_syscall/bsd/impl/network/sendfile.c
 	src/xnu_syscall/bsd/impl/network/msg_x.c
 	src/xnu_syscall/bsd/impl/network/sendto.c
 	src/xnu_syscall/bsd/impl/network/setsockopt.c
