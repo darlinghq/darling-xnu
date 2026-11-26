@@ -344,6 +344,15 @@ static long sys_fcntl_common(int fd, int cmd, long arg, bool cancelable)
 		// journal (searchd) sets it and took the EINVAL as a failed journal write ("TOC update FAILED err=22").
 		case 76:
 			return 0;
+		case F_SETNOSIGPIPE:
+		case F_GETNOSIGPIPE:
+			// The descriptor has to exist, as on Darwin.
+			ret = LINUX_SYSCALL(__NR_fcntl, fd, LINUX_F_GETFD, 0);
+			if (ret < 0)
+				return errno_linux_to_bsd(ret);
+			if (cmd == F_GETNOSIGPIPE)
+				return nosigpipe_get(fd);
+			return nosigpipe_set(fd, arg != 0);
 		// TODO: implement remaining commands
 		default:
 			if (linux_cmd == -1)
