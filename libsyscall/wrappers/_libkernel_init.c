@@ -79,6 +79,8 @@ _libkernel_functions_t _libkernel_functions;
 #ifdef DARLING
 // reads the kill switch of in-process psynch (emulation/.../psynch/psynch_inproc.c)
 extern void psynch_inproc_init(const char* envp[]);
+// reads the kill switch of in-process Mach messaging (emulation/.../mach/impl/mach_sq.c)
+extern void mach_sq_init(const char* envp[]);
 #endif
 
 void
@@ -96,6 +98,7 @@ __libkernel_init(_libkernel_functions_t fns,
 	mach_init(apple);
 	sigexc_setup();
 	psynch_inproc_init(envp);
+	mach_sq_init(envp);
 #else
 	mach_init();
 #endif

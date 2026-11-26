@@ -121,11 +121,11 @@ static long psynch_leave(struct ksyn_frame* frame)
 }
 
 // A call that blocks ends in its continuation, which returns to the
-// __builtin_setjmp below through unix_syscall_return().
+// KSYN_SETJMP below through unix_syscall_return().
 #define PSYNCH_CALL(expr) \
 	do { \
 		struct ksyn_frame* volatile frame = psynch_enter(); \
-		if (__builtin_setjmp(frame->return_jmp) == 0) \
+		if (KSYN_SETJMP(frame->return_jmp) == 0) \
 			frame->error = (expr); \
 		return psynch_leave(frame); \
 	} while (0)
