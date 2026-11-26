@@ -18,6 +18,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/fcntl.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/open.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/openat.h>
+#include <darling/emulation/conversion/stat/types.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/fstat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/fstatat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/fstatat.h>
@@ -37,16 +38,11 @@
 // host kernel's, and this value is the same on all Linux architectures.
 #define LINUX_FICLONE_REQUEST 0x40049409UL
 
-// Match the stat layout sys_fstat()/sys_fstat64() write for the target.
-#if defined(__i386__) || defined(__aarch64__) || defined(__arm64__)
-typedef struct stat clone_stat_t;
-#define clone_fstat sys_fstat
-#define clone_fstatat sys_fstatat
-#else
-typedef struct stat64 clone_stat_t;
+// The stat layout the 64-bit syscalls write: struct stat64 (struct stat on arm64) on every target, so
+// the same fields mean the same on i386 and x86_64.
+typedef darling_stat64_t clone_stat_t;
 #define clone_fstat sys_fstat64
 #define clone_fstatat sys_fstatat64
-#endif
 
 // The flags clonefile(2) defines; any other bit is EINVAL.
 #define CLONE_KNOWN_FLAGS (XNU_CLONE_NOFOLLOW | XNU_CLONE_NOOWNERCOPY | XNU_CLONE_ACL | \
@@ -79,11 +75,12 @@ static long cloneFdToPath(int src_fd, int dest_fd, const char* dest_path, uint32
 	if (real_dest_fd < 0)
 		return real_dest_fd;
 
+	// FICLONE takes the source descriptor itself as its argument (not a pointer to it).
 	// This is the host passthrough: the guest's clonefileat asks the Linux
 	// kernel to share the source's extents with the new file. Filesystems that
 	// cannot reflink report EOPNOTSUPP, which libcopyfile's best-effort
 	// COPYFILE_CLONE turns into an ordinary copy.
-	ioctl_ret = LINUX_SYSCALL(__NR_ioctl, real_dest_fd, LINUX_FICLONE_REQUEST, &src_fd);
+	ioctl_ret = LINUX_SYSCALL(__NR_ioctl, real_dest_fd, LINUX_FICLONE_REQUEST, src_fd);
 	if (ioctl_ret < 0)
 	{
 		ret = errno_linux_to_bsd(ioctl_ret);

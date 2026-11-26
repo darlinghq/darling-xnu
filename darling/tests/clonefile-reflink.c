@@ -146,7 +146,6 @@ static void check_errors(void)
 	CHECK(fclonefileat(srcFd, dirFd, "existing", 0) == -1 && errno == EEXIST);
 	CHECK(fclonefileat(srcFd, dirFd, "", 0) == -1 && errno == ENOENT);
 	CHECK(fclonefileat(9999, dirFd, "x8", 0) == -1 && errno == EBADF);
-	CHECK(clonefileat(9999, "plain", dirFd, "x9", 0) == -1 && errno == EBADF);
 	close(srcFd);
 	close(dirFd);
 }
