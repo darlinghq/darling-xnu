@@ -63,7 +63,7 @@ static long cloneFdToPath(int src_fd, int dest_fd, const char* dest_path, uint32
 	// reported as not supported (copyfile then copies it entry by entry). Other kinds of file
 	// (FIFOs, devices, sockets) cannot be cloned at all and are EINVAL, as on macOS.
 	if (S_ISDIR(st.st_mode))
-		return -EOPNOTSUPP;
+		return -ENOTSUP;
 	if (!S_ISREG(st.st_mode))
 		return -EINVAL;
 	if (dest_path == NULL || dest_path[0] == '\0')
@@ -78,12 +78,16 @@ static long cloneFdToPath(int src_fd, int dest_fd, const char* dest_path, uint32
 	// FICLONE takes the source descriptor itself as its argument (not a pointer to it).
 	// This is the host passthrough: the guest's clonefileat asks the Linux
 	// kernel to share the source's extents with the new file. Filesystems that
-	// cannot reflink report EOPNOTSUPP, which libcopyfile's best-effort
+	// cannot reflink report ENOTSUP, which libcopyfile's best-effort
 	// COPYFILE_CLONE turns into an ordinary copy.
 	ioctl_ret = LINUX_SYSCALL(__NR_ioctl, real_dest_fd, LINUX_FICLONE_REQUEST, src_fd);
 	if (ioctl_ret < 0)
 	{
 		ret = errno_linux_to_bsd(ioctl_ret);
+		// clonefile(2) reports a filesystem that cannot clone as ENOTSUP; the Darwin EOPNOTSUPP is
+		// the socket error of the same name.
+		if (ret == -EOPNOTSUPP)
+			ret = -ENOTSUP;
 		goto fail;
 	}
 
@@ -161,7 +165,7 @@ long sys_clonefileat(int src_fd, const char* src_path, int dest_fd, const char* 
 	if (S_ISLNK(st.st_mode))
 		return cloneSymlink(src_fd, src_path, dest_fd, dest_path);
 	if (S_ISDIR(st.st_mode))
-		return -EOPNOTSUPP;
+		return -ENOTSUP;
 	if (!S_ISREG(st.st_mode))
 		return -EINVAL;
 

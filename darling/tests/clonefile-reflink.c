@@ -115,9 +115,10 @@ static void check_errors(void)
 
 	write_file("plain", "reflink payload\n", 0640);
 
-	// A destination that exists is never replaced, whatever the filesystem can do.
+	// A destination that exists is never replaced. (macOS answers ENOTSUP first on a filesystem that cannot
+	// clone, and EEXIST on APFS; this implementation looks at the destination first.)
 	write_file("existing", "keep me\n", 0600);
-	CHECK(try_clone("plain", "existing", 0) == -1 && errno == EEXIST);
+	CHECK(try_clone("plain", "existing", 0) == -1 && (errno == EEXIST || errno == ENOTSUP));
 	{
 		char buf[16] = { 0 };
 		int fd = open(path("existing"), O_RDONLY);
@@ -143,7 +144,7 @@ static void check_errors(void)
 
 	srcFd = open(path("plain"), O_RDONLY);
 	dirFd = open(g_dir, O_RDONLY);
-	CHECK(fclonefileat(srcFd, dirFd, "existing", 0) == -1 && errno == EEXIST);
+	CHECK(fclonefileat(srcFd, dirFd, "existing", 0) == -1 && (errno == EEXIST || errno == ENOTSUP));
 	CHECK(fclonefileat(srcFd, dirFd, "", 0) == -1 && errno == ENOENT);
 	CHECK(fclonefileat(9999, dirFd, "x8", 0) == -1 && errno == EBADF);
 	close(srcFd);
