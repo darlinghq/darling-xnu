@@ -457,8 +457,17 @@ void sigexc_setup(void)
 	}
 	if (started_suspended) {
 		kern_printf("sigexc: start_suspended -> suspending (ret to %p)\n", __builtin_return_address(0));
-		task_suspend(mach_task_self());
+		// Stop the process, as POSIX_SPAWN_START_SUSPENDED documents: its parent sees it with waitpid(WUNTRACED) and
+		// resumes it with SIGCONT. This takes a Linux SIGSTOP directly: a SIGSTOP sent with kill() is turned into
+		// SIGSTKFLT so that sigexc can report it to a debugger, which is not wanted for a process that is not traced yet.
+		LINUX_SYSCALL(__NR_kill, LINUX_SYSCALL0(__NR_getpid), LINUX_SIGSTOP);
 		kern_printf("sigexc: start_suspended -> wokenup (ret to %p)\n", __builtin_return_address(0));
+		// resumed: darlingserver stops reporting this process as stopped at start-up (see wait4)
+		code = dserver_rpc_started_suspended(&started_suspended);
+		if (code < 0) {
+			__simple_printf("Failed to clear started_suspended status: %d\n", code);
+			__simple_abort();
+		}
 	} else {
 		int32_t tracer;
 		code = dserver_rpc_get_tracer(&tracer);
