@@ -15,6 +15,7 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/fdpath.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/fstore_passthrough.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bpf/bpf_device.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/nosigpipe.h>
@@ -317,12 +318,19 @@ static long sys_fcntl_common(int fd, int cmd, long arg, bool cancelable)
 			linux_struct->l_pid = bsd_struct->l_pid;
 			arg = linux_struct;
 		} break;
-		case F_FULLFSYNC: {
-			ret = LINUX_SYSCALL1(__NR_fsync, fd);
-			if (ret < 0)
-				ret = errno_linux_to_bsd(ret);
-			return 0;
-		};
+		case F_PREALLOCATE:
+		case F_PUNCHHOLE:
+		case F_RDADVISE:
+		case F_RDAHEAD:
+		case F_FULLFSYNC:
+		case F_BARRIERFSYNC:
+		case F_FREEZE_FS:
+		case F_THAW_FS:
+		case F_LOG2PHYS:
+		case F_LOG2PHYS_EXT:
+			// Storage-control commands whose contract has a Linux host
+			// analogue. The helper returns the Darwin errno directly.
+			return darling_fstore_passthrough(fd, (unsigned long) cmd, (void*) arg);
 		case F_NOCACHE:
 		{
 			// Only a caching hint; Linux has no per-descriptor equivalent
