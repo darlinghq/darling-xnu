@@ -132,6 +132,80 @@ bool sys_thread_has_tsd_base(void)
 	}
 	return false;
 }
+
+/* TPIDR_EL0-relative offset of rseq.cpu_id (cpu_id_start_offset + 4):
+ *   0  = not yet initialized
+ *  -1  = initialized, no glibc rseq area (use per-thread rseq_table fallback)
+ * else = valid offset from __builtin_thread_pointer() to int32_t cpu_id */
+static intptr_t rseq_cpu_id_offset = 0;
+
+void sys_thread_set_rseq_cpu_offset(intptr_t cpu_id_start_offset)
+{
+	intptr_t val = (cpu_id_start_offset == -1) ? -1 : (cpu_id_start_offset + 4);
+	__atomic_store_n(&rseq_cpu_id_offset, val, __ATOMIC_RELEASE);
+}
+
+__attribute__((visibility("default")))
+intptr_t sys_thread_get_rseq_cpu_id_offset(void)
+{
+	return __atomic_load_n(&rseq_cpu_id_offset, __ATOMIC_ACQUIRE);
+}
+
+/* Fallback per-thread rseq registration when glibc/mldr did not provide
+ * darling_rseq_cpu_offset=. Uses __NR_rseq (293 on arm64). */
+#define DARLING_RSEQ_SIG 0xd428bc00u
+#define DARLING_RSEQ_CPU_ID_UNINITIALIZED (-1)
+#define DARLING_RSEQ_CPU_ID_FAILED (-2)
+
+struct darling_rseq_area {
+	uint32_t cpu_id_start;
+	int32_t cpu_id;
+	uint64_t rseq_cs;
+	uint32_t flags;
+	uint32_t node_id;
+	uint32_t mm_cid;
+	uint32_t pad;
+} __attribute__((aligned(32)));
+
+struct rseq_entry {
+	long tid;
+	struct darling_rseq_area rseq;
+};
+
+static struct rseq_entry rseq_table[TSD_TABLE_SIZE];
+
+__attribute__((visibility("default")))
+int sys_thread_rseq_cpu_number(void)
+{
+	long tid = current_tid();
+	unsigned int i = tsd_hash(tid);
+	for (unsigned int step = 0; step < TSD_TABLE_SIZE; step++) {
+		struct rseq_entry* e = &rseq_table[(i + step) & (TSD_TABLE_SIZE - 1)];
+		if (e->tid == tid || __sync_bool_compare_and_swap(&e->tid, 0, tid)) {
+			int32_t cpu = __atomic_load_n(&e->rseq.cpu_id, __ATOMIC_RELAXED);
+			if (cpu >= 0)
+				return cpu;
+			if (cpu == DARLING_RSEQ_CPU_ID_FAILED)
+				return -1;
+			/* First call on this thread (or cpu_id == 0 before init, since
+			 * zero-init leaves cpu_id == 0; distinguish via flags/init). */
+			if (__atomic_load_n(&e->rseq.flags, __ATOMIC_RELAXED) == 0 &&
+			    e->rseq.cpu_id == 0) {
+				e->rseq.cpu_id = DARLING_RSEQ_CPU_ID_UNINITIALIZED;
+				long rc = LINUX_SYSCALL(__NR_rseq, &e->rseq, 32, 0, DARLING_RSEQ_SIG);
+				if (rc < 0) {
+					__atomic_store_n(&e->rseq.cpu_id, DARLING_RSEQ_CPU_ID_FAILED, __ATOMIC_RELAXED);
+					return -1;
+				}
+				__atomic_store_n(&e->rseq.flags, 1, __ATOMIC_RELAXED);
+				cpu = __atomic_load_n(&e->rseq.cpu_id, __ATOMIC_RELAXED);
+				return (cpu >= 0) ? cpu : -1;
+			}
+			return -1;
+		}
+	}
+	return -1;
+}
 #endif
 
 void sys_thread_set_tsd_base(void* ptr, int unk)
