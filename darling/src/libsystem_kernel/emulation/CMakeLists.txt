@@ -283,6 +283,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/time/getitimer.c
 	src/xnu_syscall/bsd/impl/time/gettimeofday.c
 	src/xnu_syscall/bsd/impl/time/ntp_adjtime.c
+	src/xnu_syscall/bsd/impl/time/ntp_gettime.c
 	src/xnu_syscall/bsd/impl/time/setitimer.c
 	src/xnu_syscall/bsd/impl/time/utimes.c
 	src/xnu_syscall/bsd/impl/unistd/access.c

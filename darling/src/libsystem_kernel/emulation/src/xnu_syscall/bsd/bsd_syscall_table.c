@@ -138,6 +138,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/time/getitimer.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/gettimeofday.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/ntp_adjtime.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/time/ntp_gettime.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/setitimer.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/utimes.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/access.h>
@@ -527,6 +528,7 @@ void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[521] = sys_abort_with_payload,
 	[524] = sys_setattrlistat,
 	[527] = sys_ntp_adjtime,
+	[528] = sys_ntp_gettime,
   [538] = sys_task_inspect_for_pid,
 	[539] = sys_task_read_for_pid,
 	[540] = sys_preadv,
