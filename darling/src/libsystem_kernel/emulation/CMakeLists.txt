@@ -126,6 +126,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/helper/misc/common_at.c
 	src/xnu_syscall/bsd/helper/misc/readline.c
 	src/xnu_syscall/bsd/helper/misc/fdpath.c
+	src/xnu_syscall/bsd/helper/misc/fstore_passthrough.c
 	src/xnu_syscall/bsd/helper/misc/nofile_limit.c
 	src/xnu_syscall/bsd/helper/misc/posix_ipc_name.c
 	src/xnu_syscall/bsd/helper/misc/host_platform.c
