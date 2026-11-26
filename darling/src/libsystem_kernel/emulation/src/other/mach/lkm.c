@@ -46,14 +46,24 @@ void mach_driver_init(const char** applep)
 	// Both the static dyld copy and the dynamic kernel copy publish TSD. The
 	// latter must initialize this offset too, including on new guest threads.
 	if (applep != NULL) {
+		bool saw_rseq = false;
 		for (int i = 0; applep[i] != NULL; ++i) {
 			if (strncmp(applep[i], "darling_tsd_slot_offset=", 24) == 0) {
 				const char* end = NULL;
 				unsigned long offset = __simple_atoi16(applep[i] + 24, &end);
 				if (end && *end == '\0' && end != applep[i] + 24)
 					sys_thread_set_native_tsd_slot_offset(offset);
+			} else if (strncmp(applep[i], "darling_rseq_cpu_offset=", 24) == 0) {
+				const char* end = NULL;
+				unsigned long long offset = __simple_atoi16(applep[i] + 24, &end);
+				if (end && *end == '\0' && end != applep[i] + 24) {
+					sys_thread_set_rseq_cpu_offset((intptr_t)(uintptr_t)offset);
+					saw_rseq = true;
+				}
 			}
 		}
+		if (!saw_rseq && sys_thread_get_rseq_cpu_id_offset() == 0)
+			sys_thread_set_rseq_cpu_offset(-1);
 	}
 #endif
 
