@@ -253,10 +253,16 @@ static void icase_cache_insert(const stat_t* dir_st, const char* comp, size_t co
 	int64_t size;
 	stat_get_meta(dir_st, &m_sec, &m_nsec, &c_sec, &c_nsec, &size, &nlink);
 
-	/* Avoid caching negative -ENOENT in directories modified within the last
-	 * 2 seconds (e.g. /tmp during mkfifo/open(O_CREAT)/bind) where coarse VFS
-	 * mtime ticks (~1-4ms) could otherwise mask a newly created entry. */
-	if (!found && !icase_dir_settled(m_sec))
+	/* Only remember answers about a directory that has not changed for 2
+	 * seconds. The modification time is the only thing that tells a later
+	 * lookup that an entry was added, removed or renamed, and it advances in
+	 * coarse steps (a few milliseconds), so a change made right after an answer
+	 * was cached can leave every recorded attribute as it was. That would keep
+	 * a name missing that has just been created (a negative answer), or keep a
+	 * name that has just been replaced by another spelling of it (a positive
+	 * one). Once the directory is older than the clock's step, any later change
+	 * gives it a different time. */
+	if (!icase_dir_settled(m_sec))
 		return;
 
 	uint64_t dev = (uint64_t)dir_st->st_dev;
