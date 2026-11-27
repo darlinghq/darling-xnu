@@ -73,6 +73,10 @@ long sys_fork(void)
 		extern void vchroot_icase_postfork_child(void);
 		vchroot_icase_postfork_child();
 #endif
+#if defined(__aarch64__)
+		extern void sys_thread_rseq_postfork_child(void);
+		sys_thread_rseq_postfork_child();
+#endif
 
 		// create a new dserver RPC socket
 		__dserver_per_thread_socket_refresh();

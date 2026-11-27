@@ -34,6 +34,10 @@ long sys_bsdthread_terminate(void* stackaddr, unsigned long freesize, int port,
 	// the in-process psynch state of this thread can go to the next thread;
 	// before the joiner is woken, as it may free our TSD
 	psynch_inproc_thread_exit();
+#if defined(__aarch64__)
+	extern void sys_thread_rseq_cleanup(void);
+	sys_thread_rseq_cleanup();
+#endif
 
 	semaphore_signal_trap_impl(join_sem);
 
