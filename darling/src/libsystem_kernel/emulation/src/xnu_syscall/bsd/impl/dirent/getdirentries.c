@@ -5,6 +5,7 @@
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/dirent/getdirentries.h>
 #include <darling/emulation/conversion/errno.h>
+#include <darling/emulation/conversion/duct_errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
 #define LINUX_SEEK_SET 0
@@ -19,18 +20,6 @@ extern int strcmp(const char* str1, const char* str2);
 #endif
 
 #define ALIGN(x, alignment) (((x) + (alignment - 1)) & ~(alignment - 1))
-#define BSD_DIRENT_MIN_SIZE ALIGN(sizeof(struct bsd_dirent) + 2, 4)
-#define LINUX_DIRENT64_MIN_SIZE ALIGN(sizeof(struct linux_dirent64) + 2, 8)
-
-// getdirentries64 records are 8-byte aligned and their name starts at offset
-// 21, so a record is ALIGN(22 + namelen, 8) bytes, at most 8 bytes more than
-// the Linux record (ALIGN(20 + namelen, 8), at least 24 bytes) it comes from.
-// Reading at most len / 32 * 24 bytes of Linux records therefore always fits
-// in len bytes, and no entry read from the kernel is dropped.
-#define BSD_DIRENT64_MAX_SIZE_PER_LINUX_MIN 32
-// The smallest Linux record: the 19-byte header, a one-byte name and its NUL,
-// rounded up to 8. (LINUX_DIRENT64_MIN_SIZE above is larger, 32.)
-#define LINUX_DIRENT64_SMALLEST_RECORD 24
 
 static inline void round_to_4(unsigned short* reclen)
 {
@@ -42,27 +31,57 @@ static inline void round_to_4(unsigned short* reclen)
 	}
 }
 
-// A BSD record (8-byte header, name, NUL, rounded to 4) is never larger than
-// the Linux record it is made from (19-byte header, name, NUL, rounded to 8).
-// Reading at most len bytes of Linux records therefore always fits in len
-// bytes of BSD records. Entries read from the kernel but not returned cannot
-// be handed back, so reading more than fits would silently drop the entries
-// at the end of every call.
-// The host read must still be able to return the longest Linux record
-// (255-byte name), so callers with a buffer smaller than that can still lose
-// entries; callers that enumerate a directory should pass a larger one.
+// Both calls read Linux records into a host buffer, convert them and stop at
+// the first converted record that does not fit in the caller's buffer. A
+// getdirentries64 record (ALIGN(22 + namelen, 8)) can be 8 bytes longer than
+// its Linux record (ALIGN(20 + namelen, 8)), and the host read must be able to
+// return a longest Linux record (255-byte name) even when the caller's buffer
+// is smaller, so the host read can return records that do not fit. The
+// directory offset is then put back on the first record not returned, so the
+// next call returns it and no entry is ever dropped.
 #define LINUX_DIRENT64_LARGEST_RECORD 280
 #define GETDIRENTRIES_HOST_BUF_MAX 2048
+
+// The largest converted record of either call: a getdirentries64 record with
+// a 255-byte name. Smaller caller buffers may not fit the first record.
+#define BSD_DIRENT_LARGEST_RECORD 280
+
+static unsigned int getdirentries_host_len(unsigned int len)
+{
+	if (len < LINUX_DIRENT64_LARGEST_RECORD)
+		return LINUX_DIRENT64_LARGEST_RECORD;
+	if (len > GETDIRENTRIES_HOST_BUF_MAX)
+		return GETDIRENTRIES_HOST_BUF_MAX;
+	return len;
+}
+
+// Called when records were read but not returned. resume is the d_off of the
+// last returned record, or the offset before the read (start) when none was.
+// Returns opos, or an error when no record could be returned.
+static long getdirentries_unread(int fd, int opos, long long resume, long long start)
+{
+	long ret;
+
+	if (opos == 0)
+	{
+		// The first record does not fit in the caller's buffer. start is
+		// always known here: it is read whenever len is small enough for
+		// that to happen.
+		if (start < 0)
+			return errno_linux_to_bsd(-LINUX_EINVAL);
+		resume = start;
+	}
+
+	ret = LINUX_SYSCALL(__NR_lseek, fd, resume, LINUX_SEEK_SET);
+	if (opos == 0)
+		return errno_linux_to_bsd(ret < 0 ? ret : -LINUX_EINVAL);
+	return opos;
+}
 
 long sys_getdirentries(int fd, char* ibuf, unsigned int len, long* basep)
 {
 	int ret, bpos = 0, opos = 0;
-
-	unsigned int hostlen = len;
-	if (hostlen < LINUX_DIRENT64_LARGEST_RECORD)
-		hostlen = LINUX_DIRENT64_LARGEST_RECORD;
-	if (hostlen > GETDIRENTRIES_HOST_BUF_MAX)
-		hostlen = GETDIRENTRIES_HOST_BUF_MAX;
+	long long start = -1, resume = 0;
 
 	// bounded, so this doesn't blow up the stack
 	char buf[GETDIRENTRIES_HOST_BUF_MAX];
@@ -70,7 +89,16 @@ long sys_getdirentries(int fd, char* ibuf, unsigned int len, long* basep)
 	if (basep)
 		*basep = 0;
 
-	ret = LINUX_SYSCALL(__NR_getdents64, fd, buf, hostlen);
+	// The offset before the read, needed only when the caller's buffer may be
+	// too small for the first record.
+	if (len < BSD_DIRENT_LARGEST_RECORD)
+	{
+		start = LINUX_SYSCALL(__NR_lseek, fd, 0, LINUX_SEEK_CUR);
+		if (start < 0)
+			return errno_linux_to_bsd(start);
+	}
+
+	ret = LINUX_SYSCALL(__NR_getdents64, fd, buf, getdirentries_host_len(len));
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
@@ -84,7 +112,7 @@ long sys_getdirentries(int fd, char* ibuf, unsigned int len, long* basep)
 		bsd = (struct bsd_dirent*) (ibuf + opos);
 		slen = strlen(l64->d_name);
 
-		if (len-opos < sizeof(struct bsd_dirent) + slen + 1)
+		if (len-opos < ALIGN(sizeof(struct bsd_dirent) + slen + 1, 4))
 			break;
 
 		bsd->d_ino = l64->d_ino;
@@ -98,7 +126,11 @@ long sys_getdirentries(int fd, char* ibuf, unsigned int len, long* basep)
 
 		opos += bsd->d_reclen;
 		bpos += l64->d_reclen;
+		resume = l64->d_off;
 	}
+
+	if (bpos < ret)
+		return getdirentries_unread(fd, opos, resume, start);
 
 	return opos;
 }
@@ -108,19 +140,24 @@ struct dirent64 __DARWIN_STRUCT_DIRENTRY;
 long sys_getdirentries64(int fd, char* ibuf, unsigned int len, long* basep)
 {
 	int ret, bpos = 0, opos = 0;
+	long long start = -1, resume = 0;
 
-	unsigned int max_entry_count = len / BSD_DIRENT64_MAX_SIZE_PER_LINUX_MIN;
-
-	// don't want to blow up the stack
-	if (max_entry_count > 20)
-		max_entry_count = 20;
-
-	char buf[max_entry_count * LINUX_DIRENT64_SMALLEST_RECORD];
+	// bounded, so this doesn't blow up the stack
+	char buf[GETDIRENTRIES_HOST_BUF_MAX];
 
 	if (basep)
 		*basep = 0;
 
-	ret = LINUX_SYSCALL(__NR_getdents64, fd, buf, sizeof(buf));
+	// The offset before the read, needed only when the caller's buffer may be
+	// too small for the first record.
+	if (len < BSD_DIRENT_LARGEST_RECORD)
+	{
+		start = LINUX_SYSCALL(__NR_lseek, fd, 0, LINUX_SEEK_CUR);
+		if (start < 0)
+			return errno_linux_to_bsd(start);
+	}
+
+	ret = LINUX_SYSCALL(__NR_getdents64, fd, buf, getdirentries_host_len(len));
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
@@ -148,13 +185,11 @@ long sys_getdirentries64(int fd, char* ibuf, unsigned int len, long* basep)
 
 		opos += bsd->d_reclen;
 		bpos += l64->d_reclen;
+		resume = l64->d_off;
 	}
 
-	/*
-	if (bpos < ret) {
-		__simple_printf("bpos < ret; %d < %d", bpos, ret);
-	}
-	*/
+	if (bpos < ret)
+		return getdirentries_unread(fd, opos, resume, start);
 
 	return opos;
 }
