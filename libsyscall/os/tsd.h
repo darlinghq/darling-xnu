@@ -54,6 +54,16 @@
 
 #ifdef DARLING
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#if defined(__arm64__)
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern intptr_t sys_thread_get_rseq_cpu_id_offset(void);
+extern int sys_thread_rseq_cpu_number(void);
+#ifdef __cplusplus
+}
+#endif
+#endif
 #endif
 
 extern void _thread_set_tsd_base(void *tsd_base);
@@ -103,13 +113,6 @@ _os_cpu_number(void)
 	/* Fast path via Linux rseq: mldr passes glibc's TPIDR_EL0-relative rseq
 	 * offset when glibc registered rseq for every thread; otherwise
 	 * libsystem_kernel registers a per-thread rseq area lazily via __NR_rseq. */
-#ifdef __cplusplus
-	extern "C" intptr_t sys_thread_get_rseq_cpu_id_offset(void);
-	extern "C" int sys_thread_rseq_cpu_number(void);
-#else
-	extern intptr_t sys_thread_get_rseq_cpu_id_offset(void);
-	extern int sys_thread_rseq_cpu_number(void);
-#endif
 	static intptr_t __darling_rseq_cpu_id_offset = 0;
 	intptr_t rseq_offset = __atomic_load_n(&__darling_rseq_cpu_id_offset, __ATOMIC_RELAXED);
 	if (__builtin_expect(rseq_offset == 0, 0)) {

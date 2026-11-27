@@ -1,5 +1,6 @@
 #include <darling/emulation/xnu_syscall/machdep/impl/tls.h>
 #include <darling/emulation/conversion/duct_errno.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
@@ -270,7 +271,13 @@ void sys_thread_rseq_cleanup(void)
 
 void sys_thread_rseq_postfork_child(void)
 {
+	long self_tid = current_tid();
 	for (unsigned int i = 0; i < TSD_TABLE_SIZE; i++) {
+		if (rseq_table[i].tid == self_tid &&
+		    (rseq_table[i].state == RSEQ_STATE_ACTIVE ||
+		     rseq_table[i].state == RSEQ_STATE_REGISTERING)) {
+			LINUX_SYSCALL(__NR_rseq, &rseq_table[i].rseq, 32, 1 /* RSEQ_FLAG_UNREGISTER */, DARLING_RSEQ_SIG);
+		}
 		rseq_table[i].tid = 0;
 		rseq_table[i].state = RSEQ_STATE_UNINIT;
 		rseq_table[i].rseq = (struct darling_rseq_area){0};
