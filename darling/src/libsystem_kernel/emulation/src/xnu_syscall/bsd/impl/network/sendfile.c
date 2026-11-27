@@ -97,7 +97,9 @@ long sys_sendfile(int fd, int socket, long long offset, long long* nbytes,
 
 	CANCELATION_POINT();
 
-	if (nbytes == NULL || fd < 0 || socket < 0 || offset < 0 || flags != 0)
+	if (fd < 0 || socket < 0)
+		return -EBADF;
+	if (nbytes == NULL || offset < 0 || flags != 0)
 		return -EINVAL;
 
 	count = *nbytes;

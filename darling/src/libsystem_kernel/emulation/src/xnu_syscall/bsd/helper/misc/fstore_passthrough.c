@@ -62,8 +62,14 @@ static long preallocate(int fd, fstore_t* store)
 		return -EFAULT;
 	if (store->fst_flags & ~(F_ALLOCATECONTIG | F_ALLOCATEALL))
 		return -EINVAL;
-	if (store->fst_length <= 0)
+	if (store->fst_length < 0)
 		return -EINVAL;
+	// nothing to reserve; macOS 26 answers success
+	if (store->fst_length == 0)
+	{
+		store->fst_bytesalloc = 0;
+		return 0;
+	}
 
 	if (store->fst_posmode == F_PEOFPOSMODE)
 	{
