@@ -36,6 +36,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/kqueue/kqueue.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/abort_with_payload.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/mremap_encrypted.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/mach/mach_eventlink.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/clonefile.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/csops.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/csrctl.h>
@@ -75,6 +76,8 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/network/recvfrom.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/network/recvmsg.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/network/sendmsg.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/network/sendfile.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/network/msg_x.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/network/sendto.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/network/setsockopt.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/network/shutdown.h>
@@ -135,6 +138,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/time/getitimer.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/gettimeofday.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/ntp_adjtime.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/time/ntp_gettime.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/setitimer.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/time/utimes.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/access.h>
@@ -191,6 +195,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/readv.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/rename.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/renameat.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/unistd/renameatx_np.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/setegid.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/seteuid.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/setgid.h>
@@ -421,6 +426,7 @@ void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[333] = sys_pthread_canceled,
 	[334] = sys_semwait_signal,
 	[336] = sys_proc_info,
+	[337] = sys_sendfile,
 	[338] = sys_stat64,
 	[339] = sys_fstat64,
 	[340] = sys_lstat64,
@@ -449,6 +455,12 @@ void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[372] = sys_thread_selfid,
 	[374] = sys_kevent_qos,
 	[381] = sys___mac_syscall,
+	[480] = sys_recvmsg_x,
+	[481] = sys_sendmsg_x,
+	[488] = sys_renameatx_np,
+	[496] = sys_mach_eventlink_signal,
+	[497] = sys_mach_eventlink_wait_until,
+	[498] = sys_mach_eventlink_signal_wait_until,
 	[394] = sys_pselect,
 	[395] = sys_pselect_nocancel,
 	[396] = sys_read_nocancel,
@@ -516,6 +528,7 @@ void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[521] = sys_abort_with_payload,
 	[524] = sys_setattrlistat,
 	[527] = sys_ntp_adjtime,
+	[528] = sys_ntp_gettime,
   [538] = sys_task_inspect_for_pid,
 	[539] = sys_task_read_for_pid,
 	[540] = sys_preadv,

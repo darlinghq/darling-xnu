@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdint.h>
 #include <sys/errno.h>
 #include <sys/stat.h>
 
@@ -46,6 +47,46 @@
 #define ATTR_CMN_RETURNED_ATTRS 0x80000000
 #define ATTR_CMN_ERROR 0x20000000
 #define ATTR_DIR_ENTRYCOUNT 0x00000002
+
+// bsd/sys/attr.h. These are the subset of ATTR_VOL_CAPABILITIES bits backed by
+// real emulation behavior. CLONE follows clonefileat()/fclonefileat() through
+// Linux FICLONE, ALLOCATE follows F_PREALLOCATE through fallocate(), and the
+// rename variants follow renameatx_np() through renameat2(). An individual
+// host filesystem can still reject an operation with ENOTSUP.
+#define VOL_CAP_FMT_SPARSE_FILES        0x00000040
+#define VOL_CAP_FMT_CASE_SENSITIVE      0x00000100
+#define VOL_CAP_FMT_CASE_PRESERVING     0x00000200
+#define VOL_CAP_FMT_FAST_STATFS         0x00000400
+#define VOL_CAP_FMT_2TB_FILESIZE        0x00000800
+#define VOL_CAP_FMT_64BIT_OBJECT_IDS    0x00020000
+#define VOL_CAP_INT_ATTRLIST            0x00000002
+#define VOL_CAP_INT_ALLOCATE            0x00000040
+#define VOL_CAP_INT_ADVLOCK             0x00000100
+#define VOL_CAP_INT_FLOCK               0x00000200
+#define VOL_CAP_INT_USERACCESS          0x00000800
+#define VOL_CAP_INT_EXTENDED_ATTR       0x00004000
+#define VOL_CAP_INT_CLONE               0x00010000
+#define VOL_CAP_INT_RENAME_SWAP         0x00040000
+#define VOL_CAP_INT_RENAME_EXCL         0x00080000
+
+// Fills the eight words of struct vol_capabilities_attr: capabilities[4] and
+// valid[4]. Only bits we actually answer are marked valid.
+static void volume_capabilities(uint32_t caps[8])
+{
+	uint32_t format = VOL_CAP_FMT_SPARSE_FILES | VOL_CAP_FMT_CASE_SENSITIVE |
+		VOL_CAP_FMT_CASE_PRESERVING | VOL_CAP_FMT_FAST_STATFS |
+		VOL_CAP_FMT_2TB_FILESIZE | VOL_CAP_FMT_64BIT_OBJECT_IDS;
+	uint32_t interfaces = VOL_CAP_INT_ATTRLIST | VOL_CAP_INT_ALLOCATE | VOL_CAP_INT_ADVLOCK |
+		VOL_CAP_INT_FLOCK | VOL_CAP_INT_USERACCESS | VOL_CAP_INT_EXTENDED_ATTR |
+		VOL_CAP_INT_CLONE | VOL_CAP_INT_RENAME_SWAP | VOL_CAP_INT_RENAME_EXCL;
+
+	caps[0] = format;
+	caps[1] = interfaces;
+	caps[2] = caps[3] = 0;
+	caps[4] = format;
+	caps[5] = interfaces;
+	caps[6] = caps[7] = 0;
+}
 
 #define XATTR_FINDER_INFO "user.com.apple.FinderInfo"
 #define XATTR_RESOURCE_FORK "user.com.apple.ResourceFork"
@@ -708,6 +749,8 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 				((uint32_t*)next)[1] = volumeNameLength;
 				memcpy(variable, volumeName, volumeNameLength);
 				variable += (volumeNameLength + 3) & ~((__SIZE_TYPE__)3);
+			} else if (width->bit == ATTR_VOL_CAPABILITIES) {
+				volume_capabilities((uint32_t*)next);
 			} else if (width->bit == ATTR_VOL_UUID) {
 				attribute_volume_uuid(fileStat.st_dev, (unsigned char*)next);
 			} else if (width->bit == ATTR_VOL_ATTRIBUTES) {
@@ -809,9 +852,7 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 		next += 8;
 	}
 	if (alist->volattr & ATTR_VOL_CAPABILITIES) {
-		uint32_t* capabilities = (uint32_t*)next;
-		capabilities[0] = capabilities[1] = capabilities[2] = capabilities[3] = 0;
-		capabilities[4] = capabilities[5] = capabilities[6] = capabilities[7] = 0;
+		volume_capabilities((uint32_t*)next);
 		next += sizeof(uint32_t) * 8;
 	}
 	if (alist->volattr & ATTR_VOL_UUID) {

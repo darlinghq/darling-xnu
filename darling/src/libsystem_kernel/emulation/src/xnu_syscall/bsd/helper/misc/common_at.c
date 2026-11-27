@@ -5,7 +5,9 @@ int atflags_bsd_to_linux(int flags)
 {
 	int linux_flags = 0;
 
-	if (flags & BSD_AT_SYMLINK_NOFOLLOW)
+	// AT_SYMLINK_NOFOLLOW_ANY (no symlink in any component): Linux's *at calls have no such flag (openat2's
+	// RESOLVE_NO_SYMLINKS only), so only the last component is not followed and the others are not checked.
+	if (flags & (BSD_AT_SYMLINK_NOFOLLOW | BSD_AT_SYMLINK_NOFOLLOW_ANY))
 		linux_flags |= LINUX_AT_SYMLINK_NOFOLLOW;
 	if (flags & BSD_AT_REMOVEDIR || flags & BSD_AT_REMOVEDIR_DATALESS)
 		linux_flags |= LINUX_AT_REMOVEDIR;
@@ -20,6 +22,8 @@ int atflags_bsd_to_linux(int flags)
 	flags &= ~BSD_AT_EACCESS;
 	flags &= ~BSD_AT_REALDEV;
 	flags &= ~BSD_AT_FDONLY;
+	// AT_RESOLVE_BENEATH, AT_NODELETEBUSY, AT_UNIQUE: restrictions, not enforced here
+	flags &= ~(BSD_AT_SYMLINK_NOFOLLOW_ANY | BSD_AT_RESOLVE_BENEATH | BSD_AT_NODELETEBUSY | BSD_AT_UNIQUE);
 	if (flags != 0)
 		linux_flags = LINUX_AT_INVALID;
 

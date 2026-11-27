@@ -109,6 +109,12 @@ int __dserver_per_thread_socket(void) {
 	return elfcalls()->dserver_per_thread_socket();
 };
 
+// mldr's locks reset in a fork's child (see elfcalls.h)
+void __darling_elf_postfork_child(void) {
+	if (elfcalls()->postfork_child)
+		elfcalls()->postfork_child();
+}
+
 void __dserver_per_thread_socket_refresh(void) {
 	return elfcalls()->dserver_per_thread_socket_refresh();
 };

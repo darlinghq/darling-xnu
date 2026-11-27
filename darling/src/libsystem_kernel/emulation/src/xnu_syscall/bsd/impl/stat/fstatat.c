@@ -1,6 +1,7 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/fstatat.h>
 
 #include <sys/errno.h>
+#include <string.h>
 
 #include <darling/emulation/conversion/stat/common.h>
 #include <darling/emulation/common/base.h>
@@ -10,7 +11,6 @@
 #include <darling/emulation/other/mach/lkm.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 
-extern char* strcpy(char* dst, const char* src);
 
 long sys_fstatat(int fd, const char* path, struct stat* stat, int flag)
 {
@@ -22,10 +22,14 @@ long sys_fstatat(int fd, const char* path, struct stat* stat, int flag)
 		return -EFAULT;
 
 	struct vchroot_expand_args vc;
-	vc.flags = (flag & BSD_AT_SYMLINK_NOFOLLOW) ? 0 : VCHROOT_FOLLOW;
+	vc.flags = (flag & (BSD_AT_SYMLINK_NOFOLLOW | BSD_AT_SYMLINK_NOFOLLOW_ANY)) ? 0 : VCHROOT_FOLLOW;
 	vc.dfd = atfd(fd);
 
-	strcpy(vc.path, path);
+	/* Match openat/mkdirat: reject overlong paths before copying to the stack. */
+	size_t length = strnlen(path, sizeof(vc.path));
+	if (length == sizeof(vc.path))
+		return -ENAMETOOLONG;
+	memcpy(vc.path, path, length + 1);
 	ret = vchroot_expand(&vc);
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
@@ -58,10 +62,13 @@ long sys_fstatat64(int fd, const char* path, darling_stat64_t* stat, int flag)
 		return -EFAULT;
 
 	struct vchroot_expand_args vc;
-	vc.flags = (flag & BSD_AT_SYMLINK_NOFOLLOW) ? 0 : VCHROOT_FOLLOW;
+	vc.flags = (flag & (BSD_AT_SYMLINK_NOFOLLOW | BSD_AT_SYMLINK_NOFOLLOW_ANY)) ? 0 : VCHROOT_FOLLOW;
 	vc.dfd = atfd(fd);
 
-	strcpy(vc.path, path);
+	size_t length = strnlen(path, sizeof(vc.path));
+	if (length == sizeof(vc.path))
+		return -ENAMETOOLONG;
+	memcpy(vc.path, path, length + 1);
 	ret = vchroot_expand(&vc);
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);

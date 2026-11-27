@@ -18,6 +18,7 @@
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bpf/bpf_device.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/network/nosigpipe.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/fstore_passthrough.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/misc/csops.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/fstat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/close.h>
@@ -317,12 +318,17 @@ static long sys_fcntl_common(int fd, int cmd, long arg, bool cancelable)
 			linux_struct->l_pid = bsd_struct->l_pid;
 			arg = linux_struct;
 		} break;
-		case F_FULLFSYNC: {
-			ret = LINUX_SYSCALL1(__NR_fsync, fd);
-			if (ret < 0)
-				ret = errno_linux_to_bsd(ret);
-			return 0;
-		};
+		case F_PREALLOCATE:
+		case F_PUNCHHOLE:
+		case F_RDADVISE:
+		case F_RDAHEAD:
+		case F_FULLFSYNC:
+		case F_BARRIERFSYNC:
+		case F_LOG2PHYS:
+		case F_LOG2PHYS_EXT:
+			// Storage-control commands whose contract has a Linux host
+			// analogue. The helper returns the Darwin errno directly.
+			return darling_fstore_passthrough(fd, (unsigned long) cmd, (void*) arg);
 		case F_NOCACHE:
 		{
 			// Only a caching hint; Linux has no per-descriptor equivalent
@@ -340,6 +346,18 @@ static long sys_fcntl_common(int fd, int cmd, long arg, bool cancelable)
 		case F_GETPROTECTIONCLASS:
 		case F_SETPROTECTIONCLASS:
 			return protection_class(fd, cmd, (int) arg);
+		// F_SINGLE_WRITER: a hint that one process writes the file; there is nothing to do for it here.
+		case F_SINGLE_WRITER:
+			return 0;
+		case F_SETNOSIGPIPE:
+		case F_GETNOSIGPIPE:
+			// The descriptor has to exist, as on Darwin.
+			ret = LINUX_SYSCALL(__NR_fcntl, fd, LINUX_F_GETFD, 0);
+			if (ret < 0)
+				return errno_linux_to_bsd(ret);
+			if (cmd == F_GETNOSIGPIPE)
+				return nosigpipe_get(fd);
+			return nosigpipe_set(fd, arg != 0);
 		// TODO: implement remaining commands
 		default:
 			if (linux_cmd == -1)
