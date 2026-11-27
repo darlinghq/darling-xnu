@@ -561,15 +561,16 @@ static sysctl_handler(handle_num_files) {
 	return 0;
 }
 
-// QUIRK: kern.osvariant_status and kern.osreleasetype are not documented. Observed on macOS 26.7.3
-// (black-box, tier 2): osvariant_status is an 8-byte quad whose two-bit slots libdarwin reads
-// with status2bool(), and osreleasetype is the string "User". We report "no" (2) in every slot
-// libdarwin queries, so that no "internal content" or similar variant is claimed, and "User".
-// Test: guest test sysctl_osvariant_procs.
+// QUIRK: kern.osvariant_status and kern.osreleasetype are not documented. Observed by black-box
+// reads (tier 2): on macOS 26.7.3 (25G342, x86_64) osvariant_status is the 8-byte quad
+// 0x70010000f388828a and osreleasetype is the string "User"; on macOS 10.14.4 osvariant_status is
+// 0x70000000f000028a. We report the macOS 26.7.3 value, whose two-bit slots libdarwin reads with
+// status2bool().
+// Test: guest test sysctl_osvariant_procs (expects exactly 0x70010000f388828a and "User").
 static sysctl_handler(handle_osvariant_status)
 {
 	sysctl_handle_size(sizeof(unsigned long long));
-	*((unsigned long long*) old) = 0x70000000f288828aULL;
+	*((unsigned long long*) old) = 0x70010000f388828aULL;
 	return 0;
 }
 
