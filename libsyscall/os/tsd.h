@@ -54,6 +54,16 @@
 
 #ifdef DARLING
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#if defined(__arm64__)
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern intptr_t sys_thread_get_rseq_cpu_id_offset(void);
+extern int sys_thread_rseq_cpu_number(void);
+#ifdef __cplusplus
+}
+#endif
+#endif
 #endif
 
 extern void _thread_set_tsd_base(void *tsd_base);
@@ -98,6 +108,31 @@ _os_cpu_number(void)
 		__asm__ volatile ("rdtscp" : "=a" (lo), "=d" (hi), "=c" (aux));
 		(void) lo; (void) hi;
 		return aux & 0xfff;
+	}
+#elif defined(__arm64__)
+	/* Fast path via Linux rseq: mldr passes glibc's TPIDR_EL0-relative rseq
+	 * offset when glibc registered rseq for every thread; otherwise
+	 * libsystem_kernel registers a per-thread rseq area lazily via __NR_rseq. */
+	static intptr_t __darling_rseq_cpu_id_offset = 0;
+	intptr_t rseq_offset = __atomic_load_n(&__darling_rseq_cpu_id_offset, __ATOMIC_RELAXED);
+	if (__builtin_expect(rseq_offset == 0, 0)) {
+		rseq_offset = sys_thread_get_rseq_cpu_id_offset();
+		if (rseq_offset != 0)
+			__atomic_store_n(&__darling_rseq_cpu_id_offset, rseq_offset, __ATOMIC_RELAXED);
+	}
+	if (__builtin_expect(rseq_offset > 0 || rseq_offset < -2, 1)) {
+		int32_t cpu = __atomic_load_n(
+			(const int32_t *)((const char *)__builtin_thread_pointer() + rseq_offset),
+			__ATOMIC_RELAXED);
+		if (__builtin_expect(cpu >= 0, 1))
+			return (unsigned int)cpu;
+	}
+	if (rseq_offset == -1) {
+		int cpu = sys_thread_rseq_cpu_number();
+		if (__builtin_expect(cpu >= 0, 1))
+			return (unsigned int)cpu;
+		if (sys_thread_get_rseq_cpu_id_offset() == -2)
+			__atomic_store_n(&__darling_rseq_cpu_id_offset, -2, __ATOMIC_RELAXED);
 	}
 #endif
 
