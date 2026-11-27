@@ -69,6 +69,10 @@ long sys_fork(void)
 		nofile_limit_postfork_child();
 		bpf_device_postfork_child();
 		workq_postfork_child();
+#if defined(TEST) || !defined(VARIANT_DYLD)
+		extern void vchroot_icase_postfork_child(void);
+		vchroot_icase_postfork_child();
+#endif
 
 		// create a new dserver RPC socket
 		__dserver_per_thread_socket_refresh();
