@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/mman.h>
+#include <mach/vm_page_size.h>
 #include <sys/errno.h>
 
 #include <darling/emulation/common/base.h>
@@ -26,8 +27,6 @@ extern void *memset(void *s, int c, size_t n);
 #define PTHREAD_START_POLICY_BITSHIFT 16
 #define PTHREAD_START_POLICY_MASK 0xff
 #define PTHREAD_START_IMPORTANCE_MASK 0xffff
-
-#define STACK_GUARD_SIZE 4096
 
 static bool _uses_threads = false;
 
@@ -94,23 +93,31 @@ long sys_bsdthread_create(void* thread_start, void* arg,
 
 void* thread_stack_allocate(unsigned long stacksize)
 {
+	// mprotect only accepts page-aligned lengths, and the page is 16K on some
+	// hosts, so a fixed 4096 silently leaves every thread without a guard page.
+	const unsigned long guardsize = vm_page_size;
 	unsigned long allocsize;
 	void* stack;
 
 	// The pthread object is placed above stack area
-	allocsize = stacksize + pthread_obj_size + STACK_GUARD_SIZE;
-	allocsize = (allocsize + 4095) & ~4095; // round up to page size
+	allocsize = stacksize + pthread_obj_size + guardsize;
+	allocsize = (allocsize + guardsize - 1) & ~(guardsize - 1); // round up to page size
 
 	stack = (void**) sys_mmap(NULL, allocsize, PROT_READ | PROT_WRITE,
 			MAP_ANON | MAP_PRIVATE, -1, 0);
 
-	// Protect the stack guard
-	sys_mprotect(stack, STACK_GUARD_SIZE, PROT_NONE);
-	
+	// -1..-4095 is the Linux syscall error range, not a page count.
 	if (((intptr_t)stack) < 0 && ((intptr_t)stack) >= -4095)
 		return NULL;
 
-	return (void*) (((uintptr_t)stack) + stacksize + STACK_GUARD_SIZE);
+	// Protect the stack guard. Failing here would leave the thread running with
+	// no guard page, so refuse the stack rather than hand back an unprotected one.
+	if (sys_mprotect(stack, guardsize, PROT_NONE) < 0) {
+		sys_munmap(stack, allocsize);
+		return NULL;
+	}
+
+	return (void*) (((uintptr_t)stack) + stacksize + guardsize);
 }
 
 #if 0
