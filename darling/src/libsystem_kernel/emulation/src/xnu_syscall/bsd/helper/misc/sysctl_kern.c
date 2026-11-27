@@ -561,8 +561,11 @@ static sysctl_handler(handle_num_files) {
 	return 0;
 }
 
-// kern.osvariant_status: S_NO (2) at every macOS status_flags_positions slot so
-// libdarwin's status2bool() never sees S_UNKNOWN.
+// QUIRK: kern.osvariant_status and kern.osreleasetype are not documented. Observed on macOS 26.7.3
+// (black-box, tier 2): osvariant_status is an 8-byte quad whose two-bit slots libdarwin reads
+// with status2bool(), and osreleasetype is the string "User". We report "no" (2) in every slot
+// libdarwin queries, so that no "internal content" or similar variant is claimed, and "User".
+// Test: guest test sysctl_osvariant_procs.
 static sysctl_handler(handle_osvariant_status)
 {
 	sysctl_handle_size(sizeof(unsigned long long));
@@ -572,6 +575,6 @@ static sysctl_handler(handle_osvariant_status)
 
 static sysctl_handler(handle_osreleasetype)
 {
-	copyout_string("RELEASE", (char*) old, oldlen);
+	copyout_string("User", (char*) old, oldlen);
 	return 0;
 }
