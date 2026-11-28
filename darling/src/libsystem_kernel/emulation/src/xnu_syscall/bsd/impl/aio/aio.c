@@ -1,25 +1,26 @@
 // POSIX asynchronous I/O (aio_read, aio_write, aio_fsync, aio_error, aio_return, aio_suspend, aio_cancel,
-// lio_listio), which Darling did not implement at all (ENOSYS). WebKit's GPU process caches media bytes through
-// MediaToolbox's aio_write; with ENOSYS its first load never completed and every later media load waited behind it.
+// lio_listio; <aio.h>, aio(4)-style semantics, BSD syscalls 313-320 and 421).
 //
 // Requests complete synchronously when they are submitted (a pread/pwrite/fsync in the calling thread): the result
-// then waits in the table below for aio_error/aio_return, as a request on XNU's done queue does. Everything else
-// follows XNU's bsd/kern/kern_aio.c and, where they differ, what macOS 27 answers (tests/arm64/aioprobe.c, run on the
-// Mac: Apple's simulator uses that kernel):
-//   - a process has at most AIO_PROCESS_MAX (256, macOS 27's kern.aioprocmax) requests submitted and not yet reaped
-//     by aio_return; more fail with EAGAIN. That also bounds the table: a caller that never calls aio_return gets
-//     EAGAIN, not a leak;
-//   - an invalid request fails its submission with its own errno (macOS 27; the older kern_aio.c here said EAGAIN):
-//     EBADF (descriptor not open, or not for that access), ESPIPE (pipe, socket), EINVAL (length, buffer, offset,
-//     sigevent, lio opcode); lio_listio then submits nothing. An I/O error is the request's error (aio_error), with
-//     aio_return 0. LIO_NOP completes with 0;
+// then waits in the table below for aio_error/aio_return, as a request on a done queue does. Where behaviour is not
+// in the public documentation it follows black-box observation of macOS 26.7.3 and Mac OS X 10.14.4 (both agree):
+//   - a process has at most AIO_PROCESS_MAX (16, the value of kern.aioprocmax on both) requests submitted and not
+//     yet reaped by aio_return; more fail with EAGAIN. That also bounds the table: a caller that never calls
+//     aio_return gets EAGAIN, not a leak;
+//   - an invalid request fails its submission with its own errno: EBADF (descriptor not open, or not open for that
+//     access), ESPIPE (pipe, socket), EINVAL (length, buffer, offset, sigevent, lio opcode); lio_listio then submits
+//     nothing. An I/O error is the request's error (aio_error), with aio_return 0. LIO_NOP completes with 0;
+//   - aio_error / aio_return of a request that is not (or no longer) known fail with EINVAL;
 //   - SIGEV_SIGNAL sends the signal to the process on completion (for lio_listio, once, after the last request);
-//     SIGEV_THREAD is EINVAL (unsupported on XNU too). XNU has no EVFILT_AIO (bad_filtops), so no kevent side;
-//   - aio_suspend returns at once if a listed request is done, else waits (in short sleeps, interruptible) for
-//     another thread to submit one, until its timeout (EAGAIN);
-//   - aio_cancel never finds a request in flight: AIO_ALLDONE for a done one, as XNU answers for those.
-// The aiocb is the process's native LP64 layout, the same on arm64 and x86_64 (the translated guest's aiocb is read
-// as is).
+//     SIGEV_THREAD is EINVAL. There is no EVFILT_AIO;
+//   - aio_suspend returns at once if a listed request is done, EINVAL if the process has no requests at all, else
+//     waits (in short sleeps, interruptible) for another thread to submit one, until its timeout (EAGAIN);
+//   - aio_cancel finds no request in flight (they complete at submission): AIO_ALLDONE for a done one.
+// macOS completes requests asynchronously, so aio_error can answer EINPROGRESS right after a submission; here the
+// request is already done, which the contract allows (a request may complete at any time).
+// The aiocb is the native layout of the process's architecture (LP64 on x86_64, ILP32 on i386).
+//
+// Tests: tests/src/libsystem_kernel_aio.c
 
 #include <darling/emulation/xnu_syscall/bsd/impl/aio/aio.h>
 
@@ -29,14 +30,13 @@
 #include <libsimple/lock.h>
 
 #include <darling/emulation/common/base.h>
-#include <darling/emulation/common/sigsafe_lock.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/conversion/duct_errno.h>
 #include <darling/emulation/conversion/signal/duct_signals.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 
-#define AIO_PROCESS_MAX 256 // kern.aioprocmax on macOS 27, where Apple's simulator runs
+#define AIO_PROCESS_MAX 16 // kern.aioprocmax
 #define AIO_LISTIO_MAX 16
 
 #define XNU_AIO_ALLDONE 0x1
@@ -64,7 +64,7 @@
 #define LINUX_S_IFIFO 0010000
 #define LINUX_S_IFSOCK 0140000
 
-// <sys/signal.h> struct sigevent and <sys/aio.h> struct aiocb, in the native layout
+// <sys/signal.h> struct sigevent and <sys/aio.h> struct aiocb, compiled per architecture like the guest's
 struct xnu_sigevent
 {
 	int sigev_notify;
@@ -169,7 +169,7 @@ static int request_check(const struct xnu_aiocb* cb, enum op op)
 static struct request* request_reserve(const void* aiocbp, int fd)
 {
 	struct request* r = NULL;
-	unsigned long long mask = sigsafe_lock(&aio_lock);
+	libsimple_lock_lock(&aio_lock);
 	if (nrequests < AIO_PROCESS_MAX)
 	{
 		for (int i = 0; i < AIO_PROCESS_MAX; i++)
@@ -187,7 +187,7 @@ static struct request* request_reserve(const void* aiocbp, int fd)
 			}
 		}
 	}
-	sigsafe_unlock(&aio_lock, mask);
+	libsimple_lock_unlock(&aio_lock);
 	return r;
 }
 
@@ -223,12 +223,12 @@ static int perform(const struct xnu_aiocb* cb, enum op op, long* result)
 
 static void request_complete(struct request* r, int error, long result)
 {
-	unsigned long long mask = sigsafe_lock(&aio_lock);
+	libsimple_lock_lock(&aio_lock);
 	r->error = error;
 	r->result = result;
 	r->done = 1;
 	__atomic_add_fetch(&completions, 1, __ATOMIC_RELEASE);
-	sigsafe_unlock(&aio_lock, mask);
+	libsimple_lock_unlock(&aio_lock);
 }
 
 // psignal(p, signo): to the process, not the thread
@@ -301,18 +301,18 @@ static struct request* request_find_locked(const void* aiocbp)
 long sys_aio_error(void* aiocbp)
 {
 	long ret = -EINVAL;
-	unsigned long long mask = sigsafe_lock(&aio_lock);
+	libsimple_lock_lock(&aio_lock);
 	struct request* r = aiocbp != NULL ? request_find_locked(aiocbp) : NULL;
 	if (r != NULL)
 		ret = r->done ? r->error : EINPROGRESS;
-	sigsafe_unlock(&aio_lock, mask);
+	libsimple_lock_unlock(&aio_lock);
 	return ret;
 }
 
 long sys_aio_return(void* aiocbp)
 {
 	long ret = -EINVAL;
-	unsigned long long mask = sigsafe_lock(&aio_lock);
+	libsimple_lock_lock(&aio_lock);
 	struct request* r = aiocbp != NULL ? request_find_locked(aiocbp) : NULL;
 	if (r != NULL)
 	{
@@ -325,19 +325,18 @@ long sys_aio_return(void* aiocbp)
 		else
 			ret = -EINPROGRESS;
 	}
-	sigsafe_unlock(&aio_lock, mask);
+	libsimple_lock_unlock(&aio_lock);
 	return ret;
 }
 
 long sys_aio_cancel(int fd, void* aiocbp)
 {
 	long ret;
-	unsigned long long mask;
-
+	
 	if (aiocbp != NULL && ((const struct xnu_aiocb*) aiocbp)->aio_fildes != fd)
 		return -EBADF;
 
-	mask = sigsafe_lock(&aio_lock);
+	libsimple_lock_lock(&aio_lock);
 	if (nrequests == 0)
 		ret = XNU_AIO_ALLDONE;
 	else
@@ -354,7 +353,7 @@ long sys_aio_cancel(int fd, void* aiocbp)
 			break;
 		}
 	}
-	sigsafe_unlock(&aio_lock, mask);
+	libsimple_lock_unlock(&aio_lock);
 	return ret;
 }
 
@@ -362,7 +361,7 @@ long sys_aio_cancel(int fd, void* aiocbp)
 static int any_done(void* const* list, int nent)
 {
 	int ret = 0;
-	unsigned long long mask = sigsafe_lock(&aio_lock);
+	libsimple_lock_lock(&aio_lock);
 	if (nrequests == 0)
 		ret = -1;
 	for (int i = 0; i < nent && ret == 0; i++)
@@ -378,7 +377,7 @@ static int any_done(void* const* list, int nent)
 			}
 		}
 	}
-	sigsafe_unlock(&aio_lock, mask);
+	libsimple_lock_unlock(&aio_lock);
 	return ret;
 }
 
