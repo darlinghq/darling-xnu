@@ -1,5 +1,6 @@
 #include <darling/emulation/xnu_syscall/bsd/bsd_syscall_table.h>
 
+#include <darling/emulation/xnu_syscall/bsd/impl/aio/aio.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/audit/audit_addr.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/audit/auditon.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/audit/audit.h>
@@ -237,6 +238,8 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/xattr/setattrlistat.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/xattr/setxattr.h>
 
+long sys_process_policy(int scope, int action, int policy, int subtype, void* attrp, int pid, unsigned long long tid);
+
 void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[0] = sys_syscall,
 	[1] = sys_exit,
@@ -416,7 +419,16 @@ void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[308] = sys_psynch_rw_unlock,
 	[310] = sys_getsid,
 	[312] = sys_psynch_cvclrprepost,
+	[313] = sys_aio_fsync,
+	[314] = sys_aio_return,
+	[315] = sys_aio_suspend,
+	[316] = sys_aio_cancel,
+	[317] = sys_aio_error,
+	[318] = sys_aio_read,
+	[319] = sys_aio_write,
+	[320] = sys_lio_listio,
 	[322] = sys_iopolicysys,
+	[323] = sys_process_policy,
 	[327] = sys_issetugid,
 	[328] = sys_pthread_kill,
 	[329] = sys_sigprocmask, // __pthread_sigmask
@@ -486,6 +498,7 @@ void* __bsd_syscall_table[BSD_SYSCALL_TABLE_SIZE] = {
 	[416] = sys_waitid_nocancel,
 	[417] = sys_poll_nocancel,
 	[420] = sys_sem_wait_nocancel,
+	[421] = sys_aio_suspend_nocancel,
 	[422] = sys_sigwait_nocancel,
 	[423] = sys_semwait_signal_nocancel,
 	[427] = sys_fsgetpath,

@@ -10,6 +10,7 @@
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/conversion/common_at.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/bsdflags.h>
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/dirent/getdirentries.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/dup.h>
@@ -384,6 +385,7 @@ int bulk)
 	uint32_t availableCommon = COMMON_SUPPORTED;
 	struct attribute_linux_statx birthStat = {0};
 	uint32_t userAccess = 0;
+	uint32_t bsdFlags = 0;
 	char volumeName[1024];
 	__SIZE_TYPE__ volumeNameLength = 0;
 
@@ -486,6 +488,15 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 #endif
 		if (rv < 0 || !(birthStat.mask & 0x0800))
 			availableCommon &= ~0x00000200U;
+	}
+
+	// ATTR_CMN_FLAGS: the chflags flags kept in an extended attribute (a symlink has none)
+	if ((alist->commonattr & 0x00040000) && darling_bsdflags_applies(fileStat.st_mode)) {
+#if HAS_PATH
+		bsdFlags = darling_bsdflags_get_at(vc.dfd, vc.path, (options & FSOPT_NOFOLLOW) ? 1 : 0);
+#else
+		bsdFlags = darling_bsdflags_get_fd(fd);
+#endif
 	}
 
 	if (alist->commonattr & 0x00200000) {
@@ -708,7 +719,7 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 			} else if (width->bit == 0x00020000) {
 				*((uint32_t*)next) = fileStat.st_mode;
 			} else if (width->bit == 0x00040000) {
-				*((uint32_t*)next) = 0;
+				*((uint32_t*)next) = bsdFlags;
 			} else if (width->bit == 0x00080000 || width->bit == 0x00100000) {
 				// Generation/document IDs need persistent tracking that the
 				// bridge does not provide. Zero is an invalid placeholder,

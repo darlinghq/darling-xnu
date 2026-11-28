@@ -453,6 +453,19 @@ int vchroot_expand(struct vchroot_expand_args* args)
 
 	const char* input_path = args->path;
 
+	// "/.nofollow/<path>" is <path> resolved without following any symlink (the path-prefix form of
+	// O_NOFOLLOW_ANY, Darwin 23+). Observed on macOS 26.7.3: /.nofollow/<dir>/file resolves like <dir>/file,
+	// a symlink anywhere in the path (including the last component, for stat and open) fails with ELOOP, and
+	// lstat of a symlink in the last component works. Taken literally the prefix named a directory that does not
+	// exist, so every such path failed with ENOENT.
+	// The prefix is stripped and the last component is not followed. The ELOOP refusal of symlinks is not
+	// enforced (the path is accepted wherever it resolves), which is more permissive than macOS.
+	if (strncmp(input_path, "/.nofollow/", 11) == 0)
+	{
+		input_path += 10;
+		ctxt.follow = false;
+	}
+
 	if (*input_path == '\0')
 		return -LINUX_ENOENT;
 

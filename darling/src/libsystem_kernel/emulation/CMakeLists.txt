@@ -141,6 +141,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/helper/misc/sysctl_vm.c
 	src/xnu_syscall/bsd/helper/network/duct.c
 	src/xnu_syscall/bsd/helper/network/nosigpipe.c
+	src/xnu_syscall/bsd/helper/network/sockopt_extra.c
 
 	src/xnu_syscall/bsd/impl/audit/audit_addr.c
 	src/xnu_syscall/bsd/impl/audit/auditon.c
@@ -228,6 +229,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/process/fork.c
 	src/xnu_syscall/bsd/impl/process/getpriority.c
 	src/xnu_syscall/bsd/impl/process/posix_spawn.c
+	src/xnu_syscall/bsd/impl/process/process_policy.c
 	src/xnu_syscall/bsd/impl/process/setpriority.c
 	src/xnu_syscall/bsd/impl/process/task_inspect_for_pid.c
 	src/xnu_syscall/bsd/impl/process/task_read_for_pid.c
@@ -331,6 +333,7 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/unistd/mknod.c
 	src/xnu_syscall/bsd/impl/unistd/mknodat.c
 	src/xnu_syscall/bsd/impl/unistd/pipe.c
+	src/xnu_syscall/bsd/impl/aio/aio.c
 	src/xnu_syscall/bsd/impl/unistd/pread.c
 	src/xnu_syscall/bsd/impl/unistd/preadv.c
 	src/xnu_syscall/bsd/impl/unistd/pwrite.c

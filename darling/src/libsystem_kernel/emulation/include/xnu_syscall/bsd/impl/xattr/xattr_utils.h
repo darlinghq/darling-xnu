@@ -144,6 +144,12 @@ static inline long xattr_list_to_darwin(int call_nr, long target, char* namebuf,
 		name += XATTR_LINUX_NAMESPACE_LEN;
 		len -= XATTR_LINUX_NAMESPACE_LEN;
 
+		// chflags stores its flags in a private xattr rather than a Darwin
+		// attribute; keep it out of the guest-visible xattr list.
+		static const char hidden[] = "darling.bsdflags";
+		if (len == sizeof(hidden) - 1 && __builtin_memcmp(name, hidden, len) == 0)
+			continue;
+
 		if (namebuf != NULL && total + len + 1 <= size)
 		{
 			__builtin_memcpy(namebuf + total, name, len);

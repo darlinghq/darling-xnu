@@ -37,6 +37,8 @@ extern void* memset(void* dest, int c, __SIZE_TYPE__ len);
 #define BSD_IP_RECVTTL_CMSG     24
 #define BSD_IP_PKTINFO          26
 #define BSD_IP_RECVTOS          27
+#define BSD_IP_RECVDSTADDR      7
+#define BSD_IP_RECVIF           20
 #define BSD_IPV6_2292PKTINFO_C  19
 #define BSD_IPV6_2292HOPLIMIT_C 20
 #define BSD_IPV6_TCLASS         36
@@ -329,8 +331,23 @@ static void put_bsd(unsigned char* dst, size_t room, int level, int type,
 		memset(dst + BSD_CMSG_LEN(dlen), 0, space - BSD_CMSG_LEN(dlen));
 }
 
-size_t cmsg_linux_to_bsd(const void* linux_control, size_t linux_len,
-		void* bsd_control, size_t bsd_len, int* truncated)
+struct ip_recv_options
+{
+	int recvif, recvdst, pktuser;
+};
+
+static int put_extra_cmsg(unsigned char* q, size_t bsd_len, size_t* boff, int level, int type,
+		const unsigned char* payload, size_t dlen)
+{
+	if (bsd_len - *boff < BSD_CMSG_LEN(dlen))
+		return 0;
+	put_bsd(q + *boff, bsd_len - *boff, level, type, payload, dlen, NULL);
+	advance(boff, bsd_len, BSD_CMSG_LEN(dlen), sizeof(unsigned int));
+	return 1;
+}
+
+static size_t cmsg_linux_to_bsd_internal(const void* linux_control, size_t linux_len,
+		void* bsd_control, size_t bsd_len, int* truncated, const struct ip_recv_options* ip)
 {
 	const unsigned char* p = (const unsigned char*) linux_control;
 	unsigned char* q = (unsigned char*) bsd_control;
@@ -352,6 +369,39 @@ size_t cmsg_linux_to_bsd(const void* linux_control, size_t linux_len,
 
 		payload = p + loff + LINUX_HDR_LEN;
 		dlen = lh.cmsg_len - LINUX_HDR_LEN;
+
+		// XNU's IP_RECVDSTADDR and IP_RECVIF are derived from Linux's IP_PKTINFO. Keep the original message
+		// only when the program also asked for IP_PKTINFO itself.
+		if (ip != NULL && (ip->recvif || ip->recvdst) && !full &&
+			lh.cmsg_level == XNU_IPPROTO_IP && lh.cmsg_type == LINUX_IP_PKTINFO && dlen >= 12)
+		{
+			if (ip->recvdst &&
+				!put_extra_cmsg(q, bsd_len, &boff, XNU_IPPROTO_IP, BSD_IP_RECVDSTADDR, payload + 8, 4))
+			{
+				full = 1;
+				*truncated = 1;
+			}
+
+			// XNU's ip_savecontrol() sends a struct sockaddr_dl with only the interface index filled in.
+			unsigned char sdl[20] = { 20, 18 };
+			int ifindex;
+			memcpy(&ifindex, payload, sizeof(ifindex));
+			sdl[2] = (unsigned char)ifindex;
+			sdl[3] = (unsigned char)(ifindex >> 8);
+			if (ip->recvif &&
+				!put_extra_cmsg(q, bsd_len, &boff, XNU_IPPROTO_IP, BSD_IP_RECVIF, sdl, sizeof(sdl)))
+			{
+				full = 1;
+				*truncated = 1;
+			}
+
+			if (!ip->pktuser || full)
+			{
+				advance(&loff, linux_len, lh.cmsg_len, sizeof(size_t));
+				continue;
+			}
+		}
+
 		r = lookup_linux(lh.cmsg_level, lh.cmsg_type, &m);
 
 		if (r == LOOKUP_DROP)
@@ -406,4 +456,17 @@ size_t cmsg_linux_to_bsd(const void* linux_control, size_t linux_len,
 	}
 
 	return boff;
+}
+
+size_t cmsg_linux_to_bsd(const void* linux_control, size_t linux_len,
+		void* bsd_control, size_t bsd_len, int* truncated)
+{
+	return cmsg_linux_to_bsd_internal(linux_control, linux_len, bsd_control, bsd_len, truncated, NULL);
+}
+
+size_t cmsg_linux_to_bsd_ip_recv(const void* linux_control, size_t linux_len,
+		void* bsd_control, size_t bsd_len, int* truncated, int recvif, int recvdst, int pktuser)
+{
+	struct ip_recv_options ip = { recvif, recvdst, pktuser };
+	return cmsg_linux_to_bsd_internal(linux_control, linux_len, bsd_control, bsd_len, truncated, &ip);
 }

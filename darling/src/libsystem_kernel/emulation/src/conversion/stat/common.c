@@ -140,3 +140,14 @@ void statfs_bsd64_to_bsd(const struct bsd_statfs64* wide, struct bsd_statfs* sta
 	__builtin_memcpy(stat->f_mntonname, wide->f_mntonname, sizeof(stat->f_mntonname) - 1);
 	__builtin_memcpy(stat->f_mntfromname, wide->f_mntfromname, sizeof(stat->f_mntfromname) - 1);
 }
+
+// See common.h.
+void stat_set_flags64(darling_stat64_t* stat, unsigned int flags)
+{
+	stat->st_flags = flags;
+}
+
+void stat_set_flags(struct stat* stat, unsigned int flags)
+{
+	stat->st_flags = flags;
+}
