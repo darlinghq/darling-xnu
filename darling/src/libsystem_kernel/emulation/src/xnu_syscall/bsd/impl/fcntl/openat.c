@@ -8,6 +8,7 @@
 #include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/conversion/common_at.h>
+#include <darling/emulation/conversion/stat/common.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
@@ -29,21 +30,27 @@
 extern int strcmp(const char *s1, const char *s2);
 extern char* strcpy(char* dst, const char* src);
 
-// O_SYMLINK opens the object itself; on XNU that only differs from a plain open when the object is a
-// symlink. The O_PATH descriptor we need for a symlink can't be read, have its xattrs read (EBADF) and so on, so a
-// regular file or directory is reopened through /proc/self/fd with the access asked for (O_PATH kept if that
-// fails, e.g. EACCES or a directory opened for writing). FileProvider opens every item with O_SYMLINK
-// (fpfs_openat) and then reads its attributes and xattrs: the On My iPhone extension failed "can't obtain VFSItem
-// ... [9: Bad file descriptor]" for every file, and Files could not open a document.
+// O_SYMLINK opens the object itself; unlike what its name suggests it only differs from a plain open when the object
+// is a symlink (observed on macOS 26.7.3: a regular file or directory opened with O_SYMLINK can be read, written
+// and fstat'ed as usual, a symlink can only be fstat'ed and read fails with EPERM). The O_PATH descriptor we need
+// for a symlink can't be read, written or have its xattrs read (EBADF), so a regular file or directory is reopened
+// through /proc/self/fd with the access asked for (O_PATH kept if that fails, e.g. EACCES or a directory opened for
+// writing). Test: libsystem_kernel_path_flags.c.
 #ifndef LINUX_O_PATH
-#	define LINUX_O_PATH 010000000
+#	define LINUX_O_PATH 0x200000
 #endif
 static int reopen_non_symlink(int pfd, int linux_flags)
 {
-	unsigned long st[18]; // Linux x86_64 struct stat (144 bytes); st_mode is the u32 at offset 24
-	if (LINUX_SYSCALL(__NR_fstat, pfd, st) < 0)
+	struct linux_stat st;
+	long r;
+#ifdef __NR_fstat64
+	r = LINUX_SYSCALL(__NR_fstat64, pfd, &st);
+#else
+	r = LINUX_SYSCALL(__NR_fstat, pfd, &st);
+#endif
+	if (r < 0)
 		return pfd;
-	unsigned int fmt = ((unsigned int*) st)[6] & 0170000;
+	unsigned int fmt = st.st_mode & 0170000;
 	if (fmt != 0100000 && fmt != 0040000) // S_IFREG, S_IFDIR
 		return pfd;
 	char path[32];
