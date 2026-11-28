@@ -5,13 +5,12 @@
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/bsdflags.h>
 
+// The flags are kept in an extended attribute (helper/misc/bsdflags.h); this used to fail with ENOTSUP.
 long sys_fchflags(int fd, int flags)
 {
-	// TODO: We could implement this via ioctl(fd, FS_IOC_GETFLAGS/FS_IOC_SETFLAGS),
-	// but it requires root and this functionality is not all that important.
-	// 
-	// Returning ENOTSUP indicates that this filesystem doesn't support file flags,
-	// which is true on NFS for example, so applications must accept this error return.
-	return -ENOTSUP;
+	char buf[32];
+	long r = darling_bsdflags_set(darling_bsdflags_fd_path(fd, buf), (uint32_t) flags);
+	return r < 0 ? errno_linux_to_bsd(r) : 0;
 }

@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <darling/emulation/conversion/stat/common.h>
+#include <darling/emulation/xnu_syscall/bsd/helper/misc/bsdflags.h>
 #include <darling/emulation/common/base.h>
 #include <darling/emulation/conversion/errno.h>
 #include <darling/emulation/conversion/common_at.h>
@@ -48,6 +49,8 @@ long sys_fstatat(int fd, const char* path, struct stat* stat, int flag)
 		return errno_linux_to_bsd(ret);
 
 	stat_linux_to_bsd(&lstat, stat);
+	if ((lstat.st_mode & 0170000) != 0120000)
+		stat_set_flags(stat, darling_bsdflags_get_at(vc.dfd, vc.path, linux_flags & LINUX_AT_SYMLINK_NOFOLLOW));
 
 	return 0;
 }
@@ -87,6 +90,8 @@ long sys_fstatat64(int fd, const char* path, darling_stat64_t* stat, int flag)
 		return errno_linux_to_bsd(ret);
 
 	stat_linux_to_bsd64(&lstat, stat);
+	if ((lstat.st_mode & 0170000) != 0120000)
+		stat_set_flags64(stat, darling_bsdflags_get_at(vc.dfd, vc.path, linux_flags & LINUX_AT_SYMLINK_NOFOLLOW));
 
 	return 0;
 }
