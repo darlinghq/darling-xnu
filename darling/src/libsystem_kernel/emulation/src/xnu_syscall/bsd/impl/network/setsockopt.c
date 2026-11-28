@@ -53,7 +53,13 @@ long sys_setsockopt(int fd, int level, int optname, const void* optval, int optl
 	{
 		static const int lname[6] = { 42, 45, 46, 47, 43, 44 };
 		int nsa = optname >= 82 ? 2 : 1;
-		int bsd_len = 4 + 128 * nsa, linux_len = 8 + 128 * nsa;
+		// the Linux structs align the sockaddr_storage to 8 bytes, except for a 32-bit process, where it is 4
+#ifdef __i386__
+		const int gap = 0;
+#else
+		const int gap = 4;
+#endif
+		int bsd_len = 4 + 128 * nsa, linux_len = 4 + gap + 128 * nsa;
 		unsigned char gr[8 + 128 * 2];
 		if (optval == NULL || optlen < bsd_len)
 			return -EINVAL;
@@ -62,7 +68,7 @@ long sys_setsockopt(int fd, int level, int optname, const void* optval, int optl
 		for (int i = 0; i < 4; i++) gr[i] = in[i];
 		for (int k = 0; k < nsa; k++) {
 			const unsigned char* bsa = in + 4 + 128 * k;
-			unsigned char* sa = gr + 8 + 128 * k;
+			unsigned char* sa = gr + 4 + gap + 128 * k;
 			for (int i = 0; i < 128; i++) sa[i] = bsa[i];
 			int fam = bsa[1] == 30 ? 10 : bsa[1]; // AF_INET6 30 -> 10; AF_INET 2 on both
 			sa[0] = (unsigned char) fam; sa[1] = (unsigned char) (fam >> 8);

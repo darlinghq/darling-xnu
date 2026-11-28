@@ -93,5 +93,10 @@ long sys_ffsctl(int fd, unsigned long cmd, void* data, unsigned int options)
 	long error = sys_fcntl(fd, F_GETFD_COMMAND, 0);
 	if (error < 0)
 		return error;
+	if (cmd == FSIOC_CAS_BSDFLAGS)
+	{
+		char buf[32];
+		return fsctl_cas_bsdflags(darling_bsdflags_fd_path(fd, buf), data);
+	}
 	return -ENOTTY;
 }
