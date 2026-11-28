@@ -9,7 +9,6 @@
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/select/pselect.h>
-#include <darling/emulation/common/sigsafe_lock.h>
 #include <libsimple/lock.h>
 
 #define LINUX_EBADF 9
@@ -19,9 +18,11 @@
 #define LINUX_SYS_GETSOCKOPT 15
 
 // A TCP socket in Linux's TCP_CLOSE state with no segments in either direction was never connected. Linux reports
-// it as both readable and writable, but XNU's soreadable()/sowriteable() do not: an unconnected socket is not a
-// wake-up source until it is closed. Keep such sockets out of select()'s result and, when there is nothing else to
-// report, wait for close() with an eventfd and return EBADF, as Darwin does.
+// it as both readable and writable; macOS reports it as neither (observed on macOS 26.7.3, also for a socket that is
+// bound but not listening), so it is not a wake-up source until it is closed. Keep such sockets out of select()'s
+// result and, when there is nothing else to report, wait for close() with an eventfd and return EBADF: a select()
+// that is waiting on a descriptor another thread closes fails with EBADF on macOS (observed, 26.7.3).
+// Test: tests/src/libsystem_kernel_select_tcp.c
 #define SELECT_FILTER_MAX_FDS 1024 // Darwin's FD_SETSIZE; larger sets are left alone
 
 #define LINUX_EFD_CLOEXEC 02000000
@@ -76,7 +77,7 @@ void select_fd_closed(int fd)
 {
 	if (select_watch_count == 0)
 		return;
-	unsigned long long mask = sigsafe_lock(&select_watches_lock);
+	libsimple_lock_lock(&select_watches_lock);
 	for (int i = 0; i < SELECT_WATCHES; i++) {
 		struct select_watch* w = &select_watches[i];
 		if (w->wake < 0)
@@ -89,7 +90,7 @@ void select_fd_closed(int fd)
 			}
 		}
 	}
-	sigsafe_unlock(&select_watches_lock, mask);
+	libsimple_lock_unlock(&select_watches_lock);
 }
 
 // A watch over the never-connected sockets of the sets asked for (fds[], count): its slot, or -1 (none free, or no
@@ -99,7 +100,7 @@ static int watch_start(const int* fds, int count)
 	int wake = LINUX_SYSCALL(__NR_eventfd2, 0, LINUX_EFD_CLOEXEC | LINUX_EFD_NONBLOCK);
 	if (wake < 0)
 		return -1;
-	unsigned long long mask = sigsafe_lock(&select_watches_lock);
+	libsimple_lock_lock(&select_watches_lock);
 	for (int i = 0; i < SELECT_WATCHES; i++) {
 		struct select_watch* w = &select_watches[i];
 		if (w->wake >= 0)
@@ -109,21 +110,21 @@ static int watch_start(const int* fds, int count)
 		for (int j = 0; j < count; j++)
 			w->fds[j] = fds[j];
 		select_watch_count++;
-		sigsafe_unlock(&select_watches_lock, mask);
+		libsimple_lock_unlock(&select_watches_lock);
 		return i;
 	}
-	sigsafe_unlock(&select_watches_lock, mask);
+	libsimple_lock_unlock(&select_watches_lock);
 	LINUX_SYSCALL1(__NR_close, wake);
 	return -1;
 }
 
 static void watch_end(int slot)
 {
-	unsigned long long mask = sigsafe_lock(&select_watches_lock);
+	libsimple_lock_lock(&select_watches_lock);
 	int wake = select_watches[slot].wake;
 	select_watches[slot].wake = -1;
 	select_watch_count--;
-	sigsafe_unlock(&select_watches_lock, mask);
+	libsimple_lock_unlock(&select_watches_lock);
 	LINUX_SYSCALL1(__NR_close, wake);
 }
 
