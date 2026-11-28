@@ -16,10 +16,11 @@ extern char* strcpy(char* dst, const char* src);
 #define DARWIN_RENAME_SECLUDE 0x00000001
 #define DARWIN_RENAME_SWAP    0x00000002
 #define DARWIN_RENAME_EXCL    0x00000004
-// Newer Darwin flags: NOFOLLOW_ANY leaves the last component unresolved (as
-// rename always does) and avoids following any symlink in the path; SECLUDE is
-// a namespace hint and RESOLVE_BENEATH has no effect for a rename inside the
-// vchroot prefix. Accept them instead of returning ENOTSUP.
+// Newer flags of <sys/stdio.h> (macOS 26 SDK): NOFOLLOW_ANY refuses any symlink in the path, RESOLVE_BENEATH
+// refuses an absolute path or one that leaves the starting directory. Observed on macOS 26.7.3: with plain
+// directories both succeed, an absolute path with RESOLVE_BENEATH fails with ENOTCAPABLE, a symlink in the path
+// with NOFOLLOW_ANY fails with ELOOP. Neither refusal is enforced here (they only narrow what a call may reach, so
+// accepting the call is the permissive reading); SECLUDE is a namespace hint with no effect.
 #define DARWIN_RENAME_NOFOLLOW_ANY    0x00000010
 #define DARWIN_RENAME_RESOLVE_BENEATH 0x00000020
 
@@ -36,11 +37,12 @@ long sys_renameatx_np(int fromfd, const char* from, int tofd, const char* to, un
 	if (from == NULL || to == NULL)
 		return -EFAULT;
 
-	// Only the two atomic variants have a Linux mapping. The newer namespace
-	// flags are accepted but need no kernel support here.
+	// Only the two atomic variants have a Linux mapping; the other known flags are accepted and need no kernel
+	// support. QUIRK: a bit outside all of them (0x8, 0x40, ...) is EINVAL, not ENOTSUP: undocumented, observed
+	// on macOS 26.7.3 (tier 2). Test: libsystem_kernel_path_flags.c (renamex_np unknown flag).
 	if (flags & ~(DARWIN_RENAME_SECLUDE | DARWIN_RENAME_SWAP | DARWIN_RENAME_EXCL |
 	              DARWIN_RENAME_NOFOLLOW_ANY | DARWIN_RENAME_RESOLVE_BENEATH))
-		return -ENOTSUP;
+		return -EINVAL;
 	if ((flags & DARWIN_RENAME_SWAP) && (flags & DARWIN_RENAME_EXCL))
 		return -EINVAL;
 
