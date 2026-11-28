@@ -58,8 +58,12 @@ static int reopen_non_symlink(int pfd, int linux_flags)
 	int nfd = LINUX_SYSCALL(__NR_openat, LINUX_AT_FDCWD, path, linux_flags & ~(LINUX_O_PATH | LINUX_O_NOFOLLOW), 0);
 	if (nfd < 0)
 		return pfd;
-	LINUX_SYSCALL(__NR_close, pfd); // never seen by the caller
-	return nfd;
+	// the caller must get the descriptor number open() chose (the lowest free one), so the new file replaces the
+	// O_PATH descriptor in place
+	// (if dup3 fails the O_PATH descriptor stays, as when the reopen fails)
+	LINUX_SYSCALL(__NR_dup3, nfd, pfd, (linux_flags & LINUX_O_CLOEXEC) ? LINUX_O_CLOEXEC : 0);
+	LINUX_SYSCALL(__NR_close, nfd);
+	return pfd;
 }
 
 long sys_openat(int fd, const char* filename, int flags, unsigned int mode)
