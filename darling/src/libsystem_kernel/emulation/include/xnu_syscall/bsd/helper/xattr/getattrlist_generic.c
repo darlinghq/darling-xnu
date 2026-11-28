@@ -491,7 +491,7 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 	}
 
 	// ATTR_CMN_FLAGS: the chflags flags kept in an extended attribute (a symlink has none)
-	if ((alist->commonattr & 0x00040000) && !S_ISLNK(fileStat.st_mode)) {
+	if ((alist->commonattr & 0x00040000) && darling_bsdflags_applies(fileStat.st_mode)) {
 #if HAS_PATH
 		bsdFlags = darling_bsdflags_get_at(vc.dfd, vc.path, (options & FSOPT_NOFOLLOW) ? 1 : 0);
 #else

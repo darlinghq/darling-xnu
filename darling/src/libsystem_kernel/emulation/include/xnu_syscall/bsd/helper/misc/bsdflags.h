@@ -37,10 +37,27 @@ static inline uint32_t darling_bsdflags_get_at(int dfd, const char* path, int no
 	return darling_bsdflags_get(buf, nofollow);
 }
 
+// fgetxattr does no path walk, which keeps fstat cheap; an O_PATH descriptor refuses it (EBADF) and is read through
+// its /proc/self/fd path instead
 static inline uint32_t darling_bsdflags_get_fd(int fd)
 {
-	char buf[32];
-	return darling_bsdflags_get(darling_bsdflags_fd_path(fd, buf), 0);
+	uint32_t v = 0;
+	long r = LINUX_SYSCALL(__NR_fgetxattr, fd, DARLING_BSDFLAGS_XATTR, &v, sizeof(v));
+	if (r == sizeof(v))
+		return v;
+	if (r == -9 /* EBADF */)
+	{
+		char buf[32];
+		return darling_bsdflags_get(darling_bsdflags_fd_path(fd, buf), 0);
+	}
+	return 0;
+}
+
+// only regular files and directories can carry a user xattr on Linux; asking for any other type is a wasted syscall
+static inline int darling_bsdflags_applies(unsigned int linux_mode)
+{
+	unsigned int fmt = linux_mode & 0170000;
+	return fmt == 0100000 || fmt == 0040000;
 }
 
 // returns 0 or a negative Linux errno
