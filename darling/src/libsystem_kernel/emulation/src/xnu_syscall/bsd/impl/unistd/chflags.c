@@ -27,6 +27,6 @@ long sys_chflags(const char* file, int flags)
 		__simple_snprintf(buf, sizeof(buf), "/proc/self/fd/%d/%s", vc.dfd, vc.path);
 		p = buf;
 	}
-	r = darling_bsdflags_bsdflags_set(p, (uint32_t) flags);
+	r = darling_bsdflags_set(p, (uint32_t) flags);
 	return r < 0 ? errno_linux_to_bsd(r) : 0;
 }

@@ -11,6 +11,6 @@
 long sys_fchflags(int fd, int flags)
 {
 	char buf[32];
-	long r = darling_bsdflags_bsdflags_set(darling_bsdflags_fd_path(fd, buf), (uint32_t) flags);
+	long r = darling_bsdflags_set(darling_bsdflags_fd_path(fd, buf), (uint32_t) flags);
 	return r < 0 ? errno_linux_to_bsd(r) : 0;
 }

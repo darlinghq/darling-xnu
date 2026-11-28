@@ -146,3 +146,8 @@ void stat_set_flags64(darling_stat64_t* stat, unsigned int flags)
 {
 	stat->st_flags = flags;
 }
+
+void stat_set_flags(struct stat* stat, unsigned int flags)
+{
+	stat->st_flags = flags;
+}

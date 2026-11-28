@@ -37,6 +37,8 @@ long sys_fstat(int fd, struct stat* stat)
 
 	bpf_fstat_fixup(fd, &lstat);
 	stat_linux_to_bsd(&lstat, stat);
+	if ((lstat.st_mode & 0170000) != 0120000)
+		stat_set_flags(stat, darling_bsdflags_get_fd(fd));
 
 	return 0;
 }
@@ -57,7 +59,8 @@ long sys_fstat64(int fd, darling_stat64_t* stat)
 
 	bpf_fstat_fixup(fd, &lstat);
 	stat_linux_to_bsd64(&lstat, stat);
-	stat_set_flags64(stat, darling_bsdflags_bsdflags_get_fd(fd));
+	if ((lstat.st_mode & 0170000) != 0120000)
+		stat_set_flags64(stat, darling_bsdflags_get_fd(fd));
 
 	return 0;
 }

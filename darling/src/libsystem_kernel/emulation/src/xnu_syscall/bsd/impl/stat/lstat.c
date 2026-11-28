@@ -45,6 +45,8 @@ long sys_lstat(const char* path, struct stat* stat)
 		return errno_linux_to_bsd(ret);
 
 	stat_linux_to_bsd(&lstat, stat);
+	if ((lstat.st_mode & 0170000) != 0120000)
+		stat_set_flags(stat, darling_bsdflags_get_at(vc.dfd, vc.path, 1));
 
 	return 0;
 }
@@ -83,8 +85,8 @@ long sys_lstat64(const char* path, darling_stat64_t* stat)
 		return errno_linux_to_bsd(ret);
 
 	stat_linux_to_bsd64(&lstat, stat);
-	if ((lstat.st_mode & 0170000) != 0120000) (none on symlinks)
-		stat_set_flags64(stat, darling_bsdflags_bsdflags_get_at(vc.dfd, vc.path, 1));
+	if ((lstat.st_mode & 0170000) != 0120000)
+		stat_set_flags64(stat, darling_bsdflags_get_at(vc.dfd, vc.path, 1));
 
 	return 0;
 }
