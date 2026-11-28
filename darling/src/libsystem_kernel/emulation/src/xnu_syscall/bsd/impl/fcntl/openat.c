@@ -8,6 +8,7 @@
 #include <darling/emulation/conversion/fcntl/open.h>
 #include <darling/emulation/linux_premigration/linux-syscalls/linux.h>
 #include <darling/emulation/conversion/common_at.h>
+#include <darling/emulation/conversion/stat/common.h>
 #include <darling/emulation/common/simple.h>
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bsdthread/cancelable.h>
@@ -28,6 +29,38 @@
 
 extern int strcmp(const char *s1, const char *s2);
 extern char* strcpy(char* dst, const char* src);
+
+// O_SYMLINK opens the object itself; unlike what its name suggests it only differs from a plain open when the object
+// is a symlink (observed on macOS 26.7.3: a regular file or directory opened with O_SYMLINK can be read, written
+// and fstat'ed as usual, a symlink can only be fstat'ed and read fails with EPERM). The O_PATH descriptor we need
+// for a symlink can't be read, written or have its xattrs read (EBADF), so a regular file or directory is reopened
+// through /proc/self/fd with the access asked for (O_PATH kept if that fails, e.g. EACCES or a directory opened for
+// writing). Test: libsystem_kernel_path_flags.c.
+#ifndef LINUX_O_PATH
+#	define LINUX_O_PATH 0x200000
+#endif
+static int reopen_non_symlink(int pfd, int linux_flags)
+{
+	struct linux_stat st;
+	long r;
+#ifdef __NR_fstat64
+	r = LINUX_SYSCALL(__NR_fstat64, pfd, &st);
+#else
+	r = LINUX_SYSCALL(__NR_fstat, pfd, &st);
+#endif
+	if (r < 0)
+		return pfd;
+	unsigned int fmt = st.st_mode & 0170000;
+	if (fmt != 0100000 && fmt != 0040000) // S_IFREG, S_IFDIR
+		return pfd;
+	char path[32];
+	__simple_sprintf(path, "/proc/self/fd/%d", pfd);
+	int nfd = LINUX_SYSCALL(__NR_openat, LINUX_AT_FDCWD, path, linux_flags & ~(LINUX_O_PATH | LINUX_O_NOFOLLOW), 0);
+	if (nfd < 0)
+		return pfd;
+	LINUX_SYSCALL(__NR_close, pfd); // never seen by the caller
+	return nfd;
+}
 
 long sys_openat(int fd, const char* filename, int flags, unsigned int mode)
 {
@@ -102,6 +135,8 @@ long sys_openat_common(int fd, const char* filename, int flags, unsigned int mod
 	ret = LINUX_SYSCALL_C(cancelable, __NR_openat, vc.dfd, vc.path, linux_flags, mode);
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
+	else if (linux_flags & LINUX_O_PATH)
+		ret = reopen_non_symlink(ret, linux_flags);
 
 	return nofile_limit_check_new(ret);
 }
