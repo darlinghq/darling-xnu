@@ -26,12 +26,29 @@
 	0x00008000 | 0x00010000 | 0x00020000 | 0x00040000 | \
 	0x00200000 | 0x02000000 | 0x08000000)
 #define COMMON_LEGACY_SUPPORTED (ATTR_CMN_FNDRINFO | ATTR_CMN_OBJTAG | ATTR_CMN_NAME | ATTR_CMN_OBJTYPE)
+// bsd/sys/attr.h. ATTR_VOL_VALIDMASK is 0xF0FFFFFF; the bits between 0x00800000 and 0x10000000 are not attributes.
+#define ATTR_VOL_FSTYPE 0x00000001
+#define ATTR_VOL_MOUNTPOINT 0x00001000
 #define ATTR_VOL_NAME 0x00002000
+#define ATTR_VOL_MOUNTFLAGS 0x00004000
+#define ATTR_VOL_MOUNTEDDEVICE 0x00008000
 #define ATTR_VOL_CAPABILITIES 0x00020000
 #define ATTR_VOL_UUID 0x00040000
+#define ATTR_VOL_MOUNTEXTFLAGS 0x00080000
+#define ATTR_VOL_FSTYPENAME 0x00100000
+#define ATTR_VOL_FSSUBTYPE 0x00200000
+#define ATTR_VOL_OWNER 0x00400000
 #define ATTR_VOL_ATTRIBUTES 0x40000000
 #define ATTR_VOL_INFO 0x80000000
-#define VOLUME_SUPPORTED (ATTR_VOL_NAME | ATTR_VOL_CAPABILITIES | ATTR_VOL_UUID | ATTR_VOL_ATTRIBUTES | ATTR_VOL_INFO)
+#define ATTR_VOL_VALIDMASK 0xF0FFFFFFU
+// What statfs reports for the volume that holds the object, and what these attributes are to the same volume:
+// ATTR_VOL_FSTYPE is f_type, MOUNTPOINT f_mntonname, MOUNTFLAGS f_flags, MOUNTEDDEVICE f_mntfromname, MOUNTEXTFLAGS the
+// extended flags (none are kept: 0), FSTYPENAME f_fstypename, FSSUBTYPE f_fssubtype and OWNER f_owner.
+#define VOLUME_STATFS_ATTRS (ATTR_VOL_FSTYPE | ATTR_VOL_MOUNTPOINT | ATTR_VOL_MOUNTFLAGS | ATTR_VOL_MOUNTEDDEVICE | \
+	ATTR_VOL_MOUNTEXTFLAGS | ATTR_VOL_FSTYPENAME | ATTR_VOL_FSSUBTYPE | ATTR_VOL_OWNER)
+#define VOLUME_SUPPORTED (VOLUME_STATFS_ATTRS | ATTR_VOL_NAME | ATTR_VOL_CAPABILITIES | ATTR_VOL_UUID | ATTR_VOL_ATTRIBUTES | ATTR_VOL_INFO)
+// the volume attributes that are strings (an attrreference_t in the fixed part, the text in the variable part)
+#define VOLUME_STRING_ATTRS (ATTR_VOL_MOUNTPOINT | ATTR_VOL_NAME | ATTR_VOL_MOUNTEDDEVICE | ATTR_VOL_FSTYPENAME)
 #define DIR_SUPPORTED (ATTR_DIR_ENTRYCOUNT)
 #define DIR_SUPPORTED_ALL (DIR_SUPPORTED | 0x00000001 | 0x00000004)
 #define FILE_SUPPORTED (ATTR_FILE_RSRCLENGTH)
@@ -164,7 +181,8 @@ static const struct attr_width volume_attr_widths[] = {
 	{ 0x00000200, 4 }, { 0x00000400, 4 }, { 0x00000800, 4 },
 	{ 0x00001000, 8 }, { 0x00002000, 8 }, { 0x00004000, 4 },
 	{ 0x00008000, 8 }, { 0x00010000, 8 }, { ATTR_VOL_CAPABILITIES, 32 },
-	{ ATTR_VOL_UUID, 16 }, { 0x10000000, 8 }, { 0x20000000, 8 },
+	{ ATTR_VOL_UUID, 16 }, { ATTR_VOL_MOUNTEXTFLAGS, 4 }, { ATTR_VOL_FSTYPENAME, 8 }, { ATTR_VOL_FSSUBTYPE, 4 },
+	{ ATTR_VOL_OWNER, 4 }, { 0x00800000, 8 }, { 0x10000000, 8 }, { 0x20000000, 8 },
 	{ ATTR_VOL_ATTRIBUTES, 40 }, { ATTR_VOL_INFO, 0 }, { 0, 0 },
 };
 
@@ -240,6 +258,94 @@ static void pack_time(char* destination, int64_t seconds, uint64_t nanoseconds)
 	memcpy(destination + sizeof(seconds), &nanoseconds, sizeof(nanoseconds));
 }
 
+// What the volume attributes of an object are made of.
+struct volume_attrs {
+	const char* name;               // ATTR_VOL_NAME, with the length including the NUL
+	__SIZE_TYPE__ nameLength;
+	const struct bsd_statfs64* fs;  // the attributes taken from statfs (see VOLUME_STATFS_ATTRS)
+	uint64_t device;                // for ATTR_VOL_UUID
+};
+
+static __SIZE_TYPE__ volume_string_size(__SIZE_TYPE__ length)
+{
+	return (length + 3) & ~((__SIZE_TYPE__)3);
+}
+
+// The room the text of the string attributes among `packed` takes in the variable part.
+static __SIZE_TYPE__ volume_strings_size(uint32_t packed, const struct volume_attrs* volume)
+{
+	__SIZE_TYPE__ size = 0;
+	if (packed & ATTR_VOL_NAME)
+		size += volume_string_size(volume->nameLength);
+	if (packed & ATTR_VOL_MOUNTPOINT)
+		size += volume_string_size(strlen(volume->fs->f_mntonname) + 1);
+	if (packed & ATTR_VOL_MOUNTEDDEVICE)
+		size += volume_string_size(strlen(volume->fs->f_mntfromname) + 1);
+	if (packed & ATTR_VOL_FSTYPENAME)
+		size += volume_string_size(strlen(volume->fs->f_fstypename) + 1);
+	return size;
+}
+
+static void volume_pack_string(char* next, char** variable, const char* text)
+{
+	__SIZE_TYPE__ length = strlen(text) + 1;
+	((int32_t*)next)[0] = *variable - next;
+	((uint32_t*)next)[1] = length;
+	memcpy(*variable, text, length);
+	*variable += volume_string_size(length);
+}
+
+// Packs the volume attributes in `packed` in the order of their bits, from `next`, with the text of the strings from
+// `variable`. The buffer is zeroed: an attribute that has no value (PACK_INVAL slots, references too) stays zero.
+// Returns the end of the fixed part.
+static char* volume_pack(uint32_t packed, const struct volume_attrs* volume, char* next, char** variable)
+{
+	for (const struct attr_width* width = volume_attr_widths; width->bit; ++width) {
+		if (!(packed & width->bit))
+			continue;
+		switch (width->bit) {
+			case ATTR_VOL_FSTYPE:
+				*((uint32_t*)next) = (uint32_t)volume->fs->f_type;
+				break;
+			case ATTR_VOL_MOUNTPOINT:
+				volume_pack_string(next, variable, volume->fs->f_mntonname);
+				break;
+			case ATTR_VOL_NAME:
+				volume_pack_string(next, variable, volume->name);
+				break;
+			case ATTR_VOL_MOUNTFLAGS:
+				*((uint32_t*)next) = volume->fs->f_flags;
+				break;
+			case ATTR_VOL_MOUNTEDDEVICE:
+				volume_pack_string(next, variable, volume->fs->f_mntfromname);
+				break;
+			case ATTR_VOL_CAPABILITIES:
+				volume_capabilities((uint32_t*)next);
+				break;
+			case ATTR_VOL_UUID:
+				attribute_volume_uuid(volume->device, (unsigned char*)next);
+				break;
+			case ATTR_VOL_MOUNTEXTFLAGS:
+				// no extended mount flags are kept (struct statfs has none either)
+				break;
+			case ATTR_VOL_FSTYPENAME:
+				volume_pack_string(next, variable, volume->fs->f_fstypename);
+				break;
+			case ATTR_VOL_FSSUBTYPE:
+				*((uint32_t*)next) = volume->fs->f_fssubtype;
+				break;
+			case ATTR_VOL_OWNER:
+				*((uint32_t*)next) = volume->fs->f_owner;
+				break;
+			case ATTR_VOL_ATTRIBUTES:
+				attribute_pack_support((uint32_t*)next);
+				break;
+		}
+		next += width->width;
+	}
+	return next;
+}
+
 static int count_directory_entries(int fd, const char* path, uint32_t* count) {
 	int rv = 0;
 	char buf[1024];
@@ -295,7 +401,7 @@ static int attribute_validate_request(struct xnu_attrlist* alist, unsigned long 
 {
 	if (alist->bitmapcount != ATTR_BIT_MAP_COUNT)
 		return -EINVAL;
-	if (alist->volattr & ~0xf007ffffU)
+	if (alist->volattr & ~ATTR_VOL_VALIDMASK)
 		return -EINVAL;
 	if (alist->volattr) {
 		// Darwin's volume-common table is narrower than the object table.
@@ -387,7 +493,8 @@ int bulk)
 	uint32_t userAccess = 0;
 	uint32_t bsdFlags = 0;
 	char volumeName[1024];
-	__SIZE_TYPE__ volumeNameLength = 0;
+	struct bsd_statfs64 volumeFs;
+	struct volume_attrs volume = { .name = volumeName, .fs = &volumeFs };
 
 	if (!alist)
 		return -EFAULT;
@@ -544,8 +651,9 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 			fullPathLength = strlen(fullPath) + 1;
 	}
 
-	// ATTR_VOL_NAME: the caller passes the volume root, but any object names its volume.
-	if (alist->volattr & ATTR_VOL_NAME) {
+	// The volume attributes describe the volume that holds the object (the caller passes the volume root, but any
+	// object names its volume). Its mount is found by the host path of the object, as statfs does.
+	if (alist->volattr & (ATTR_VOL_NAME | VOLUME_STATFS_ATTRS)) {
 		char hostPath[4096];
 #if HAS_PATH
 		int pathfd = LINUX_SYSCALL(__NR_openat, vc.dfd, vc.path,
@@ -558,11 +666,14 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 		if (pathfd >= 0)
 			close_internal(pathfd);
 #endif
-		if (rv >= 0)
+		if (rv >= 0 && (alist->volattr & ATTR_VOL_NAME))
 			rv = guest_mount_volume_name(hostPath, volumeName, sizeof(volumeName));
+		if (rv >= 0 && (alist->volattr & ATTR_VOL_NAME))
+			volume.nameLength = strlen(volumeName) + 1;
+		if (rv >= 0 && (alist->volattr & VOLUME_STATFS_ATTRS))
+			rv = guest_mount_statfs(hostPath, &volumeFs);
 		if (rv < 0)
 			return rv;
-		volumeNameLength = strlen(volumeName) + 1;
 	}
 
 	packedCommon = packInvalidAttributes ? alist->commonattr :
@@ -577,6 +688,7 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 		packedDir = 0;
 	packedExtended = packInvalidAttributes ? alist->forkattr : (alist->forkattr & EXTENDED_SUPPORTED);
 	packedVolume = packInvalidAttributes ? alist->volattr : (alist->volattr & VOLUME_SUPPORTED);
+	volume.device = fileStat.st_dev;
 
 	if (packInvalidAttributes || returnSupportedAttributes) {
 		// The fixed-size part has room for every requested attribute of the
@@ -596,8 +708,7 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 		if (packedCommon & 0x08000000) {
 			variableSize += (fullPathLength + 3) & ~((__SIZE_TYPE__)3);
 		}
-		if (packedVolume & ATTR_VOL_NAME)
-			variableSize += (volumeNameLength + 3) & ~((__SIZE_TYPE__)3);
+		variableSize += volume_strings_size(packedVolume, &volume);
 		spaceNeeded += variableSize;
 	}
 	spaceNeeded += packed_width(packedVolume, volume_attr_widths);
@@ -617,10 +728,10 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 			spaceNeeded += sizeof(uint32_t);
 		if (packedFile & ATTR_FILE_RSRCLENGTH)
 			spaceNeeded += sizeof(int64_t);
-		if (packedVolume & ATTR_VOL_NAME) {
-			__SIZE_TYPE__ nameSize = (volumeNameLength + 3) & ~((__SIZE_TYPE__)3);
-			variableSize += nameSize;
-			spaceNeeded += nameSize;
+		{
+			__SIZE_TYPE__ stringsSize = volume_strings_size(packedVolume, &volume);
+			variableSize += stringsSize;
+			spaceNeeded += stringsSize;
 		}
 	}
 
@@ -649,7 +760,8 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 		char* variable = ourBuffer + fixedSize;
 		uint32_t* returned = (uint32_t*)next;
 		returned[0] = (alist->commonattr & availableCommon) | ATTR_CMN_RETURNED_ATTRS;
-		returned[1] = alist->volattr & VOLUME_SUPPORTED;
+		// ATTR_VOL_INFO only says that volume attributes are asked for: macOS 26.7.3 does not return it
+		returned[1] = alist->volattr & VOLUME_SUPPORTED & ~ATTR_VOL_INFO;
 		returned[2] = packedDir & availableDir;
 		returned[3] = packedFile & FILE_SUPPORTED_ALL;
 		returned[4] = alist->forkattr & EXTENDED_SUPPORTED;
@@ -749,26 +861,7 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 			}
 			next += width->width;
 		}
-		for (const struct attr_width* width = volume_attr_widths; width->bit; ++width) {
-			if (!(packedVolume & width->bit))
-				continue;
-			// The buffer is zeroed: unknown capability bits and unsupported
-			// PACK_INVAL slots (including references) stay zero.
-			if (width->bit == ATTR_VOL_NAME) {
-				int32_t* reference = (int32_t*)next;
-				reference[0] = variable - next;
-				((uint32_t*)next)[1] = volumeNameLength;
-				memcpy(variable, volumeName, volumeNameLength);
-				variable += (volumeNameLength + 3) & ~((__SIZE_TYPE__)3);
-			} else if (width->bit == ATTR_VOL_CAPABILITIES) {
-				volume_capabilities((uint32_t*)next);
-			} else if (width->bit == ATTR_VOL_UUID) {
-				attribute_volume_uuid(fileStat.st_dev, (unsigned char*)next);
-			} else if (width->bit == ATTR_VOL_ATTRIBUTES) {
-				attribute_pack_support((uint32_t*)next);
-			}
-			next += width->width;
-		}
+		next = volume_pack(packedVolume, &volume, next, &variable);
 		for (const struct attr_width* width = dir_attr_widths; width->bit != 0; ++width) {
 			if (!(packedDir & width->bit))
 				continue;
@@ -826,7 +919,8 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 	if (returnSupportedAttributes) {
 		uint32_t* returned = (uint32_t*)next;
 		returned[0] = (alist->commonattr & COMMON_SUPPORTED) | ATTR_CMN_RETURNED_ATTRS;
-		returned[1] = alist->volattr & VOLUME_SUPPORTED;
+		// ATTR_VOL_INFO only says that volume attributes are asked for: macOS 26.7.3 does not return it
+		returned[1] = alist->volattr & VOLUME_SUPPORTED & ~ATTR_VOL_INFO;
 		returned[2] = alist->dirattr & DIR_SUPPORTED;
 		returned[3] = alist->fileattr & FILE_SUPPORTED;
 		returned[4] = alist->forkattr & FORK_SUPPORTED;
@@ -852,27 +946,12 @@ rv = LINUX_SYSCALL(__NR_fstatat64, vc.dfd, vc.path, &fileStat,
 			memset(next, 0, 32);
 		next += 32;
 	}
-	if (packedVolume & ATTR_VOL_NAME) {
-		// after the common name's data, if there is any
-		char* data = ourBuffer + fixedSize;
+	if (packedVolume) {
+		// the text of the strings follows the common name's, if there is any
+		char* variable = ourBuffer + fixedSize;
 		if (alist->commonattr & ATTR_CMN_NAME)
-			data += (itemNameLength + 3) & ~((__SIZE_TYPE__)3);
-		((int32_t*)next)[0] = data - next;
-		((uint32_t*)next)[1] = volumeNameLength;
-		memcpy(data, volumeName, volumeNameLength);
-		next += 8;
-	}
-	if (alist->volattr & ATTR_VOL_CAPABILITIES) {
-		volume_capabilities((uint32_t*)next);
-		next += sizeof(uint32_t) * 8;
-	}
-	if (alist->volattr & ATTR_VOL_UUID) {
-		attribute_volume_uuid(fileStat.st_dev, (unsigned char*)next);
-		next += 16;
-	}
-	if (alist->volattr & ATTR_VOL_ATTRIBUTES) {
-		attribute_pack_support((uint32_t*)next);
-		next += sizeof(uint32_t) * ATTR_BIT_MAP_COUNT * 2;
+			variable += (itemNameLength + 3) & ~((__SIZE_TYPE__)3);
+		next = volume_pack(packedVolume, &volume, next, &variable);
 	}
 	if (packedDir & ATTR_DIR_ENTRYCOUNT) {
 		memcpy(next, &directoryCount, sizeof(directoryCount));

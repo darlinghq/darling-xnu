@@ -22,6 +22,15 @@
 long guest_mount_describe(const char* host_path, struct bsd_statfs64* buf);
 
 /**
+ * The statfs of the mount that holds `host_path` (a host path): the Linux statfs converted, then described by
+ * guest_mount_describe(). Every statfs-like answer for a path (statfs, getattrlist's volume attributes) is made by this.
+ *
+ * @retval `0` on success
+ * @retval a negative BSD errno
+ */
+long guest_mount_statfs(const char* host_path, struct bsd_statfs64* buf);
+
+/**
  * Writes the name of the volume that holds `host_path` (a host path) to `name`, NUL-terminated, for
  * getattrlist(ATTR_VOL_NAME): the name a FUSE file system gives in the "darling.volume.name" xattr of its root (as
  * darling-dmg does for disk images); "Macintosh HD" for the root volume, the default name of a Mac's startup volume;

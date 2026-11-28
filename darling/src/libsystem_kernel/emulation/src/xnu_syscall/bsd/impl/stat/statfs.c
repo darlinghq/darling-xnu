@@ -38,7 +38,6 @@ long sys_statfs(const char* path, struct bsd_statfs* buf)
 long sys_statfs64(const char* path, struct bsd_statfs64* buf)
 {
 	int ret;
-	struct linux_statfs64 lbuf;
 
 	struct vchroot_expand_args vc;
 	vc.flags = VCHROOT_FOLLOW;
@@ -52,12 +51,5 @@ long sys_statfs64(const char* path, struct bsd_statfs64* buf)
 	if (ret < 0)
 		return errno_linux_to_bsd(ret);
 
-	ret = linux_statfs_path(vc.path, &lbuf);
-
-	if (ret < 0)
-		return errno_linux_to_bsd(ret);
-
-	statfs_linux_to_bsd64(&lbuf, buf);
-
-	return guest_mount_describe(vc.path, buf);
+	return guest_mount_statfs(vc.path, buf);
 }

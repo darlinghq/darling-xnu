@@ -1,7 +1,12 @@
 
+#ifdef TEST
+#	define _GNU_SOURCE
+#endif
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
 #include "name_equivalence.h"
 #ifdef TEST
+#	include <strings.h>
+#	include <locale.h>
 #	include <unistd.h>
 #	include <sys/stat.h>
 #	include <sys/syscall.h>
@@ -14,6 +19,8 @@
 #	include <fcntl.h>
 
 #	define LINUX_SYSCALL(...) ({ int __rv = syscall(__VA_ARGS__); if (__rv == -1) __rv = -errno; __rv; })
+#	define LINUX_AT_FDCWD AT_FDCWD
+#	define LC_C_LOCALE vch_c_locale()
 #	define LINUX_ENOENT ENOENT
 #	define LINUX_ELOOP ELOOP
 #	define LINUX_ENAMETOOLONG ENAMETOOLONG
@@ -26,6 +33,13 @@
 #	define __simple_sprintf sprintf
 #	define linux_dirent64 dirent
 typedef struct stat stat_t;
+static locale_t vch_c_locale(void)
+{
+	static locale_t loc;
+	if (!loc)
+		loc = newlocale(LC_ALL_MASK, "C", (locale_t)0);
+	return loc;
+}
 #else
 #	include <stdbool.h>
 #   include <stddef.h>
@@ -361,7 +375,9 @@ out:
 }
 #endif
 
-static const int MAX_SYMLINK_DEPTH = 10;
+// Symbolic links followed in one lookup. macOS fails the 32nd (MAXSYMLINKS in <sys/param.h> is 32; a chain of 31 links
+// resolves and one of 32 gives ELOOP, observed on macOS 26.7.3).
+static const int MAX_SYMLINK_DEPTH = 31;
 
 struct context
 {
@@ -377,6 +393,8 @@ struct context
 };
 
 static int vchroot_run(const char* path, struct context* ctxt);
+
+static void vch_prefix_fd_reset(void);
 
 #ifndef TEST
 VISIBLE
@@ -402,6 +420,7 @@ int __darling_vchroot(int dfd)
 	#endif
 	prefix_path[rv] = '\0';
 	prefix_path_len = rv;
+	vch_prefix_fd_reset();
 
 	return 0;
 }
@@ -424,6 +443,7 @@ int __darling_vchroot_expand(const char* path, char* out)
 }
 #endif
 
+#ifndef TEST
 static void init_vchroot_path(void)
 {
 	uint64_t tmp_len;
@@ -435,8 +455,224 @@ static void init_vchroot_path(void)
 
 	prefix_path_len = (int)tmp_len;
 }
+#endif
 
-int vchroot_expand(struct vchroot_expand_args* args)
+// Fast path. The walk below lstat()s every component of every path, which is a long series of lookups in the prefix's
+// overlay for a deep path. openat2() resolves the whole path in the kernel with the same meaning: RESOLVE_IN_ROOT on a
+// descriptor of the prefix makes absolute symlinks resolve inside the prefix, as the walk does. Paths into the real
+// root (/Volumes/SystemRoot/...) are resolved with RESOLVE_NO_SYMLINKS (the walk resolves an absolute symlink there
+// inside the prefix, the kernel would not). The fast path only answers paths that exist, and leaves everything else to
+// the walk: "..", /proc, a nested /Volumes/SystemRoot, a result inside the prefix's /proc or /Volumes/SystemRoot
+// mounts, and every error, including a missing component (the walk's case-insensitive lookup) and a dangling link.
+// It differs from the walk in one way: the kernel follows up to 40 symbolic links in a row where the walk gives up
+// after 31 (as macOS does). Nothing is cached, so nothing goes stale.
+#ifdef TEST
+#define VCH_O_PATH O_PATH
+#define VCH_O_DIRECTORY O_DIRECTORY
+#define VCH_O_NOFOLLOW O_NOFOLLOW
+#define VCH_O_CLOEXEC O_CLOEXEC
+#else
+#define VCH_O_PATH 010000000 // the same on every architecture Darling runs on
+#define VCH_O_DIRECTORY LINUX_O_DIRECTORY
+#define VCH_O_NOFOLLOW LINUX_O_NOFOLLOW
+#define VCH_O_CLOEXEC LINUX_O_CLOEXEC
+#endif
+// struct linux_stat has the stat64 layout on i386, which only __NR_fstat64 fills
+#if defined(__NR_fstat64)
+#define VCH_NR_FSTAT __NR_fstat64
+#else
+#define VCH_NR_FSTAT __NR_fstat
+#endif
+#define VCH_RESOLVE_NO_MAGICLINKS 0x02
+#define VCH_RESOLVE_NO_SYMLINKS 0x04
+#define VCH_RESOLVE_IN_ROOT 0x10
+#define VCH_FALLBACK (-100000)
+#define VCH_F_DUPFD_CLOEXEC 1030
+#define VCH_HIGH_FD 1000
+struct vch_open_how { unsigned long long flags, mode, resolve; };
+static int vch_fast_off;
+static int vch_prefix_fd = -1;
+static unsigned long long vch_prefix_dev, vch_prefix_ino;
+
+static int vch_prefix_fd_get(void)
+{
+	stat_t st;
+	// the process may have closed our descriptor (closefrom) and reused its number: check it still is the prefix
+	if (vch_prefix_fd >= 0 && LINUX_SYSCALL(VCH_NR_FSTAT, vch_prefix_fd, &st) == 0 &&
+		st.st_dev == vch_prefix_dev && st.st_ino == vch_prefix_ino)
+		return vch_prefix_fd;
+	int fd = LINUX_SYSCALL(__NR_openat, LINUX_AT_FDCWD, prefix_path, VCH_O_PATH | VCH_O_DIRECTORY | VCH_O_CLOEXEC);
+	if (fd < 0)
+		return -1;
+	if (LINUX_SYSCALL(VCH_NR_FSTAT, fd, &st) != 0)
+	{
+		LINUX_SYSCALL(__NR_close, fd);
+		return -1;
+	}
+	// The descriptor stays open for the life of the process. Keep it out of the low numbers, where the guest expects
+	// open() to hand out the lowest free one. A process whose descriptor limit does not reach this high gets no fast
+	// path.
+	int high = LINUX_SYSCALL(__NR_fcntl, fd, VCH_F_DUPFD_CLOEXEC, VCH_HIGH_FD);
+	LINUX_SYSCALL(__NR_close, fd);
+	if (high < 0)
+	{
+		vch_fast_off = 1;
+		return -1;
+	}
+	vch_prefix_dev = st.st_dev;
+	vch_prefix_ino = st.st_ino;
+	vch_prefix_fd = high;
+	return high;
+}
+
+// the prefix changed (or is being set): the descriptor of the old one is of no use
+static void vch_prefix_fd_reset(void)
+{
+	if (vch_prefix_fd >= 0)
+		LINUX_SYSCALL(__NR_close, vch_prefix_fd);
+	vch_prefix_fd = -1;
+}
+
+// is `p` (at a component start, after a '/') "Volumes/SystemRoot" followed by '/' or the end
+static bool vch_is_exit_component(const char* p)
+{
+	return strncasecmp_l(p, EXIT_PATH + 1, sizeof(EXIT_PATH) - 2, LC_C_LOCALE) == 0 &&
+		(p[sizeof(EXIT_PATH) - 2] == '/' || p[sizeof(EXIT_PATH) - 2] == '\0');
+}
+
+// paths the fast path leaves to the walk: "..", a /Volumes/SystemRoot anywhere, a leading /proc (in the prefix)
+static bool vch_plain(const char* path, bool in_prefix)
+{
+	if (in_prefix && strncmp(path, "/proc", 5) == 0 && (path[5] == '/' || path[5] == '\0'))
+		return false;
+	for (const char* p = path; *p; p++)
+	{
+		if (*p != '/')
+			continue;
+		if (p[1] == '.' && p[2] == '.' && (p[3] == '/' || p[3] == '\0'))
+			return false;
+		if (vch_is_exit_component(p + 1))
+			return false;
+	}
+	return true;
+}
+
+// resolve `path` (absolute, in the prefix or in the real root): the Linux path in `out` and its length,
+// -LINUX_ENOENT, or VCH_FALLBACK (or another negative error) for "use the walk"
+static int vch_resolve(const char* path, bool in_prefix, bool follow, char* out, int outsize)
+{
+	struct vch_open_how how = {
+		.flags = VCH_O_PATH | VCH_O_CLOEXEC | (follow ? 0 : VCH_O_NOFOLLOW),
+		.mode = 0,
+		.resolve = VCH_RESOLVE_NO_MAGICLINKS | (in_prefix ? VCH_RESOLVE_IN_ROOT : VCH_RESOLVE_NO_SYMLINKS),
+	};
+	int dfd = LINUX_AT_FDCWD;
+	if (in_prefix)
+	{
+		dfd = vch_prefix_fd_get();
+		if (dfd < 0)
+			return VCH_FALLBACK;
+	}
+	int fd = LINUX_SYSCALL(__NR_openat2, dfd, path, &how, sizeof(how));
+	if (fd < 0)
+	{
+		if (fd == -38 /* ENOSYS */ || fd == -22 /* EINVAL: unknown openat2 flags */)
+			vch_fast_off = 1;
+		return fd;
+	}
+	char buf[50];
+	__simple_sprintf(buf, "/proc/self/fd/%d", fd);
+	int rv = LINUX_SYSCALL(__NR_readlink, buf, out, outsize - 1);
+	LINUX_SYSCALL(__NR_close, fd);
+	if (rv <= 0 || rv >= outsize - 1)
+		return VCH_FALLBACK;
+	out[rv] = '\0';
+	if (in_prefix)
+	{
+		// must be the prefix or below it, and not inside its /proc or /Volumes/SystemRoot mounts
+		if (rv < prefix_path_len || strncmp(out, prefix_path, prefix_path_len) != 0 ||
+			(out[prefix_path_len] != '/' && out[prefix_path_len] != '\0'))
+			return VCH_FALLBACK;
+		const char* rest = out + prefix_path_len;
+		if ((strncmp(rest, "/proc", 5) == 0 && (rest[5] == '/' || rest[5] == '\0')) ||
+			(rest[0] == '/' && vch_is_exit_component(rest + 1)))
+			return VCH_FALLBACK;
+	}
+	return rv;
+}
+
+// true if it produced the result (ctxt->current_path, *out_rv); false: run the walk as before
+static bool vchroot_fast(struct context* ctxt, const char* input_path, int* out_rv)
+{
+	char path[4096];
+	bool in_prefix;
+	int n;
+
+	if (vch_fast_off)
+		return false;
+
+	if (*input_path == '/')
+	{
+		if (ctxt->current_root_len == 0)
+			return false;
+		if (vch_is_exit_component(input_path + 1))
+		{
+			const char* rest = input_path + sizeof(EXIT_PATH) - 1;
+			if (*rest != '/')
+				return false;
+			in_prefix = false;
+			n = strlen(rest);
+			if (n + 1 > (int)sizeof(path))
+				return false;
+			memcpy(path, rest, n + 1);
+		}
+		else
+		{
+			in_prefix = true;
+			n = strlen(input_path);
+			if (n + 1 > (int)sizeof(path))
+				return false;
+			memcpy(path, input_path, n + 1);
+		}
+	}
+	else
+	{
+		// relative to a directory (ctxt->current_path, a Linux path): in the prefix or in the real root
+		in_prefix = ctxt->current_root_len > 0;
+		const char* dir = ctxt->current_path + ctxt->current_root_len;
+		int dl = ctxt->current_path_len - ctxt->current_root_len;
+		int il = strlen(input_path);
+		if (dl + il + 2 > (int)sizeof(path))
+			return false;
+		memcpy(path, dir, dl);
+		path[dl] = '/';
+		memcpy(path + dl + 1, input_path, il + 1);
+		n = dl + 1 + il;
+	}
+
+	if (!vch_plain(path, in_prefix))
+		return false;
+
+	int rv = vch_resolve(path, in_prefix, ctxt->follow, ctxt->current_path, sizeof(ctxt->current_path));
+	if (rv >= 0)
+	{
+		if (rv == 1 && ctxt->current_path[0] == '/')
+		{
+			rv = 0;
+			ctxt->current_path[0] = '\0';
+		}
+		ctxt->current_path_len = rv;
+		*out_rv = 0;
+		return true;
+	}
+	// anything but a plain success (a missing component, a dangling link, ENOTDIR, ELOOP, a case-insensitive match,
+	// permission errors) is the walk's to work out
+	return false;
+}
+
+
+// allow_fast false runs the component walk only; *used_fast (optional) tells whether the fast path produced the result
+static int vchroot_expand_ex(struct vchroot_expand_args* args, bool allow_fast, bool* used_fast)
 {
 	struct context ctxt;
 
@@ -507,13 +743,23 @@ int vchroot_expand(struct vchroot_expand_args* args)
 		}
 	}
 
-	int rv = vchroot_run(input_path, &ctxt);
+	int rv;
+	bool fast = allow_fast && vchroot_fast(&ctxt, input_path, &rv);
+	if (used_fast)
+		*used_fast = fast;
+	if (!fast)
+		rv = vchroot_run(input_path, &ctxt);
 	if (ctxt.current_path_len > 0)
 		strcpy(args->path, ctxt.current_path);
 	else
 		strcpy(args->path, "/");
 
 	return rv;
+}
+
+int vchroot_expand(struct vchroot_expand_args* args)
+{
+	return vchroot_expand_ex(args, true, NULL);
 }
 
 static int vchroot_run(const char* input_path, struct context* ctxt)

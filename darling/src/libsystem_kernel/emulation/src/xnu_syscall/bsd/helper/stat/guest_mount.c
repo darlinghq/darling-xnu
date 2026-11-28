@@ -192,6 +192,12 @@ static unsigned int guest_mount_owner(const char* fstype, const char* options)
 // 26.7.3 and 10.14.4, x86_64 (tier 2), on APFS, HFS+ and devfs volumes. Linux's f_fsid can't stand in for it: an
 // overlay reports the one of the file system under it, so the guest's root and the host's root looked like one volume.
 // Test: darling/tests/statfs-fsid.c (run by the darling repo's tests/volume-attributes.sh)
+// An APFS volume reports file system subtype 1 (observed on macOS 10.14.4 and 26.7.3); a volume of any other kind has none.
+static void guest_mount_set_subtype(struct bsd_statfs64* buf)
+{
+	buf->f_fssubtype = strcmp(buf->f_fstypename, "apfs") == 0 ? 1 : 0;
+}
+
 static void guest_mount_set_fsid(const char* host_path, struct bsd_statfs64* buf)
 {
 	struct linux_stat lstat;
@@ -234,6 +240,7 @@ long guest_mount_describe(const char* host_path, struct bsd_statfs64* buf)
 		strlcpy(fstype, buf->f_fstypename, sizeof(fstype));
 		buf->f_flags |= guest_mount_flags(&root, mnton, buf->f_mntonname, fstype,
 			guest_mount_kind(mnton, buf->f_fstypename, sizeof(buf->f_fstypename)));
+		guest_mount_set_subtype(buf);
 		guest_mount_set_fsid(mnton, buf);
 	}
 	else
@@ -242,6 +249,17 @@ long guest_mount_describe(const char* host_path, struct bsd_statfs64* buf)
 		guest_mount_set_fsid(host_path, buf);
 	}
 	return 0;
+}
+
+long guest_mount_statfs(const char* host_path, struct bsd_statfs64* buf)
+{
+	struct linux_statfs64 lbuf;
+	long ret = linux_statfs_path(host_path, &lbuf);
+
+	if (ret < 0)
+		return errno_linux_to_bsd(ret);
+	statfs_linux_to_bsd64(&lbuf, buf);
+	return guest_mount_describe(host_path, buf);
 }
 
 struct list_state
@@ -289,6 +307,7 @@ static long list_visit(void* context, const char* mnton, const char* fstype, con
 			guest_mount_kind(mnton, entry->f_fstypename, sizeof(entry->f_fstypename)));
 		strlcpy(entry->f_mntfromname, mntfrom, sizeof(entry->f_mntfromname));
 		entry->f_owner = guest_mount_owner(fstype, options);
+		guest_mount_set_subtype(entry);
 		guest_mount_set_fsid(mnton, entry);
 		if (state->legacy)
 			statfs_bsd64_to_bsd(&wide, &((struct bsd_statfs*) state->buf)[state->count]);
