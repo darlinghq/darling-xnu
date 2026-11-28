@@ -31,6 +31,8 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/unistd/getpid.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/stat/stat.h>
 #include <darling/emulation/common/simple.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/signal/kill.h>
+#include <sys/signal.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/readline.h>
 #include <darling/emulation/linux_premigration/elfcalls_wrapper.h>
 #include <darling/emulation/linux_premigration/vchroot_expand.h>
@@ -110,6 +112,20 @@ long sys_proc_info(uint32_t callnum, int32_t pid, uint32_t flavor,
 		case 1: // proc_listpids
 			// `pid` carries the type, `flavor` the typeinfo (pgid, ppid, uid...)
 			return _proc_listpids(pid, flavor, buffer, bufsize);
+		case 7: // PROC_INFO_CALL_TERMINATE: proc_terminate
+		{
+			// proc_terminate(): libproc reports the signal that was sent. XNU sends SIGKILL to a clean
+			// dirty-tracked process and SIGTERM otherwise; Darling has no dirty tracking, so every target is
+			// treated as dirty-tracking-less and gets SIGTERM. macOS refuses the caller's own pid with EPERM and
+			// reports an unknown pid as ESRCH.
+			if (pid <= 0 || pid == (int)sys_getpid())
+				return -EPERM;
+			int sig = SIGTERM;
+			long r = sys_kill(pid, sig, 1);
+			if (r < 0)
+				return r;
+			return sig;
+		}
 		case 3: // proc_pidfdinfo
 			return _proc_pidfdinfo(pid, flavor, (int) arg, buffer, bufsize);
 		default:
