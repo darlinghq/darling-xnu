@@ -25,9 +25,12 @@ __darling_machdep_syscall:
 
 #elif defined(__i386__)
 
+// The arguments are copied after the stack space for them is reserved: the area below the stack
+// pointer is not ours, a signal frame can be built there at any instruction (a handler that
+// interrupted the copy would overwrite the arguments already stored).
 #define copy_arg(off) \
-	movl	8+off(%esp), %ecx ;\
-	movl	%ecx, -24+off(%esp)
+	movl	8+24+off(%esp), %ecx ;\
+	movl	%ecx, off(%esp)
 
 __darling_machdep_syscall:
 	calll	1f
@@ -40,6 +43,7 @@ __darling_machdep_syscall:
 	test	%ecx, %ecx
 	jz		.no_sys // with the trap number still in %eax
 	movl	%ecx, %eax
+	subl	$24, %esp
 	// Copy arguments
 	copy_arg(0)
 	copy_arg(4)
@@ -47,7 +51,6 @@ __darling_machdep_syscall:
 	copy_arg(12)
 	copy_arg(16)
 	copy_arg(20)
-	subl	$24, %esp
 	call	*%eax
 	addl	$24, %esp
 	ret

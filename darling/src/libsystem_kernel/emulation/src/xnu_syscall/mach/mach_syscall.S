@@ -41,9 +41,12 @@ __darling_mach_syscall_exit:
 
 #elif defined(__i386__)
 
+// The arguments are copied after the stack space for them is reserved: the area below the stack
+// pointer is not ours, a signal frame can be built there at any instruction (a handler that
+// interrupted the copy would overwrite the arguments already stored).
 #define copy_arg(off) \
-	movl	8+off(%esp), %ecx ;\
-	movl	%ecx, -56+off(%esp)
+	movl	8+56+off(%esp), %ecx ;\
+	movl	%ecx, off(%esp)
 
 __darling_mach_syscall:
 	cmpl	$0, %eax
@@ -61,6 +64,7 @@ Lentry_hook:
 	movl	(%ecx,%eax,4), %eax
 	test	%eax, %eax
 	jz		.no_sys
+	subl	$56, %esp
 	// Copy arguments
 	copy_arg(0)
 	copy_arg(4)
@@ -77,7 +81,6 @@ Lentry_hook:
 	copy_arg(48)
 	copy_arg(52)
 
-	subl	$56, %esp
 	call	*%eax
 	addl	$56, %esp
 .std_ret:
