@@ -16,6 +16,7 @@
 #include <darling/emulation/common/guarded/table.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/misc/nofile_limit.h>
 #include <darling/emulation/xnu_syscall/bsd/helper/bpf/bpf_device.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/aio/aio.h>
 #include <darling/emulation/common/tsd.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/bsdthread_register.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/bsdthread/workq_kernreturn.h>
@@ -73,6 +74,9 @@ long sys_fork(void)
 		extern void vchroot_icase_postfork_child(void);
 		vchroot_icase_postfork_child();
 #endif
+
+		/* The child inherits no asynchronous I/O requests. */
+		aio_postfork_child();
 
 		// create a new dserver RPC socket
 		__dserver_per_thread_socket_refresh();
