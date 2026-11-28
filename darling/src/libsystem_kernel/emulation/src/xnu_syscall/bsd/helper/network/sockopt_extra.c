@@ -47,16 +47,19 @@ static int l_domain(int fd)
 	return l_getsockopt(fd, L_SOL_SOCKET, L_SO_DOMAIN, &domain, &len) < 0 ? -1 : domain;
 }
 
-// XNU's traffic class options: SO_TRAFFIC_CLASS takes SO_TC_BE (0) .. SO_TC_CTL (900), or
-// SO_TC_NET_SERVICE_OFFSET plus a network service type; SO_NET_SERVICE_TYPE takes the service type itself.
-// SO_RECV_TRAFFIC_CLASS is a flag. Linux has no option with the same scale, so the values are read back locally.
+// Traffic class options (<sys/socket.h>): SO_TRAFFIC_CLASS takes one of the SO_TC_* classes 0, 100, ..., 900, or
+// SO_TC_NET_SERVICE_OFFSET (10000) plus a network service type 0..8 (which sets the class that service type maps
+// to); SO_NET_SERVICE_TYPE takes the service type itself, 0..8. Anything else is EINVAL. SO_RECV_TRAFFIC_CLASS is
+// a flag. Linux has no option with the same scale, so the values are kept per descriptor and read back from there.
+// The class for each service type was observed on macOS 26.7.3 (black-box, tier 2); the documented names are
+// NET_SERVICE_TYPE_BE 0, BK 1, SIG 2, VI 3, VO 4, RV 5, AV 6, OAM 7, RD 8.
 #define SO_TC_NET_SERVICE_OFFSET 10000
 #define NET_SERVICE_TYPE_RD 8
 static short tc_class[EXTRA_FDS];
 static signed char tc_svc[EXTRA_FDS];
 static unsigned char tc_recv[EXTRA_FDS / 8];
 static unsigned char tc_svc_set[EXTRA_FDS / 8];
-static const short tc_by_svc[NET_SERVICE_TYPE_RD + 1] = { 0, 200, 600, 700, 700, 800, 500, 400, 300 };
+static const short tc_by_svc[NET_SERVICE_TYPE_RD + 1] = { 0, 200, 700, 700, 800, 600, 500, 400, 300 };
 
 static int tc_sock(int fd)
 {
@@ -95,10 +98,10 @@ long sockopt_extra_set_tc(int fd, int optname, const void* optval, int optlen)
 		return 0;
 	}
 
-	// so_set_traffic_class(): SO_TC_BE (0) .. SO_TC_CTL (900); intermediate values round down to their class.
-	if (v < 0 || v > 900)
+	// SO_TC_BE (0) .. SO_TC_CTL (900) in steps of 100; observed on macOS 26.7.3: 250, -1 and 1000 are EINVAL
+	if (v < 0 || v > 900 || v % 100 != 0)
 		return -EINVAL;
-	tc_class[fd] = (short)(v / 100 * 100);
+	tc_class[fd] = (short) v;
 	tc_svc_set[fd / 8] &= (unsigned char)~(1 << (fd % 8));
 	return 0;
 }
@@ -129,8 +132,10 @@ long sockopt_extra_get_tc(int fd, int optname, void* optval, int* optlen)
 	int v = 0;
 	if (fd >= 0 && fd < EXTRA_FDS)
 	{
+		// QUIRK: SO_RECV_TRAFFIC_CLASS reads back as 0x4000 (not 1) when set. Undocumented; observed on macOS 26.7.3
+		// (tier 2). Test: tests/src/libsystem_kernel_socket_options.c (recv traffic class).
 		if (optname == BSD_SO_RECV_TRAFFIC_CLASS)
-			v = !!(tc_recv[fd / 8] & (1 << (fd % 8)));
+			v = (tc_recv[fd / 8] & (1 << (fd % 8))) ? 0x4000 : 0;
 		else if (optname == BSD_SO_NET_SERVICE_TYPE)
 			v = (tc_svc_set[fd / 8] & (1 << (fd % 8))) ? tc_svc[fd] : 0;
 		else
