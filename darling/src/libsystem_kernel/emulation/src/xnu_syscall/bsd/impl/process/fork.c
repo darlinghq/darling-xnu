@@ -38,6 +38,9 @@ long sys_fork(void)
 	int ret;
 	int wdfd = get_perthread_wd();
 	unsigned long long psynch_sigmask;
+	// The child may check in after this process has died, when the kernel already reports the container's
+	// reaper as its parent, so it names the process that forked it itself.
+	int forker_pid = (int)LINUX_SYSCALL0(__NR_getpid);
 
 	psynch_inproc_prefork(&psynch_sigmask);
 
@@ -95,7 +98,7 @@ long sys_fork(void)
 		}
 
 		int dummy_stack_variable;
-		if (dserver_rpc_checkin(true, &dummy_stack_variable, newReadFd) < 0) {
+		if (dserver_rpc_checkin(true, forker_pid, &dummy_stack_variable, newReadFd) < 0) {
 			// we can't do ANYTHING if darlingserver fails to acknowledge us
 			__simple_printf("Failed to checkin with darlingserver after fork\n");
 			__simple_abort();
