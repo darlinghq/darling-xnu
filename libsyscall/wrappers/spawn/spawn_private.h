@@ -56,8 +56,8 @@ int     posix_spawnattr_set_jetsam_ttr_np(const posix_spawnattr_t * __restrict a
 int     posix_spawnattr_set_threadlimit_ext(posix_spawnattr_t * __restrict attr,
     int thread_limit)  __API_AVAILABLE(macos(10.14), ios(12.0), tvos(12.0), watchos(5.0));
 
-// 128, as current macOS accepts 128 and refuses 129 with EINVAL. With 32, spawning a job that holds
-// more watch ports logged an assertion failure at every launch.
+// 128: posix_spawnattr_set_importancewatch_port_np accepts up to 128 ports and refuses 129 with EINVAL (observed on
+// macOS 26.7.3). Test: tests/src/libsystem_kernel_proc_misc.c.
 #define POSIX_SPAWN_IMPORTANCE_PORT_COUNT 128
 int     posix_spawnattr_set_importancewatch_port_np(posix_spawnattr_t * __restrict attr,
     int count, mach_port_t portarray[])  __API_AVAILABLE(macos(10.9), ios(6.0));

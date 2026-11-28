@@ -3,7 +3,7 @@
 //
 // Requests complete synchronously when they are submitted (a pread/pwrite/fsync in the calling thread): the result
 // then waits in the table below for aio_error/aio_return, as a request on a done queue does. Where behaviour is not
-// in the public documentation it follows black-box observation of macOS 26.7.3 and Mac OS X 10.14.4 (both agree):
+// in the public documentation it follows black-box observation of macOS 26.7.3 (kern.aioprocmax is 16 on Mac OS X 10.14.4 too):
 //   - a process has at most AIO_PROCESS_MAX (16, the value of kern.aioprocmax on both) requests submitted and not
 //     yet reaped by aio_return; more fail with EAGAIN. That also bounds the table: a caller that never calls
 //     aio_return gets EAGAIN, not a leak;
